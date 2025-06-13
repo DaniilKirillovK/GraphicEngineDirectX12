@@ -1,0 +1,19 @@
+#include <vector>
+#include <cassert>
+#include <cmath>
+#include <iostream>
+#include "Geometry.h"
+
+template <> template <> Vec3i::Vec3(const Vec3f& v)
+{
+	x = int(v.x + 0.5);
+	y = int(v.y + 0.5);
+	z = int(v.z + 0.5);
+}
+
+template <> template <> Vec3f::Vec3(const Vec3i& v)
+{
+	x = v.x;
+	y = v.y;
+	z = v.z;
+}
