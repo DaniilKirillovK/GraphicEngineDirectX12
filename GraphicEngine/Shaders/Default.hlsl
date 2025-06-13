@@ -63,6 +63,7 @@ cbuffer cbMaterial : register(b2)
     float3 gFresnelR0;
     float  gRoughness;
     float4x4 gMatTransform;
+    float tilesCount;
 };
 
 struct VertexIn
@@ -95,7 +96,7 @@ VertexOut VS(VertexIn vin)
     vout.PosH = mul(posW, gViewProj);
 	
 	// Output vertex attributes for interpolation across triangle.
-    float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
+    float4 texC = mul(float4(vin.TexC * tilesCount, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
 
     return vout;

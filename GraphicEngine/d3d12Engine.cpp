@@ -343,6 +343,10 @@ LRESULT D3D12Engine::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 	case WM_MOUSEMOVE:
 		OnMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
 		return 0;
+	case WM_KEYDOWN:
+	{
+
+	}
 	case WM_KEYUP:
 		if (wParam == VK_ESCAPE)
 		{
@@ -379,17 +383,22 @@ bool D3D12Engine::InitMainWindow()
 
 	// Compute window rectangle dimensions based on requested client area dimensions.
 	RECT R = { 0, 0, mClientWidth, mClientHeight };
-	AdjustWindowRect(&R, WS_OVERLAPPEDWINDOW, false);
+	AdjustWindowRect(&R, WS_OVERLAPPEDWINDOW | WM_GETMINMAXINFO, false);
 	int width = R.right - R.left;
 	int height = R.bottom - R.top;
 
 	mhMainWnd = CreateWindow(L"MainWnd", mMainWndCaption.c_str(),
-		WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, width, height, 0, 0, mhAppInst, 0);
+		WS_OVERLAPPEDWINDOW | WM_GETMINMAXINFO, CW_USEDEFAULT, CW_USEDEFAULT, width, height, 0, 0, mhAppInst, 0);
 	if (!mhMainWnd)
 	{
 		MessageBox(0, L"CreateWindow Failed.", 0, 0);
 		return false;
 	}
+
+	LONG_PTR style = GetWindowLongPtr(mhMainWnd, GWL_STYLE);
+	style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+	SetWindowLongPtr(mhMainWnd, GWL_STYLE, style);
+	SetWindowPos(mhMainWnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED);
 
 	ShowWindow(mhMainWnd, SW_SHOW);
 	UpdateWindow(mhMainWnd);

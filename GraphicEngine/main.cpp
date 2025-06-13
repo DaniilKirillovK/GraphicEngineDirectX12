@@ -104,6 +104,8 @@ private:
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
 
+    void ChangeTileObjectTiles();
+
     virtual void BuildDescriptorHeaps() override;
     virtual void BuildRootSignature() override;
     virtual void BuildShadersAndInputLayout() override;
@@ -152,8 +154,18 @@ private:
     POINT mLastMousePos;
 
     Camera mCamera;
+
+    float tilesCount = 1.0f;
 };
 
+// Imgui Variables
+bool opened = true;
+int tilesCountInt = 1;
+bool isAnimateMaterial = true;
+
+float posX = 0.f;
+float posY = 0.f;
+float posZ = 0.f;
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -263,13 +275,13 @@ void Engine::Update(const GameTimer& gt)
         CloseHandle(eventHandle);
     }
 
-    AnimateMaterials(gt);
+    if (isAnimateMaterial)
+        AnimateMaterials(gt);
+
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
 }
-
-bool opened = true;
 
 void Engine::Draw(const GameTimer& gt)
 {
@@ -323,8 +335,18 @@ void Engine::Draw(const GameTimer& gt)
         ImGui::SetNextWindowBgAlpha(0.5f);
         if (ImGui::Begin("TestWindow1", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
         {
+            ImGui::SliderInt("Tiles Count", &tilesCountInt, 1, 6);
+            ImGui::Checkbox("Animate Material", &isAnimateMaterial);
+
+            ImGui::InputFloat("PosX", &posX, 0.1f, 0.1f);
+            ImGui::InputFloat("PosY", &posY, 0.1f, 0.1f);
+            ImGui::InputFloat("PosZ", &posZ, 0.1f, 0.1f);
+            mAllRitems[0]->NumFramesDirty = 1;
+
 
         } ImGui::End();
+
+        ChangeTileObjectTiles();
 
         ImGui::Render();
         ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());
@@ -358,31 +380,38 @@ void Engine::Draw(const GameTimer& gt)
 
 void Engine::OnMouseDown(WPARAM btnState, int x, int y)
 {
-    mLastMousePos.x = x;
-    mLastMousePos.y = y;
+    if (x <= 1024)
+    {
+        mLastMousePos.x = x;
+        mLastMousePos.y = y;
+    }
 
     SetCapture(mhMainWnd);
 }
 
 void Engine::OnMouseUp(WPARAM btnState, int x, int y)
 {
-    ReleaseCapture();
+    if (x <= 1024)
+        ReleaseCapture();
 }
 
 void Engine::OnMouseMove(WPARAM btnState, int x, int y)
 {
-    if ((btnState & MK_LBUTTON) != 0)
+    if (x <= 1024)
     {
-        // Make each pixel correspond to a quarter of a degree.
-        float dx = DirectX::XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
-        float dy = DirectX::XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
+        if ((btnState & MK_LBUTTON) != 0)
+        {
+            // Make each pixel correspond to a quarter of a degree.
+            float dx = DirectX::XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
+            float dy = DirectX::XMConvertToRadians(0.25f * static_cast<float>(y - mLastMousePos.y));
 
-        mCamera.Pitch(dy);
-        mCamera.RotateY(dx);
+            mCamera.Pitch(dy);
+            mCamera.RotateY(dx);
+        }
+
+        mLastMousePos.x = x;
+        mLastMousePos.y = y;
     }
-
-    mLastMousePos.x = x;
-    mLastMousePos.y = y;
 }
 
 void Engine::OnKeyboardInput(const GameTimer& gt)
@@ -435,7 +464,7 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
         // This needs to be tracked per frame resource.
         if (e->NumFramesDirty > 0)
         {
-            DirectX::XMMATRIX world = XMLoadFloat4x4(&e->World);
+            DirectX::XMMATRIX world = XMLoadFloat4x4(&e->World) * DirectX::XMMatrixTranslation(posX, posY, posZ);
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
 
             ObjectConstants objConstants;
@@ -466,6 +495,7 @@ void Engine::UpdateMaterialCBs(const GameTimer& gt)
             matConstants.DiffuseAlbedo = mat->DiffuseAlbedo;
             matConstants.FresnelR0 = mat->FresnelR0;
             matConstants.Roughness = mat->Roughness;
+            matConstants.TilesCount = mat->TilesCount;
             XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
 
             currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
@@ -512,6 +542,22 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
+}
+
+void Engine::ChangeTileObjectTiles()
+{
+    if ((int)tilesCount != tilesCountInt)
+    {
+        tilesCount = tilesCountInt;
+        for (auto& e : mAllRitems)
+        {
+            if (e->Mat->Name == "tileCrate")
+            {
+                e->Mat->TilesCount = tilesCount;
+                e->Mat->NumFramesDirty = gNumFrameResources;
+            }
+        }
+    }
 }
 
 void Engine::LoadTextures()
