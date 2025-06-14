@@ -4,6 +4,7 @@
 #include <d3d12.h>
 #include <dxgi1_4.h>
 #include <tchar.h>
+#include <vector>
 
 #include "MathHelper.h"
 #include "D3D12Engine.h"
@@ -65,6 +66,12 @@ struct RenderItem
     UINT IndexCount = 0;
     UINT StartIndexLocation = 0;
     int BaseVertexLocation = 0;
+};
+
+enum class RenderLayer : int
+{
+    Opaque = 0,
+    Count
 };
 
 
@@ -134,10 +141,11 @@ private:
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
     std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3DBlob>> mShaders;
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>> mPSOs;
 
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> mOpaquePSO = nullptr;
+    std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
     // List of all the render items.
     std::vector<std::unique_ptr<RenderItem>> mAllRitems;
@@ -146,6 +154,7 @@ private:
     std::vector<RenderItem*> mOpaqueRitems;
 
     PassConstants mMainPassCB;
+    PassConstants mReflectedPassCB;
 
     float mTheta = 1.3f * DirectX::XM_PI;
     float mPhi = 0.4f * DirectX::XM_PI;
@@ -162,10 +171,17 @@ private:
 bool opened = true;
 int tilesCountInt = 1;
 bool isAnimateMaterial = true;
+bool isSolid = true;
 
-float posX = 0.f;
-float posY = 0.f;
-float posZ = 0.f;
+float Obj1posX = 0.f;
+float Obj1posY = 0.f;
+float Obj1posZ = 0.f;
+
+float Obj2posX = 0.f;
+float Obj2posY = 0.f;
+float Obj2posZ = 0.f;
+
+float tessFactor = 8.f;
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -294,7 +310,11 @@ void Engine::Draw(const GameTimer& gt)
 
     // A command list can be reset after it has been added to the command queue via ExecuteCommandList.
     // Reusing the command list reuses memory.
-    ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mOpaquePSO.Get()));
+    if (isSolid)
+    {
+        ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSOs["opaqueSolid"].Get()));
+    }
+    else ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSOs["opaqueWireframe"].Get()));
 
     mCommandList->RSSetViewports(1, &mScreenViewport);
     mCommandList->RSSetScissorRects(1, &mScissorRect);
@@ -321,7 +341,7 @@ void Engine::Draw(const GameTimer& gt)
     auto passCB = mCurrFrameResource->PassCB->Resource();
     mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
-    DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
+    DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 
     // Imgui
     {
@@ -329,22 +349,70 @@ void Engine::Draw(const GameTimer& gt)
         ImVec2 pos = ImVec2(WINDOW_WIDTH - size.x, 0);
         ImVec2 tableSize = ImVec2(WINDOW_WIDTH / 6, 0);
         ImVec2 buttonSize = ImVec2(100, 40);
-        //ImVec4 color = ImVec4(1.f, 1.f, 1.f, 1.f);
+
         ImGui::SetNextWindowPos(pos);
         ImGui::SetNextWindowSize(size);
         ImGui::SetNextWindowBgAlpha(0.5f);
-        if (ImGui::Begin("TestWindow1", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+        if (ImGui::Begin("Configuration", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
         {
-            ImGui::SliderInt("Tiles Count", &tilesCountInt, 1, 6);
+            ImGui::Checkbox("SolidMode", &isSolid);
+            ImGui::SliderFloat("Tesselation Factor", &tessFactor, 8.f, 64.f);
+            ImGui::Text("Object 1");
+            if (ImGui::BeginTable("Object1", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##PosXObj1", &Obj1posX, 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##PosYObj1", &Obj1posY, 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##PosZObj1", &Obj1posZ, 0.1f, 0.1f);
+                ImGui::EndTable();
+            }
             ImGui::Checkbox("Animate Material", &isAnimateMaterial);
 
-            ImGui::InputFloat("PosX", &posX, 0.1f, 0.1f);
-            ImGui::InputFloat("PosY", &posY, 0.1f, 0.1f);
-            ImGui::InputFloat("PosZ", &posZ, 0.1f, 0.1f);
-            mAllRitems[0]->NumFramesDirty = 1;
+            ImGui::Text("");
+            ImGui::Text("Object 2");
+            if (ImGui::BeginTable("Object2", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
 
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##PosXObj2", &Obj2posX, 0.1f, 0.1f);
 
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##PosYObj2", &Obj2posY, 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##PosZObj2", &Obj2posZ, 0.1f, 0.1f);
+                ImGui::EndTable();
+
+            }
+            ImGui::SliderInt("Tiles Count", &tilesCountInt, 1, 6);
+
+            mAllRitems[0]->NumFramesDirty = gNumFrameResources;
+            mAllRitems[1]->NumFramesDirty = gNumFrameResources;
         } ImGui::End();
+
 
         ChangeTileObjectTiles();
 
@@ -440,7 +508,7 @@ void Engine::UpdateCamera(const GameTimer& gt)
 
 void Engine::AnimateMaterials(const GameTimer& gt)
 {
-    auto animateMat = mMaterials["woodCrate"].get();
+    auto animateMat = mMaterials["metalAnimate"].get();
 
     float& tu = animateMat->MatTransform(3, 0);
 
@@ -458,23 +526,27 @@ void Engine::AnimateMaterials(const GameTimer& gt)
 void Engine::UpdateObjectCBs(const GameTimer& gt)
 {
     auto currObjectCB = mCurrFrameResource->ObjectCB.get();
-    for (auto& e : mAllRitems)
+    for (int i = 0; i < mAllRitems.size(); ++i)
     {
         // Only update the cbuffer data if the constants have changed.  
         // This needs to be tracked per frame resource.
-        if (e->NumFramesDirty > 0)
+        if (mAllRitems[i]->NumFramesDirty > 0)
         {
-            DirectX::XMMATRIX world = XMLoadFloat4x4(&e->World) * DirectX::XMMatrixTranslation(posX, posY, posZ);
-            DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
+            DirectX::XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
+            if (i == 0)
+                world = XMLoadFloat4x4(&mAllRitems[i]->World) * DirectX::XMMatrixTranslation(Obj1posX, Obj1posY, Obj1posZ);
+            else if (i == 1)
+                world = XMLoadFloat4x4(&mAllRitems[i]->World) * DirectX::XMMatrixTranslation(Obj2posX, Obj2posY, Obj2posZ);
+            DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
             ObjectConstants objConstants;
             XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
             XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
 
-            currObjectCB->CopyData(e->ObjCBIndex, objConstants);
+            currObjectCB->CopyData(mAllRitems[i]->ObjCBIndex, objConstants);
 
             // Next FrameResource need to be updated too.
-            e->NumFramesDirty--;
+            mAllRitems[i]->NumFramesDirty--;
         }
     }
 }
@@ -539,6 +611,7 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
     mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
     mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+    mMainPassCB.TessFactor = tessFactor;
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -562,23 +635,56 @@ void Engine::ChangeTileObjectTiles()
 
 void Engine::LoadTextures()
 {
-    auto woodCrateTex = std::make_unique<Texture>();
-    woodCrateTex->Name = "woodCrateTex";
-    woodCrateTex->Filename = L"Textures/WoodCrate01.dds";
+    auto metalAnimateTex = std::make_unique<Texture>();
+    metalAnimateTex->Name = "MetalAnimateTex";
+    metalAnimateTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalTex.dds";
     DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-        mCommandList.Get(), woodCrateTex->Filename.c_str(),
-        woodCrateTex->Resource, woodCrateTex->UploadHeap);
+        mCommandList.Get(), metalAnimateTex->Filename.c_str(),
+        metalAnimateTex->Resource, metalAnimateTex->UploadHeap);
 
-    mTextures[woodCrateTex->Name] = std::move(woodCrateTex);
+    mTextures[metalAnimateTex->Name] = std::move(metalAnimateTex);
 
-    auto tileCrateTex = std::make_unique<Texture>();
-    tileCrateTex->Name = "tileCrateTex";
-    tileCrateTex->Filename = L"Textures/TileBrick.dds";
+    auto metalAnimateNorm = std::make_unique<Texture>();
+    metalAnimateNorm->Name = "MetalAnimateNorm";
+    metalAnimateNorm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalNorm.dds";
     DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-        mCommandList.Get(), tileCrateTex->Filename.c_str(),
-        tileCrateTex->Resource, tileCrateTex->UploadHeap);
+        mCommandList.Get(), metalAnimateNorm->Filename.c_str(),
+        metalAnimateNorm->Resource, metalAnimateNorm->UploadHeap);
 
-    mTextures[tileCrateTex->Name] = std::move(tileCrateTex);
+    mTextures[metalAnimateNorm->Name] = std::move(metalAnimateNorm);
+
+    auto metalAnimateDisplacement = std::make_unique<Texture>();
+    metalAnimateDisplacement->Name = "MetalAnimateDisplacement";
+    metalAnimateDisplacement->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalDisplacement.dds";
+    DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), metalAnimateDisplacement->Filename.c_str(),
+        metalAnimateDisplacement->Resource, metalAnimateDisplacement->UploadHeap);
+
+    mTextures[metalAnimateDisplacement->Name] = std::move(metalAnimateDisplacement);
+
+    auto stoneTex = std::make_unique<Texture>();
+    stoneTex->Name = "StoneTex";
+    stoneTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\StoneTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), stoneTex->Filename.c_str(),
+        stoneTex->Resource, stoneTex->UploadHeap), false);
+    mTextures[stoneTex->Name] = std::move(stoneTex);
+
+    auto stoneNorm = std::make_unique<Texture>();
+    stoneNorm->Name = "StoneNorm";
+    stoneNorm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\StoneNorm.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), stoneNorm->Filename.c_str(),
+        stoneNorm->Resource, stoneNorm->UploadHeap), false);
+    mTextures[stoneNorm->Name] = std::move(stoneNorm);
+
+    auto stoneDisplacement = std::make_unique<Texture>();
+    stoneDisplacement->Name = "StoneDisplacement";
+    stoneDisplacement->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\StoneDisplacement.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), stoneDisplacement->Filename.c_str(),
+        stoneDisplacement->Resource, stoneDisplacement->UploadHeap), true);
+    mTextures[stoneDisplacement->Name] = std::move(stoneDisplacement);
 }
 
 void Engine::BuildDescriptorHeaps()
@@ -587,7 +693,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 3;
+    srvHeapDesc.NumDescriptors = 7;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -601,45 +707,70 @@ void Engine::UploadTextures()
     // Fill out the heap with actual descriptors.
     //
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
-
-    auto woodCrateTex = mTextures["woodCrateTex"]->Resource;
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Format = woodCrateTex->GetDesc().Format;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Texture2D.MostDetailedMip = 0;
-    srvDesc.Texture2D.MipLevels = woodCrateTex->GetDesc().MipLevels;
-    srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
-
-    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
-    md3dDevice->CreateShaderResourceView(woodCrateTex.Get(), &srvDesc, hDescriptor);
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-    auto tileCrateTex = mTextures["tileCrateTex"]->Resource;
+    auto MetalTex = mTextures["MetalAnimateTex"]->Resource;
+    auto MetalNorm = mTextures["MetalAnimateNorm"]->Resource;
+    auto MetalDisplacement = mTextures["MetalAnimateDisplacement"]->Resource;
 
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc2 = {};
-    srvDesc2.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc2.Format = tileCrateTex->GetDesc().Format;
-    srvDesc2.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc2.Texture2D.MostDetailedMip = 0;
-    srvDesc2.Texture2D.MipLevels = tileCrateTex->GetDesc().MipLevels;
-    srvDesc2.Texture2D.ResourceMinLODClamp = 0.0f;
 
-    md3dDevice->CreateShaderResourceView(tileCrateTex.Get(), &srvDesc2, hDescriptor);
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc1 = {};
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = MetalTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(MetalTex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc1.Format = MetalNorm->GetDesc().Format;
+    md3dDevice->CreateShaderResourceView(MetalNorm.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc1.Format = MetalDisplacement->GetDesc().Format;
+    srvDesc1.Texture2D.MipLevels = MetalDisplacement->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(MetalDisplacement.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto StoneTex = mTextures["StoneTex"]->Resource;
+    auto StoneNorm = mTextures["StoneNorm"]->Resource;
+    auto StoneDisplacement = mTextures["StoneDisplacement"]->Resource;
+
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc3 = {};
+    srvDesc3.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc3.Format = StoneTex->GetDesc().Format;
+    srvDesc3.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc3.Texture2D.MostDetailedMip = 0;
+    srvDesc3.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(StoneTex.Get(), &srvDesc3, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc3.Format = StoneNorm->GetDesc().Format;
+    md3dDevice->CreateShaderResourceView(StoneNorm.Get(), &srvDesc3, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc3.Format = StoneDisplacement->GetDesc().Format;
+    srvDesc3.Texture2D.MipLevels = StoneDisplacement->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(StoneDisplacement.Get(), &srvDesc3, hDescriptor);
 }
 
 
 void Engine::BuildRootSignature()
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 6, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
 
     // Perfomance TIP: Order from most frequent to least frequent.
-    slotRootParameter[0].InitAsDescriptorTable(1, &texTable, D3D12_SHADER_VISIBILITY_PIXEL);
+    slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
     slotRootParameter[1].InitAsConstantBufferView(0);
     slotRootParameter[2].InitAsConstantBufferView(1);
     slotRootParameter[3].InitAsConstantBufferView(2);
@@ -673,22 +804,25 @@ void Engine::BuildRootSignature()
 
 void Engine::BuildShadersAndInputLayout()
 {
-    mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_0");
-    mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_0");
+    mShaders["tessVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "VS", "vs_5_0");
+    mShaders["tessHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_0");
+    mShaders["tessDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_0");
+    mShaders["tessPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_0");
 
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
 }
 
 void Engine::BuildShapeGeometry()
 {
     GeometryGenerator geoGen;
-    GeometryGenerator::MeshData box = geoGen.CreateBoxTiling(1.0f, 1.0f, 1.0f, 3, 1);
-    GeometryGenerator::MeshData box2 = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 3, 1);
+    GeometryGenerator::MeshData box = geoGen.CreateBoxTiling(1.0f, 1.0f, 1.0f, 1, 1);
+    GeometryGenerator::MeshData box2 = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
+    GeometryGenerator::MeshData box3 = geoGen.CreateBoxTiling(5.f, 5.f, 5.f, 1, 1);
 
     SubmeshGeometry boxSubmesh;
     boxSubmesh.IndexCount = (UINT)box.Indices32.size();
@@ -700,8 +834,13 @@ void Engine::BuildShapeGeometry()
     boxSubmesh2.StartIndexLocation = boxSubmesh.IndexCount;
     boxSubmesh2.BaseVertexLocation = box.Vertices.size();
 
+    SubmeshGeometry boxSubmesh3;
+    boxSubmesh3.IndexCount = (UINT)box3.Indices32.size();
+    boxSubmesh3.StartIndexLocation = boxSubmesh.IndexCount + boxSubmesh2.IndexCount;
+    boxSubmesh3.BaseVertexLocation = box.Vertices.size() + box2.Vertices.size();
 
-    std::vector<Vertex> vertices(box.Vertices.size() + box2.Vertices.size());
+
+    std::vector<Vertex> vertices(box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size());
 
     for (size_t i = 0; i < box.Vertices.size(); ++i)
     {
@@ -715,10 +854,17 @@ void Engine::BuildShapeGeometry()
         vertices[i + box.Vertices.size()].Normal = box2.Vertices[i].Normal;
         vertices[i + box.Vertices.size()].TexC = box2.Vertices[i].TexC;
     }
+    for (size_t i = 0; i < box3.Vertices.size(); ++i)
+    {
+        vertices[i + box.Vertices.size() + box2.Vertices.size()].Pos = box3.Vertices[i].Position;
+        vertices[i + box.Vertices.size() + box2.Vertices.size()].Normal = box3.Vertices[i].Normal;
+        vertices[i + box.Vertices.size() + box2.Vertices.size()].TexC = box3.Vertices[i].TexC;
+    }
 
     std::vector<std::uint16_t> indices;
     indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
     indices.insert(indices.end(), std::begin(box2.GetIndices16()), std::end(box2.GetIndices16()));
+    indices.insert(indices.end(), std::begin(box3.GetIndices16()), std::end(box3.GetIndices16()));
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -745,6 +891,7 @@ void Engine::BuildShapeGeometry()
 
     geo->DrawArgs["box"] = boxSubmesh;
     geo->DrawArgs["box2"] = boxSubmesh2;
+    geo->DrawArgs["box3"] = boxSubmesh3;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -762,25 +909,77 @@ void Engine::BuildPSOs()
     opaquePsoDesc.pRootSignature = mRootSignature.Get();
     opaquePsoDesc.VS =
     {
-        reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
-        mShaders["standardVS"]->GetBufferSize()
+        reinterpret_cast<BYTE*>(mShaders["tessVS"]->GetBufferPointer()),
+        mShaders["tessVS"]->GetBufferSize()
+    };
+    opaquePsoDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["tessHS"]->GetBufferPointer()),
+        mShaders["tessHS"]->GetBufferSize()
+    };
+    opaquePsoDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["tessDS"]->GetBufferPointer()),
+        mShaders["tessDS"]->GetBufferSize()
     };
     opaquePsoDesc.PS =
     {
-        reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-        mShaders["opaquePS"]->GetBufferSize()
+        reinterpret_cast<BYTE*>(mShaders["tessPS"]->GetBufferPointer()),
+        mShaders["tessPS"]->GetBufferSize()
     };
     opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
     opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     opaquePsoDesc.SampleMask = UINT_MAX;
-    opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
     opaquePsoDesc.NumRenderTargets = 1;
     opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
-    opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-    opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+    opaquePsoDesc.SampleDesc.Count = 1;
+    opaquePsoDesc.SampleDesc.Quality = 0;
     opaquePsoDesc.DSVFormat = mDepthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mOpaquePSO)));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueSolid"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaqueWireframePsoDesc;
+
+    //
+    // PSO for opaque objects.
+    //
+    ZeroMemory(&opaqueWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    opaqueWireframePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    opaqueWireframePsoDesc.pRootSignature = mRootSignature.Get();
+    opaqueWireframePsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["tessVS"]->GetBufferPointer()),
+        mShaders["tessVS"]->GetBufferSize()
+    };
+    opaqueWireframePsoDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["tessHS"]->GetBufferPointer()),
+        mShaders["tessHS"]->GetBufferSize()
+    };
+    opaqueWireframePsoDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["tessDS"]->GetBufferPointer()),
+        mShaders["tessDS"]->GetBufferSize()
+    };
+    opaqueWireframePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["tessPS"]->GetBufferPointer()),
+        mShaders["tessPS"]->GetBufferSize()
+    };
+    opaqueWireframePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaqueWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    opaqueWireframePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    opaqueWireframePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    opaqueWireframePsoDesc.SampleMask = UINT_MAX;
+    opaqueWireframePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    opaqueWireframePsoDesc.NumRenderTargets = 1;
+    opaqueWireframePsoDesc.RTVFormats[0] = mBackBufferFormat;
+    opaqueWireframePsoDesc.SampleDesc.Count = 1;
+    opaqueWireframePsoDesc.SampleDesc.Quality = 0;
+    opaqueWireframePsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueWireframe"])));
 }
 
 void Engine::BuildFrameResources()
@@ -788,31 +987,41 @@ void Engine::BuildFrameResources()
     for (int i = 0; i < gNumFrameResources; ++i)
     {
         mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
-            1, (UINT)mAllRitems.size(), (UINT)mMaterials.size()));
+            2, (UINT)mAllRitems.size(), (UINT)mMaterials.size()));
     }
 }
 
 void Engine::BuildMaterials()
 {
-    auto woodCrate = std::make_unique<Material>();
-    woodCrate->Name = "woodCrate";
-    woodCrate->MatCBIndex = 0;
-    woodCrate->DiffuseSrvHeapIndex = 1;
-    woodCrate->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    woodCrate->FresnelR0 = DirectX::XMFLOAT3(0.05f, 0.05f, 0.05f);
-    woodCrate->Roughness = 0.2f;
+    auto metalAnimate = std::make_unique<Material>();
+    metalAnimate->Name = "metalAnimate";
+    metalAnimate->MatCBIndex = 0;
+    metalAnimate->DiffuseSrvHeapIndex = 1;
+    metalAnimate->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    metalAnimate->FresnelR0 = DirectX::XMFLOAT3(0.05f, 0.05f, 0.05f);
+    metalAnimate->Roughness = 0.2f;
 
-    mMaterials["woodCrate"] = std::move(woodCrate);
+    mMaterials["metalAnimate"] = std::move(metalAnimate);
 
     auto tileCrate = std::make_unique<Material>();
     tileCrate->Name = "tileCrate";
     tileCrate->MatCBIndex = 1;
-    tileCrate->DiffuseSrvHeapIndex = 2;
+    tileCrate->DiffuseSrvHeapIndex = 1;
     tileCrate->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     tileCrate->FresnelR0 = DirectX::XMFLOAT3(0.05f, 0.05f, 0.05f);
     tileCrate->Roughness = 0.2f;
 
     mMaterials["tileCrate"] = std::move(tileCrate);
+
+    auto stoneMat = std::make_unique<Material>();
+    stoneMat->Name = "stoneMaterial";
+    stoneMat->MatCBIndex = 2;
+    stoneMat->DiffuseSrvHeapIndex = 4;
+    stoneMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    stoneMat->FresnelR0 = DirectX::XMFLOAT3(0.1f, 0.1f, 0.1f);
+    stoneMat->Roughness = 0.5f;
+
+    mMaterials["stoneMaterial"] = std::move(stoneMat);
 }
 
 void Engine::BuildRenderItems()
@@ -820,9 +1029,9 @@ void Engine::BuildRenderItems()
     auto boxRitem = std::make_unique<RenderItem>();
     boxRitem->ObjCBIndex = 0;
     boxRitem->World = MathHelper::Identity4x4();
-    boxRitem->Mat = mMaterials["woodCrate"].get();
+    boxRitem->Mat = mMaterials["metalAnimate"].get();
     boxRitem->Geo = mGeometries["boxGeo"].get();
-    boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
     boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
     boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
@@ -833,15 +1042,27 @@ void Engine::BuildRenderItems()
     XMStoreFloat4x4(&boxTileRitem->World, DirectX::XMMatrixScaling(1.0f, 1.0f, 1.0f) * DirectX::XMMatrixTranslation(2.0f, 2.0f, 0.0f));
     boxTileRitem->Mat = mMaterials["tileCrate"].get();
     boxTileRitem->Geo = mGeometries["boxGeo"].get();
-    boxTileRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    boxTileRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
     boxTileRitem->IndexCount = boxTileRitem->Geo->DrawArgs["box2"].IndexCount;
     boxTileRitem->StartIndexLocation = boxTileRitem->Geo->DrawArgs["box2"].StartIndexLocation;
     boxTileRitem->BaseVertexLocation = boxTileRitem->Geo->DrawArgs["box2"].BaseVertexLocation;
     mAllRitems.push_back(std::move(boxTileRitem));
 
+    auto stoneTesselationRitem = std::make_unique<RenderItem>();
+    stoneTesselationRitem->ObjCBIndex = 2;
+    XMStoreFloat4x4(&stoneTesselationRitem->World, DirectX::XMMatrixScaling(1.0f, 1.0f, 1.0f) * DirectX::XMMatrixTranslation(-3.0f, 0.0f, 0.0f));
+    stoneTesselationRitem->TexTransform = MathHelper::Identity4x4();
+    stoneTesselationRitem->Mat = mMaterials["stoneMaterial"].get();
+    stoneTesselationRitem->Geo = mGeometries["boxGeo"].get();
+    stoneTesselationRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    stoneTesselationRitem->IndexCount = stoneTesselationRitem->Geo->DrawArgs["box3"].IndexCount;
+    stoneTesselationRitem->StartIndexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].StartIndexLocation;
+    stoneTesselationRitem->BaseVertexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(stoneTesselationRitem));
+
     // All the render items are opaque.
     for (auto& e : mAllRitems)
-        mOpaqueRitems.push_back(e.get());
+        mRitemLayer[(int)RenderLayer::Opaque].push_back(e.get());
 }
 
 void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
@@ -855,25 +1076,27 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
     // For each render item...
     for (size_t i = 0; i < ritems.size(); ++i)
     {
-        auto ri = ritems[i];
+        {
+            auto ri = ritems[i];
 
-        auto tmp1 = ri->Geo->VertexBufferView();
-        auto tmp2 = ri->Geo->IndexBufferView();
-        cmdList->IASetVertexBuffers(0, 1, &tmp1);
-        cmdList->IASetIndexBuffer(&tmp2);
-        cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
-        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-        tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
 
-        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
-        D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
-        cmdList->SetGraphicsRootDescriptorTable(0, tex);
-        cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
-        cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
-        cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+        }
     }
 }
 

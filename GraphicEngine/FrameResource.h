@@ -8,6 +8,7 @@ struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+    float TessFactor = 8.f;
 };
 
 struct PassConstants
@@ -29,6 +30,14 @@ struct PassConstants
 
     DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
 
+    DirectX::XMFLOAT4 FogColor = { 0.7f, 0.7f, 0.7f, 1.0f };
+    float gFogStart = 5.0f;
+    float gFogRange = 150.0f;
+    DirectX::XMFLOAT2 cbPerObjectPad2;
+
+    float TessFactor = 8.f;
+    DirectX::XMFLOAT3 cbPerObjectPad3;
+
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
     // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
@@ -38,6 +47,13 @@ struct PassConstants
 
 struct Vertex
 {
+    Vertex() = default;
+    Vertex(float x, float y, float z, float nx, float ny, float nz, float u, float v) :
+        Pos(x, y, z),
+        Normal(nx, ny, nz),
+        TexC(u, v) {
+    }
+
     DirectX::XMFLOAT3 Pos;
     DirectX::XMFLOAT3 Normal;
     DirectX::XMFLOAT2 TexC;
@@ -69,4 +85,3 @@ public:
     // check if these frame resources are still in use by the GPU.
     UINT64 Fence = 0;
 };
-
