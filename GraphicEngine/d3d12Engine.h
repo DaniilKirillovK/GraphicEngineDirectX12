@@ -105,6 +105,7 @@ protected:
     virtual void BuildShadersAndInputLayout() {}
     virtual void BuildShapeGeometry() {}
     virtual void BuildPSOs() {}
+    virtual void InitGBuffer() {}
 
     virtual void LoadTextures() {}
     virtual void UploadTextures() {}
@@ -171,8 +172,17 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSrvHeap;
 
+    D3D12_VIEWPORT mScreenViewportFull;
     D3D12_VIEWPORT mScreenViewport;
+    D3D12_VIEWPORT mScreenViewport2;
+    D3D12_VIEWPORT mScreenViewport3;
+    D3D12_VIEWPORT mScreenViewport4;
+
+    D3D12_RECT mScissorRectFull;
     D3D12_RECT mScissorRect;
+    D3D12_RECT mScissorRect2;
+    D3D12_RECT mScissorRect3;
+    D3D12_RECT mScissorRect4;
 
     UINT mRtvDescriptorSize = 0;
     UINT mDsvDescriptorSize = 0;

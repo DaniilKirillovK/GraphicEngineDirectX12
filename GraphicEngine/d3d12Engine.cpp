@@ -103,7 +103,7 @@ bool D3D12Engine::Initialize()
 void D3D12Engine::CreateRtvAndDsvDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = SwapChainBufferCount;
+	rtvHeapDesc.NumDescriptors = 5;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -209,14 +209,46 @@ void D3D12Engine::OnResize()
 	FlushCommandQueue();
 
 	// Update the viewport transform to cover the client area.
-	mScreenViewport.TopLeftX = 0;
+	mScreenViewportFull.TopLeftX = 0;
+	mScreenViewportFull.TopLeftY = 0;
+	mScreenViewportFull.Width = static_cast<float>(mClientWidth);
+	mScreenViewportFull.Height = static_cast<float>(mClientHeight);
+	mScreenViewportFull.MinDepth = 0.0f;
+	mScreenViewportFull.MaxDepth = 1.0f;
+
+	mScreenViewport.TopLeftX = mClientWidth / 5;
 	mScreenViewport.TopLeftY = 0;
-	mScreenViewport.Width = static_cast<float>(mClientWidth);
+	mScreenViewport.Width = static_cast<float>(mClientWidth / 5 * 4);
 	mScreenViewport.Height = static_cast<float>(mClientHeight);
 	mScreenViewport.MinDepth = 0.0f;
 	mScreenViewport.MaxDepth = 1.0f;
 
-	mScissorRect = { 0, 0, mClientWidth, mClientHeight };
+	mScreenViewport2.TopLeftX = 0;
+	mScreenViewport2.TopLeftY = 0;
+	mScreenViewport2.Width = static_cast<float>(mClientWidth / 5);
+	mScreenViewport2.Height = static_cast<float>(mClientHeight / 3);
+	mScreenViewport2.MinDepth = 0.0f;
+	mScreenViewport2.MaxDepth = 1.0f;
+
+	mScreenViewport3.TopLeftX = 0;
+	mScreenViewport3.TopLeftY = mClientHeight / 3;
+	mScreenViewport3.Width = static_cast<float>(mClientWidth / 5);
+	mScreenViewport3.Height = static_cast<float>(mClientHeight / 3);
+	mScreenViewport3.MinDepth = 0.0f;
+	mScreenViewport3.MaxDepth = 1.0f;
+
+	mScreenViewport4.TopLeftX = 0;
+	mScreenViewport4.TopLeftY = mClientHeight / 3 * 2;
+	mScreenViewport4.Width = static_cast<float>(mClientWidth / 5);
+	mScreenViewport4.Height = static_cast<float>(mClientHeight / 3);
+	mScreenViewport4.MinDepth = 0.0f;
+	mScreenViewport4.MaxDepth = 1.0f;
+
+	mScissorRectFull = { 0, 0, mClientWidth, mClientHeight };
+	mScissorRect = { mClientWidth / 5, 0, mClientWidth, mClientHeight };
+	mScissorRect2 = { 0, 0, mClientWidth / 5, mClientHeight / 3 };
+	mScissorRect3 = { 0, mClientHeight / 3, mClientWidth / 5, mClientHeight / 3 * 2 };
+	mScissorRect4 = { 0, mClientHeight / 3 * 2, mClientWidth / 5, mClientHeight };
 }
 
 LRESULT D3D12Engine::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -483,6 +515,7 @@ BuildShapeGeometry();
 BuildMaterials();
 BuildRenderItems();
 BuildFrameResources();
+InitGBuffer();
 BuildPSOs();
 
 // Execute the initialization commands.

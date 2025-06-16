@@ -22,6 +22,14 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
+struct GBuffer
+{
+    float4 Color : SV_TARGET0;
+    float4 Albedo : SV_TARGET1;
+    float4 Position : SV_TARGET2;
+    float4 Normal : SV_TARGET3;
+};
+
 
 cbuffer cbPerObject : register(b0)
 {
@@ -224,8 +232,13 @@ DomainOut DS(PatchTess patchTess,
     return output;
 }
 
-float4 PS(DomainOut pin) : SV_Target
+GBuffer PS(DomainOut pin) : SV_Target
 {
+    GBuffer gBuffer;
+    gBuffer.Position = float4(pin.PosW, 1.0f);
+    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
+    
     float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
     float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
 
@@ -249,6 +262,49 @@ float4 PS(DomainOut pin) : SV_Target
 
     // Common convention to take alpha from diffuse material.
     litColor.a = diffuseAlbedo.a;
+    gBuffer.Color = litColor;
 
-    return litColor;
+    return gBuffer;
+}
+
+GBuffer PSAlbedo(DomainOut pin) : SV_Target
+{
+    GBuffer gBuffer;
+    gBuffer.Position = float4(pin.PosW, 1.0f);
+    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
+    
+    gBuffer.Color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    
+    gBuffer.Color = gBuffer.Albedo;
+    
+    return gBuffer;
+}
+
+GBuffer PSPosition(DomainOut pin) : SV_Target
+{
+    GBuffer gBuffer;
+    gBuffer.Position = float4(pin.PosW, 1.0f);
+    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
+    
+    gBuffer.Color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    
+    gBuffer.Color = gBuffer.Position;
+    
+    return gBuffer;
+}
+
+GBuffer PSNormal(DomainOut pin) : SV_Target
+{
+    GBuffer gBuffer;
+    gBuffer.Position = float4(pin.PosW, 1.0f);
+    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
+    
+    gBuffer.Color = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    
+    gBuffer.Color = gBuffer.Normal;
+    
+    return gBuffer;
 }
