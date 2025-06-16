@@ -63,7 +63,8 @@ cbuffer cbPass : register(b1)
     float2 cbPerObjectPad2;
     
     float tessFactor;
-    float3 cbPerObjectPad3;
+    float pixelationFactor;
+    float2 cbPerObjectPad3;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -242,6 +243,49 @@ GBuffer PS(DomainOut pin) : SV_Target
     
     float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
     float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+
+    // Interpolating normal can unnormalize it, so renormalize it.
+    //pin.NormalW = normalize(normalMap.xyz);
+    pin.NormalW = normalMap.xyz;
+
+    // Vector from point being lit to eye. 
+    float3 toEyeW = normalize(gEyePosW - pin.PosW);
+
+    // Light terms.
+    float4 ambient = gAmbientLight * diffuseAlbedo;
+
+    const float shininess = 1.0f - gRoughness;
+    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
+    float3 shadowFactor = 1.0f;
+    float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
+        pin.NormalW, toEyeW, shadowFactor);
+    
+    Material matDeferred = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
+    
+    float4 directLightDeferred = ComputeLighting(gLights, matDeferred, pin.PosW,
+        pin.NormalW, toEyeW, shadowFactor);
+
+    float4 litColor = ambient + directLight;
+    gBuffer.Specular = float4(directLightDeferred.x, directLightDeferred.y, directLightDeferred.z, 1.0f);
+
+    // Common convention to take alpha from diffuse material.
+    litColor.a = diffuseAlbedo.a;
+    gBuffer.Color = litColor;
+
+    return gBuffer;
+}
+
+GBuffer PSPixel(DomainOut pin) : SV_Target
+{
+    GBuffer gBuffer;
+    float2 pixelatedUV = floor(pin.TexC * pixelationFactor) / pixelationFactor;
+    
+    gBuffer.Position = float4(pin.PosW, 1.0f);
+    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
+    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
+    
+    float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
+    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
 
     // Interpolating normal can unnormalize it, so renormalize it.
     //pin.NormalW = normalize(normalMap.xyz);

@@ -181,6 +181,9 @@ bool isAnimateMaterial = true;
 bool isSolid = true;
 bool deferredRenderDisplayInfo = false;
 
+bool isPixelated = false;
+int pixelationFactor = 16.f;
+
 float Obj1posX = 2.f;
 float Obj1posY = 0.f;
 float Obj1posZ = 0.f;
@@ -328,11 +331,18 @@ void Engine::Draw(const GameTimer& gt)
 
     // A command list can be reset after it has been added to the command queue via ExecuteCommandList.
     // Reusing the command list reuses memory.
-    if (isSolid)
+    if (isSolid && !isPixelated) 
     {
         ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSOs["opaqueSolid"].Get()));
     }
-    else ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSOs["opaqueWireframe"].Get()));
+    else if (isPixelated)
+    {
+        ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSOs["opaquePixel"].Get()));
+    }
+    else
+    {
+        ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), mPSOs["opaqueWireframe"].Get()));
+    }
 
     D3D12_VIEWPORT viewports[] = { mScreenViewport, mScreenViewport2, mScreenViewport3, mScreenViewport4, mScreenViewportFull };
     D3D12_RECT rects[] = { mScissorRect, mScissorRect2, mScissorRect3, mScissorRect4, mScissorRectFull };
@@ -384,7 +394,8 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
 
-        if (isSolid) mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+        if (isSolid && !isPixelated) mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+        else if (isPixelated) mCommandList->SetPipelineState(mPSOs["opaquePixel"].Get());
         else mCommandList->SetPipelineState(mPSOs["opaqueWireframe"].Get());
 
         DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
@@ -607,6 +618,7 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
     mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
     mMainPassCB.TessFactor = tessFactor;
+    mMainPassCB.PixelationFactor = pixelationFactor;
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -803,9 +815,7 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["tessHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_0");
     mShaders["tessDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_0");
     mShaders["tessPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_0");
-    mShaders["PSAlbedo"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PSAlbedo", "ps_5_0");
-    mShaders["PSPosition"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PSPosition", "ps_5_0");
-    mShaders["PSNormal"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PSNormal", "ps_5_0");
+    mShaders["PSPixel"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PSPixel", "ps_5_0");
 
     mInputLayout =
     {
@@ -987,35 +997,15 @@ void Engine::BuildPSOs()
     opaqueWireframePsoDesc.DSVFormat = mDepthStencilFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueWireframe"])));
 
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDescAlbedo;
-    ZeroMemory(&opaquePsoDescAlbedo, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-    opaquePsoDescAlbedo = opaquePsoDesc;
-    opaquePsoDescAlbedo.PS =
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDescPixel;
+    ZeroMemory(&opaquePsoDescPixel, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    opaquePsoDescPixel = opaquePsoDesc;
+    opaquePsoDescPixel.PS =
     {
-        reinterpret_cast<BYTE*>(mShaders["PSAlbedo"]->GetBufferPointer()),
-        mShaders["PSAlbedo"]->GetBufferSize()
+        reinterpret_cast<BYTE*>(mShaders["PSPixel"]->GetBufferPointer()),
+        mShaders["PSPixel"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDescAlbedo, IID_PPV_ARGS(&mPSOs["opaqueAlbedo"])));
-
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDescPosition;
-    ZeroMemory(&opaquePsoDescPosition, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-    opaquePsoDescPosition = opaquePsoDesc;
-    opaquePsoDescPosition.PS =
-    {
-        reinterpret_cast<BYTE*>(mShaders["PSPosition"]->GetBufferPointer()),
-        mShaders["PSPosition"]->GetBufferSize()
-    };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDescPosition, IID_PPV_ARGS(&mPSOs["opaquePosition"])));
-
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDescNormal;
-    ZeroMemory(&opaquePsoDescNormal, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-    opaquePsoDescNormal = opaquePsoDesc;
-    opaquePsoDescNormal.PS =
-    {
-        reinterpret_cast<BYTE*>(mShaders["PSNormal"]->GetBufferPointer()),
-        mShaders["PSNormal"]->GetBufferSize()
-    };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDescNormal, IID_PPV_ARGS(&mPSOs["opaqueNormal"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDescPixel, IID_PPV_ARGS(&mPSOs["opaquePixel"])));
 }
 
 void Engine::BuildFrameResources()
@@ -1377,8 +1367,10 @@ void Engine::RenderUI()
     if (ImGui::Begin("Configuration", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
     {
         ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
-        ImGui::Checkbox("SolidMode", &isSolid);
+        ImGui::Checkbox("Solid Mode", &isSolid);
         ImGui::SliderFloat("Tesselation Factor", &tessFactor, 8.f, 64.f);
+        ImGui::Checkbox("Pixelation Shader", &isPixelated);
+        ImGui::SliderInt("Pixelated Factor", &pixelationFactor, 16.f, 128.f);
         if (ImGui::Button("Object 1", ImVec2(100, 40)))
         {
             if (selectedObjectID == 1)

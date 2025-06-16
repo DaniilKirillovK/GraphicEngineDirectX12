@@ -36,7 +36,8 @@ struct PassConstants
     DirectX::XMFLOAT2 cbPerObjectPad2;
 
     float TessFactor = 8.f;
-    DirectX::XMFLOAT3 cbPerObjectPad3;
+    float PixelationFactor = 16.f;
+    DirectX::XMFLOAT2 cbPerObjectPad3;
 
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
