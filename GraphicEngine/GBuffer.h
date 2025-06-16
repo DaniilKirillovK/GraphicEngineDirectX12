@@ -1,7 +1,6 @@
 #pragma once
 
-#include "D3D12Engine.h"
-
+#include "d3dUtil.h"
 
 class GBuffer
 {
@@ -13,5 +12,6 @@ public:
 	Microsoft::WRL::ComPtr<ID3D12Resource> gBufferPosition = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> gBufferNormal = nullptr;
 	Microsoft::WRL::ComPtr<ID3D12Resource> gBufferSpecular = nullptr;
+	Microsoft::WRL::ComPtr<ID3D12Resource> gBufferDepth = nullptr;
 };
 

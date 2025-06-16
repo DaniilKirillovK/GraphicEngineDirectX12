@@ -129,6 +129,8 @@ private:
     virtual void InitGBuffer() override;
     void ResizeGBuffer();
 
+    void RenderUI();
+
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
@@ -157,8 +159,6 @@ private:
     // Render items divided by PSO.
     std::vector<RenderItem*> mOpaqueRitems;
 
-    GBuffer gBuffer;
-
     PassConstants mMainPassCB;
     PassConstants mReflectedPassCB;
 
@@ -176,17 +176,27 @@ private:
 // Imgui Variables
 bool opened = true;
 int tilesCountInt = 1;
+int selectedObjectID = 1;
 bool isAnimateMaterial = true;
 bool isSolid = true;
 bool deferredRenderDisplayInfo = false;
 
-float Obj1posX = 0.f;
+float Obj1posX = 2.f;
 float Obj1posY = 0.f;
 float Obj1posZ = 0.f;
 
-float Obj2posX = 0.f;
+float Obj1rotX = 0.f;
+float Obj1rotY = 0.f;
+float Obj1rotZ = 0.f;
+
+
+float Obj2posX = 4.f;
 float Obj2posY = 0.f;
 float Obj2posZ = 0.f;
+
+float Obj2rotX = 0.f;
+float Obj2rotY = 0.f;
+float Obj2rotZ = 0.f;
 
 float tessFactor = 8.f;
 
@@ -275,7 +285,7 @@ bool Engine::Initialize()
 
 void Engine::OnResize()
 {
-    ResizeGBuffer();
+    //ResizeGBuffer();
     D3D12Engine::OnResize();
 
     mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
@@ -366,7 +376,7 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
         auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular };
+        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular};
         mCommandList->ResourceBarrier(5, barriers);
 
         mCommandList->OMSetRenderTargets(5, rtvs, false, &dsv);
@@ -390,109 +400,15 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5 };
         mCommandList->ResourceBarrier(5, barriersClose);
     }
 
 
     // Imgui
-    {
-        ImVec2 size = ImVec2(WINDOW_WIDTH / 5, WINDOW_HEIGHT);
-        ImVec2 pos = ImVec2(WINDOW_WIDTH - size.x, 0);
-
-        ImGui::SetNextWindowPos(pos);
-        ImGui::SetNextWindowSize(size);
-        ImGui::SetNextWindowBgAlpha(0.5f);
-        if (ImGui::Begin("Configuration", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
-        {
-            ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
-            ImGui::Checkbox("SolidMode", &isSolid);
-            ImGui::SliderFloat("Tesselation Factor", &tessFactor, 8.f, 64.f);
-            ImGui::Text("Object 1");
-            if (ImGui::BeginTable("Object1", 3))
-            {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Pos X");
-
-                ImGui::TableSetColumnIndex(0);
-                ImGui::InputFloat("##PosXObj1", &Obj1posX, 0.1f, 0.1f);
-
-                ImGui::TableSetColumnIndex(1);
-                ImGui::Text("Pos Y");
-
-                ImGui::TableSetColumnIndex(1);
-                ImGui::InputFloat("##PosYObj1", &Obj1posY, 0.1f, 0.1f);
-
-                ImGui::TableSetColumnIndex(2);
-                ImGui::Text("Pos Z");
-
-                ImGui::TableSetColumnIndex(2);
-                ImGui::InputFloat("##PosZObj1", &Obj1posZ, 0.1f, 0.1f);
-                ImGui::EndTable();
-            }
-            ImGui::Checkbox("Animate Material", &isAnimateMaterial);
-
-            ImGui::Text("");
-            ImGui::Text("Object 2");
-            if (ImGui::BeginTable("Object2", 3))
-            {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Pos X");
-
-                ImGui::TableSetColumnIndex(0);
-                ImGui::InputFloat("##PosXObj2", &Obj2posX, 0.1f, 0.1f);
-
-                ImGui::TableSetColumnIndex(1);
-                ImGui::Text("Pos Y");
-
-                ImGui::TableSetColumnIndex(1);
-                ImGui::InputFloat("##PosYObj2", &Obj2posY, 0.1f, 0.1f);
-
-                ImGui::TableSetColumnIndex(2);
-                ImGui::Text("Pos Z");
-
-                ImGui::TableSetColumnIndex(2);
-                ImGui::InputFloat("##PosZObj2", &Obj2posZ, 0.1f, 0.1f);
-                ImGui::EndTable();
-
-            }
-            ImGui::SliderInt("Tiles Count", &tilesCountInt, 1, 6);
-
-            mAllRitems[0]->NumFramesDirty = gNumFrameResources;
-            mAllRitems[1]->NumFramesDirty = gNumFrameResources;
-        } ImGui::End();
-
-
-        if (deferredRenderDisplayInfo)
-        {
-            ImVec2 size2 = ImVec2(WINDOW_WIDTH / 5, 650);
-            ImVec2 pos2 = ImVec2(0, 0);
-
-            ImGui::SetNextWindowPos(pos2);
-            ImGui::SetNextWindowSize(size2);
-            ImGui::SetNextWindowBgAlpha(0.5f);
-            if (ImGui::Begin("Deferred Render Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
-            {
-                CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-                tex.Offset(7, mCbvSrvDescriptorSize);
-                ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
-                tex.Offset(1, mCbvSrvDescriptorSize);
-                ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
-                tex.Offset(1, mCbvSrvDescriptorSize);
-                ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
-                tex.Offset(1, mCbvSrvDescriptorSize);
-                ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
-            } ImGui::End();
-        }
-
-
-        ChangeTileObjectTiles();
-
-        ImGui::Render();
-        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());
-    }
+    RenderUI();
 
     // Done recording commands.
     ThrowIfFailed(mCommandList->Close());
@@ -516,7 +432,8 @@ void Engine::Draw(const GameTimer& gt)
 
 void Engine::OnMouseDown(WPARAM btnState, int x, int y)
 {
-    if (x <= 1024)
+    if (x <= 1024 
+        && (x <= 960 && y <= 600))
     {
         mLastMousePos.x = x;
         mLastMousePos.y = y;
@@ -527,13 +444,15 @@ void Engine::OnMouseDown(WPARAM btnState, int x, int y)
 
 void Engine::OnMouseUp(WPARAM btnState, int x, int y)
 {
-    if (x <= 1024)
+    if (x <= 1024
+        && (x <= 960 && y <= 600))
         ReleaseCapture();
 }
 
 void Engine::OnMouseMove(WPARAM btnState, int x, int y)
 {
-    if (x <= 1024)
+    if (x <= 1024
+        && (x <= 960 && y <= 600))
     {
         if ((btnState & MK_LBUTTON) != 0)
         {
@@ -601,10 +520,18 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
         if (mAllRitems[i]->NumFramesDirty > 0)
         {
             DirectX::XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
+            DirectX::XMFLOAT4X4 worldM = MathHelper::Identity4x4();
             if (i == 0)
-                world = XMLoadFloat4x4(&mAllRitems[i]->World) * DirectX::XMMatrixTranslation(Obj1posX, Obj1posY, Obj1posZ);
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 1.0f, 0.0f, 0.0f }, Obj1rotX)
+                * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, Obj1rotY)
+                * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 0.0f, 1.0f }, Obj1rotZ)
+                * DirectX::XMMatrixTranslation(Obj1posX, Obj1posY, Obj1posZ);
             else if (i == 1)
-                world = XMLoadFloat4x4(&mAllRitems[i]->World) * DirectX::XMMatrixTranslation(Obj2posX, Obj2posY, Obj2posZ);
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 1.0f, 0.0f, 0.0f }, Obj2rotX)
+                * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, Obj2rotY)
+                * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 0.0f, 1.0f }, Obj2rotZ)
+                * DirectX::XMMatrixTranslation(Obj2posX, Obj2posY, Obj2posZ);
+
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
             ObjectConstants objConstants;
@@ -832,7 +759,7 @@ void Engine::UploadTextures()
 void Engine::BuildRootSignature()
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 10, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 11, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
@@ -1223,6 +1150,14 @@ void Engine::InitGBuffer()
         nullptr,
         IID_PPV_ARGS(&gBuffer.gBufferSpecular));
 
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_COMMON,
+        nullptr,
+        IID_PPV_ARGS(&gBuffer.gBufferDepth));
+
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
 	rtvHandle.Offset(2, mRtvDescriptorSize);
 
@@ -1236,6 +1171,7 @@ void Engine::InitGBuffer()
 	rtvHandle.Offset(1, mRtvDescriptorSize);
 
     md3dDevice->CreateRenderTargetView(gBuffer.gBufferSpecular.Get(), nullptr, rtvHandle);
+
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
     hDescriptor.Offset(7, mCbvSrvDescriptorSize);
@@ -1256,6 +1192,7 @@ void Engine::InitGBuffer()
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
     md3dDevice->CreateShaderResourceView(gBuffer.gBufferSpecular.Get(), &srvDRDesc, hDescriptor);
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 }
 
 void Engine::ResizeGBuffer()
@@ -1268,6 +1205,7 @@ void Engine::ResizeGBuffer()
     gBuffer.gBufferPosition.Reset();
     gBuffer.gBufferNormal.Reset();
     gBuffer.gBufferSpecular.Reset();
+    gBuffer.gBufferDepth.Reset();
 
     D3D12_RESOURCE_DESC texDesc = {};
     texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -1426,4 +1364,177 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> Engine::GetStaticSamplers()
         pointWrap, pointClamp,
         linearWrap, linearClamp,
         anisotropicWrap, anisotropicClamp };
+}
+
+void Engine::RenderUI()
+{
+    ImVec2 size = ImVec2(WINDOW_WIDTH / 5, WINDOW_HEIGHT / 4 * 3);
+    ImVec2 pos = ImVec2(WINDOW_WIDTH - size.x, 0);
+
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(size);
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    if (ImGui::Begin("Configuration", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+    {
+        ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
+        ImGui::Checkbox("SolidMode", &isSolid);
+        ImGui::SliderFloat("Tesselation Factor", &tessFactor, 8.f, 64.f);
+        if (ImGui::Button("Object 1", ImVec2(100, 40)))
+        {
+            if (selectedObjectID == 1)
+                selectedObjectID = 0;
+            else selectedObjectID = 1;
+        }
+        if (ImGui::Button("Object 2", ImVec2(100, 40)))
+        {
+            if (selectedObjectID == 2)
+                selectedObjectID = 0;
+            else selectedObjectID = 2;
+        }
+
+        mAllRitems[0]->NumFramesDirty = gNumFrameResources;
+        mAllRitems[1]->NumFramesDirty = gNumFrameResources;
+    } ImGui::End();
+
+
+    if (deferredRenderDisplayInfo)
+    {
+        ImVec2 size2 = ImVec2(WINDOW_WIDTH / 5, 800);
+        ImVec2 pos2 = ImVec2(0, 0);
+
+        ImGui::SetNextWindowPos(pos2);
+        ImGui::SetNextWindowSize(size2);
+        ImGui::SetNextWindowBgAlpha(0.5f);
+        if (ImGui::Begin("Deferred Render Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+        {
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(7, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+            tex.Offset(1, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+            tex.Offset(1, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+            tex.Offset(1, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+        } ImGui::End();
+    }
+
+    // Selected object info
+    {
+        ImVec2 size3 = ImVec2(WINDOW_WIDTH / 4, WINDOW_HEIGHT / 4);
+        ImVec2 pos3 = ImVec2(WINDOW_WIDTH / 4 * 3, WINDOW_HEIGHT / 4 * 3);
+
+        ImGui::SetNextWindowPos(pos3);
+        ImGui::SetNextWindowSize(size3);
+        ImGui::SetNextWindowBgAlpha(0.5f);
+        if (ImGui::Begin("Object Settings", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+        {
+            switch (selectedObjectID)
+            {
+            case 1:
+                ImGui::Text("Object 1");
+                if (ImGui::BeginTable("Object1", 3))
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("Pos X");
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::InputFloat("##PosXObj1", &Obj1posX, 0.1f, 0.1f);
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("Pos Y");
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::InputFloat("##PosYObj1", &Obj1posY, 0.1f, 0.1f);
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("Pos Z");
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::InputFloat("##PosZObj1", &Obj1posZ, 0.1f, 0.1f);
+                    ImGui::EndTable();
+                }
+                if (ImGui::BeginTable("Object1_1", 3))
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("Rot X");
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::InputFloat("##RotXObj1", &Obj1rotX, 0.1f, 0.1f);
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("Rot Y");
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::InputFloat("##RotYObj1", &Obj1rotY, 0.1f, 0.1f);
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("Rot Z");
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::InputFloat("##RotZObj1", &Obj1rotZ, 0.1f, 0.1f);
+                    ImGui::EndTable();
+                }
+                ImGui::Checkbox("Animate Material", &isAnimateMaterial);
+                break;
+
+            case 2:
+                ImGui::Text("Object 2");
+                if (ImGui::BeginTable("Object2", 3))
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("Pos X");
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::InputFloat("##PosXObj2", &Obj2posX, 0.1f, 0.1f);
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("Pos Y");
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::InputFloat("##PosYObj2", &Obj2posY, 0.1f, 0.1f);
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("Pos Z");
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::InputFloat("##PosZObj2", &Obj2posZ, 0.1f, 0.1f);
+                    ImGui::EndTable();
+                }
+                if (ImGui::BeginTable("Object2_1", 3))
+                {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("Rot X");
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::InputFloat("##RotXObj2", &Obj2rotX, 1.f, 1.f);
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("Rot Y");
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::InputFloat("##RotYObj2", &Obj2rotY, 1.f, 1.f);
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("Rot Z");
+
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::InputFloat("##RotZObj2", &Obj2rotZ, 1.f, 1.f);
+                    ImGui::EndTable();
+                }
+                ImGui::SliderInt("Tiles Count", &tilesCountInt, 1, 6);
+                break;
+            }
+        } ImGui::End();
+    }
+
+
+    ChangeTileObjectTiles();
+
+    ImGui::Render();
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());
 }
