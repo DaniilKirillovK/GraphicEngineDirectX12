@@ -28,6 +28,7 @@ struct GBuffer
     float4 Albedo : SV_TARGET1;
     float4 Position : SV_TARGET2;
     float4 Normal : SV_TARGET3;
+    float4 Specular : SV_TARGET4;
 };
 
 
@@ -257,8 +258,14 @@ GBuffer PS(DomainOut pin) : SV_Target
     float3 shadowFactor = 1.0f;
     float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
         pin.NormalW, toEyeW, shadowFactor);
+    
+    Material matDeferred = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
+    
+    float4 directLightDeferred = ComputeLighting(gLights, matDeferred, pin.PosW,
+        pin.NormalW, toEyeW, shadowFactor);
 
     float4 litColor = ambient + directLight;
+    gBuffer.Specular = float4(directLightDeferred.x, directLightDeferred.y, directLightDeferred.z, 1.0f);
 
     // Common convention to take alpha from diffuse material.
     litColor.a = diffuseAlbedo.a;
@@ -267,6 +274,10 @@ GBuffer PS(DomainOut pin) : SV_Target
     return gBuffer;
 }
 
+
+
+
+// DEBUG
 GBuffer PSAlbedo(DomainOut pin) : SV_Target
 {
     GBuffer gBuffer;

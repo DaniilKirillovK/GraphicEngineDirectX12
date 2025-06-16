@@ -332,6 +332,7 @@ void Engine::Draw(const GameTimer& gt)
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, mRtvDescriptorSize), DirectX::Colors::LightSteelBlue, 0, nullptr);
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 3, mRtvDescriptorSize), DirectX::Colors::LightSteelBlue, 0, nullptr);
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize), DirectX::Colors::LightSteelBlue, 0, nullptr);
+    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize), DirectX::Colors::LightSteelBlue, 0, nullptr);
 
     mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
@@ -340,6 +341,7 @@ void Engine::Draw(const GameTimer& gt)
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, mRtvDescriptorSize),
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 3, mRtvDescriptorSize),
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize),
     };
     auto dsv = DepthStencilView();
 
@@ -362,10 +364,12 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
         auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal };
-        mCommandList->ResourceBarrier(4, barriers);
+        auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular };
+        mCommandList->ResourceBarrier(5, barriers);
 
-        mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+        mCommandList->OMSetRenderTargets(5, rtvs, false, &dsv);
 
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -384,8 +388,10 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4 };
-        mCommandList->ResourceBarrier(4, barriersClose);
+        auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5 };
+        mCommandList->ResourceBarrier(5, barriersClose);
     }
 
 
@@ -399,6 +405,7 @@ void Engine::Draw(const GameTimer& gt)
         ImGui::SetNextWindowBgAlpha(0.5f);
         if (ImGui::Begin("Configuration", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
         {
+            ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
             ImGui::Checkbox("SolidMode", &isSolid);
             ImGui::SliderFloat("Tesselation Factor", &tessFactor, 8.f, 64.f);
             ImGui::Text("Object 1");
@@ -457,22 +464,28 @@ void Engine::Draw(const GameTimer& gt)
             mAllRitems[1]->NumFramesDirty = gNumFrameResources;
         } ImGui::End();
 
-        ImVec2 size2 = ImVec2(WINDOW_WIDTH / 5, 500);
-        ImVec2 pos2 = ImVec2(0, 0);
 
-        ImGui::SetNextWindowPos(pos2);
-        ImGui::SetNextWindowSize(size2);
-        ImGui::SetNextWindowBgAlpha(0.5f);
-        if (ImGui::Begin("Deferred Render Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+        if (deferredRenderDisplayInfo)
         {
-            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-            tex.Offset(7, mCbvSrvDescriptorSize);
-            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
-            tex.Offset(1, mCbvSrvDescriptorSize);
-            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
-            tex.Offset(1, mCbvSrvDescriptorSize);
-            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
-        } ImGui::End();
+            ImVec2 size2 = ImVec2(WINDOW_WIDTH / 5, 650);
+            ImVec2 pos2 = ImVec2(0, 0);
+
+            ImGui::SetNextWindowPos(pos2);
+            ImGui::SetNextWindowSize(size2);
+            ImGui::SetNextWindowBgAlpha(0.5f);
+            if (ImGui::Begin("Deferred Render Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+            {
+                CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                tex.Offset(7, mCbvSrvDescriptorSize);
+                ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+                tex.Offset(1, mCbvSrvDescriptorSize);
+                ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+                tex.Offset(1, mCbvSrvDescriptorSize);
+                ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+                tex.Offset(1, mCbvSrvDescriptorSize);
+                ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+            } ImGui::End();
+        }
 
 
         ChangeTileObjectTiles();
@@ -748,7 +761,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 10;
+    srvHeapDesc.NumDescriptors = 11;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -819,7 +832,7 @@ void Engine::UploadTextures()
 void Engine::BuildRootSignature()
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 9, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 10, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
@@ -991,11 +1004,12 @@ void Engine::BuildPSOs()
     opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     opaquePsoDesc.SampleMask = UINT_MAX;
     opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    opaquePsoDesc.NumRenderTargets = 4;
+    opaquePsoDesc.NumRenderTargets = 5;
     opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
     opaquePsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     opaquePsoDesc.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     opaquePsoDesc.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    opaquePsoDesc.RTVFormats[4] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     opaquePsoDesc.SampleDesc.Count = 1;
     opaquePsoDesc.SampleDesc.Quality = 0;
     opaquePsoDesc.DSVFormat = mDepthStencilFormat;
@@ -1035,11 +1049,12 @@ void Engine::BuildPSOs()
     opaqueWireframePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     opaqueWireframePsoDesc.SampleMask = UINT_MAX;
     opaqueWireframePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    opaqueWireframePsoDesc.NumRenderTargets = 4;
+    opaqueWireframePsoDesc.NumRenderTargets = 5;
     opaqueWireframePsoDesc.RTVFormats[0] = mBackBufferFormat;
     opaqueWireframePsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     opaqueWireframePsoDesc.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     opaqueWireframePsoDesc.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    opaqueWireframePsoDesc.RTVFormats[4] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     opaqueWireframePsoDesc.SampleDesc.Count = 1;
     opaqueWireframePsoDesc.SampleDesc.Quality = 0;
     opaqueWireframePsoDesc.DSVFormat = mDepthStencilFormat;
@@ -1200,6 +1215,14 @@ void Engine::InitGBuffer()
 		nullptr,
 		IID_PPV_ARGS(&gBuffer.gBufferNormal));
 
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_COMMON,
+        nullptr,
+        IID_PPV_ARGS(&gBuffer.gBufferSpecular));
+
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
 	rtvHandle.Offset(2, mRtvDescriptorSize);
 
@@ -1211,6 +1234,8 @@ void Engine::InitGBuffer()
 
 	md3dDevice->CreateRenderTargetView(gBuffer.gBufferNormal.Get(), nullptr, rtvHandle);
 	rtvHandle.Offset(1, mRtvDescriptorSize);
+
+    md3dDevice->CreateRenderTargetView(gBuffer.gBufferSpecular.Get(), nullptr, rtvHandle);
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
     hDescriptor.Offset(7, mCbvSrvDescriptorSize);
@@ -1228,6 +1253,9 @@ void Engine::InitGBuffer()
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
     md3dDevice->CreateShaderResourceView(gBuffer.gBufferNormal.Get(), &srvDRDesc, hDescriptor);
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    md3dDevice->CreateShaderResourceView(gBuffer.gBufferSpecular.Get(), &srvDRDesc, hDescriptor);
 }
 
 void Engine::ResizeGBuffer()
@@ -1239,6 +1267,7 @@ void Engine::ResizeGBuffer()
     gBuffer.gBufferAlbedo.Reset();
     gBuffer.gBufferPosition.Reset();
     gBuffer.gBufferNormal.Reset();
+    gBuffer.gBufferSpecular.Reset();
 
     D3D12_RESOURCE_DESC texDesc = {};
     texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -1277,6 +1306,14 @@ void Engine::ResizeGBuffer()
         nullptr,
         IID_PPV_ARGS(&gBuffer.gBufferNormal));
 
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_COMMON,
+        nullptr,
+        IID_PPV_ARGS(&gBuffer.gBufferSpecular));
+
     CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
     rtvHandle.Offset(2, mRtvDescriptorSize);
 
@@ -1287,6 +1324,9 @@ void Engine::ResizeGBuffer()
     rtvHandle.Offset(1, mRtvDescriptorSize);
 
     md3dDevice->CreateRenderTargetView(gBuffer.gBufferNormal.Get(), nullptr, rtvHandle);
+    rtvHandle.Offset(1, mRtvDescriptorSize);
+
+    md3dDevice->CreateRenderTargetView(gBuffer.gBufferSpecular.Get(), nullptr, rtvHandle);
     rtvHandle.Offset(1, mRtvDescriptorSize);
 
     ThrowIfFailed(mCommandList->Close());
