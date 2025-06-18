@@ -239,6 +239,7 @@ GBuffer PS(DomainOut pin) : SV_Target
     GBuffer gBuffer;
     gBuffer.Position = float4(pin.PosW, 1.0f);
     gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+    gBuffer.Normal *= float4(pin.NormalW, 1.0f);
     gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
     
     float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
@@ -282,6 +283,7 @@ GBuffer PSPixel(DomainOut pin) : SV_Target
     
     gBuffer.Position = float4(pin.PosW, 1.0f);
     gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
+    gBuffer.Normal *= float4(pin.NormalW, 1.0f);
     gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
     
     float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;

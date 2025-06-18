@@ -76,6 +76,7 @@ struct RenderItem
 enum class RenderLayer : int
 {
     Opaque = 0,
+    OpaqueWireframe = 1,
     Count
 };
 
@@ -410,7 +411,10 @@ void Engine::Draw(const GameTimer& gt)
         else if (isPixelated) mCommandList->SetPipelineState(mPSOs["opaquePixel"].Get());
         else mCommandList->SetPipelineState(mPSOs["opaqueWireframe"].Get());
 
-        DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+        if (isSolid && !isPixelated) DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueWireframe]);
+        else if (isPixelated) DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueWireframe]);
+        else DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueWireframe]);
+
 
         // Indicate a state transition on the resource usage.
         auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -554,6 +558,12 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, Obj2rotY)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 0.0f, 1.0f }, Obj2rotZ)
                 * DirectX::XMMatrixTranslation(Obj2posX, Obj2posY, Obj2posZ);
+            else if (i == 3)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos1[0], lightPos1[1], lightPos1[2]);
+            else if (i == 4)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos2[0], lightPos2[1], lightPos2[2]);
+            else if (i == 5)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos3[0], lightPos3[1], lightPos3[2]);
 
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
@@ -734,6 +744,30 @@ void Engine::LoadTextures()
         mCommandList.Get(), stoneDisplacement->Filename.c_str(),
         stoneDisplacement->Resource, stoneDisplacement->UploadHeap), true);
     mTextures[stoneDisplacement->Name] = std::move(stoneDisplacement);
+
+    auto testTex = std::make_unique<Texture>();
+    testTex->Name = "TestTex";
+    testTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\TestTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), testTex->Filename.c_str(),
+        testTex->Resource, testTex->UploadHeap), true);
+    mTextures[testTex->Name] = std::move(testTex);
+
+    auto testNorm = std::make_unique<Texture>();
+    testNorm->Name = "TestNorm";
+    testNorm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\TestNormal.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), testNorm->Filename.c_str(),
+        testNorm->Resource, testNorm->UploadHeap), true);
+    mTextures[testNorm->Name] = std::move(testNorm);
+
+    auto testDisplacement = std::make_unique<Texture>();
+    testDisplacement->Name = "TestDisplacement";
+    testDisplacement->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\TestDisplacement.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), testDisplacement->Filename.c_str(),
+        testDisplacement->Resource, testDisplacement->UploadHeap), true);
+    mTextures[testDisplacement->Name] = std::move(testDisplacement);
 }
 
 void Engine::BuildDescriptorHeaps()
@@ -742,7 +776,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 11;
+    srvHeapDesc.NumDescriptors = 14;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -807,13 +841,39 @@ void Engine::UploadTextures()
     srvDesc3.Format = StoneDisplacement->GetDesc().Format;
     srvDesc3.Texture2D.MipLevels = StoneDisplacement->GetDesc().MipLevels;
     md3dDevice->CreateShaderResourceView(StoneDisplacement.Get(), &srvDesc3, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto TestTex = mTextures["TestTex"]->Resource;
+    auto TestNorm = mTextures["TestNorm"]->Resource;
+    auto TestDisplacement = mTextures["TestDisplacement"]->Resource;
+
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc4 = {};
+    srvDesc4.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc4.Format = TestTex->GetDesc().Format;
+    srvDesc4.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc4.Texture2D.MostDetailedMip = 0;
+    srvDesc4.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(TestTex.Get(), &srvDesc4, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc4.Format = TestNorm->GetDesc().Format;
+    md3dDevice->CreateShaderResourceView(TestNorm.Get(), &srvDesc4, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc4.Format = TestDisplacement->GetDesc().Format;
+    srvDesc4.Texture2D.MipLevels = TestDisplacement->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(TestDisplacement.Get(), &srvDesc4, hDescriptor);
 }
 
 
 void Engine::BuildRootSignature()
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 11, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 13, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
@@ -873,61 +933,107 @@ void Engine::BuildShapeGeometry()
     GeometryGenerator::MeshData box = geoGen.CreateBoxTiling(1.0f, 1.0f, 1.0f, 1, 1);
     GeometryGenerator::MeshData box2 = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
     GeometryGenerator::MeshData box3 = geoGen.CreateBoxTiling(5.f, 5.f, 5.f, 1, 1);
+    GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.2f, 7, 3, 0.f, 0.f, 0.f);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
 
     SubmeshGeometry boxSubmesh;
     boxSubmesh.IndexCount = (UINT)box.Indices32.size();
-    boxSubmesh.StartIndexLocation = 0;
-    boxSubmesh.BaseVertexLocation = 0;
+    boxSubmesh.StartIndexLocation = totalIndexCount;
+    boxSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += boxSubmesh.IndexCount;
+    totalVertexCount += box.Vertices.size();
 
     SubmeshGeometry boxSubmesh2;
     boxSubmesh2.IndexCount = (UINT)box2.Indices32.size();
-    boxSubmesh2.StartIndexLocation = boxSubmesh.IndexCount;
-    boxSubmesh2.BaseVertexLocation = box.Vertices.size();
+    boxSubmesh2.StartIndexLocation = totalIndexCount;
+    boxSubmesh2.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += boxSubmesh2.IndexCount;
+    totalVertexCount += box2.Vertices.size();
 
     SubmeshGeometry boxSubmesh3;
     boxSubmesh3.IndexCount = (UINT)box3.Indices32.size();
-    boxSubmesh3.StartIndexLocation = boxSubmesh.IndexCount + boxSubmesh2.IndexCount;
-    boxSubmesh3.BaseVertexLocation = box.Vertices.size() + box2.Vertices.size();
+    boxSubmesh3.StartIndexLocation = totalIndexCount;
+    boxSubmesh3.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += boxSubmesh3.IndexCount;
+    totalVertexCount += box3.Vertices.size();
 
-    SubmeshGeometry objectSubmesh;
-    objectSubmesh.IndexCount = 0;
-    objectSubmesh.StartIndexLocation = 0;
-    objectSubmesh.BaseVertexLocation = box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size();
-    Model objectModel("Obj/head.obj");
-    objectSubmesh.VertexCount = objectModel.nverts();
+    SubmeshGeometry pointLight1Submesh;
+    pointLight1Submesh.IndexCount = (UINT)sphere.Indices32.size();
+    pointLight1Submesh.StartIndexLocation = totalIndexCount;
+    pointLight1Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += pointLight1Submesh.IndexCount;
+    totalVertexCount += sphere.Vertices.size();
+
+    SubmeshGeometry pointLight2Submesh;
+    pointLight2Submesh.IndexCount = (UINT)sphere.Indices32.size();
+    pointLight2Submesh.StartIndexLocation = totalIndexCount;
+    pointLight2Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += pointLight2Submesh.IndexCount;
+    totalVertexCount += sphere.Vertices.size();
+
+    SubmeshGeometry pointLight3Submesh;
+    pointLight3Submesh.IndexCount = (UINT)sphere.Indices32.size();
+    pointLight3Submesh.StartIndexLocation = totalIndexCount;
+    pointLight3Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += pointLight3Submesh.IndexCount;
+    totalVertexCount += sphere.Vertices.size();
 
 
-    std::vector<Vertex> vertices(box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size() + objectModel.nverts());
+    std::vector<Vertex> vertices(totalVertexCount);
+    UINT totalVertexCount2 = 0;
 
     for (size_t i = 0; i < box.Vertices.size(); ++i)
     {
-        vertices[i].Pos = box.Vertices[i].Position;
-        vertices[i].Normal = box.Vertices[i].Normal;
-        vertices[i].TexC = box.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].Pos = box.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = box.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = box.Vertices[i].TexC;
     }
+    totalVertexCount2 += box.Vertices.size();
     for (size_t i = 0; i < box2.Vertices.size(); ++i)
     {
-        vertices[i + box.Vertices.size()].Pos = box2.Vertices[i].Position;
-        vertices[i + box.Vertices.size()].Normal = box2.Vertices[i].Normal;
-        vertices[i + box.Vertices.size()].TexC = box2.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].Pos = box2.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = box2.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = box2.Vertices[i].TexC;
     }
+    totalVertexCount2 += box.Vertices.size();
     for (size_t i = 0; i < box3.Vertices.size(); ++i)
     {
-        vertices[i + box.Vertices.size() + box2.Vertices.size()].Pos = box3.Vertices[i].Position;
-        vertices[i + box.Vertices.size() + box2.Vertices.size()].Normal = box3.Vertices[i].Normal;
-        vertices[i + box.Vertices.size() + box2.Vertices.size()].TexC = box3.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].Pos = box3.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = box3.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = box3.Vertices[i].TexC;
     }
-    for (size_t i = 0; i < objectModel.nverts(); ++i)
+    totalVertexCount2 += box.Vertices.size();
+    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
     {
-        vertices[i + box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size()].Pos = DirectX::XMFLOAT3{ objectModel.vert(i).x, objectModel.vert(i).y, objectModel.vert(i).z };
-        vertices[i + box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size()].Normal = DirectX::XMFLOAT3{ objectModel.norm(i).x, objectModel.norm(i).y, objectModel.norm(i).z };
-        vertices[i + box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size()].TexC = DirectX::XMFLOAT2{ objectModel.uv(i).x, objectModel.uv(i).y };
+        vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
     }
+    totalVertexCount2 += sphere.Vertices.size();
+    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
+    }
+    totalVertexCount2 += sphere.Vertices.size();
+    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
+    }
+    totalVertexCount2 += sphere.Vertices.size();
 
     std::vector<std::uint16_t> indices;
     indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
     indices.insert(indices.end(), std::begin(box2.GetIndices16()), std::end(box2.GetIndices16()));
     indices.insert(indices.end(), std::begin(box3.GetIndices16()), std::end(box3.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -955,7 +1061,9 @@ void Engine::BuildShapeGeometry()
     geo->DrawArgs["box"] = boxSubmesh;
     geo->DrawArgs["box2"] = boxSubmesh2;
     geo->DrawArgs["box3"] = boxSubmesh3;
-    geo->DrawArgs["object"] = objectSubmesh;
+    geo->DrawArgs["pointLight1"] = pointLight1Submesh;
+    geo->DrawArgs["pointLight2"] = pointLight2Submesh;
+    geo->DrawArgs["pointLight3"] = pointLight3Submesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -1104,6 +1212,16 @@ void Engine::BuildMaterials()
     stoneMat->Roughness = 0.5f;
 
     mMaterials["stoneMaterial"] = std::move(stoneMat);
+
+    auto testMat = std::make_unique<Material>();
+    testMat->Name = "testMaterial";
+    testMat->MatCBIndex = 3;
+    testMat->DiffuseSrvHeapIndex = 7;
+    testMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    testMat->FresnelR0 = DirectX::XMFLOAT3(0.1f, 0.1f, 0.1f);
+    testMat->Roughness = 0.5f;
+
+    mMaterials["testMaterial"] = std::move(testMat);
 }
 
 void Engine::BuildRenderItems()
@@ -1142,22 +1260,48 @@ void Engine::BuildRenderItems()
     stoneTesselationRitem->BaseVertexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
     mAllRitems.push_back(std::move(stoneTesselationRitem));
 
-    //auto objectRitem = std::make_unique<RenderItem>();
-    //objectRitem->ObjCBIndex = 3;
-    //XMStoreFloat4x4(&objectRitem->World, DirectX::XMMatrixScaling(1.0f, 1.0f, 1.0f) * DirectX::XMMatrixTranslation(-10.0f, 0.0f, 0.0f));
-    //objectRitem->TexTransform = MathHelper::Identity4x4();
-    //objectRitem->Mat = mMaterials["stoneMaterial"].get();
-    //objectRitem->Geo = mGeometries["boxGeo"].get();
-    //objectRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-    //objectRitem->IndexCount = objectRitem->Geo->DrawArgs["object"].IndexCount;
-    //objectRitem->StartIndexLocation = objectRitem->Geo->DrawArgs["object"].StartIndexLocation;
-    //objectRitem->BaseVertexLocation = objectRitem->Geo->DrawArgs["object"].BaseVertexLocation;
-    //objectRitem->VertexCount = objectRitem->Geo->DrawArgs["object"].VertexCount;
-    //mAllRitems.push_back(std::move(objectRitem));
+    auto pointLight1Ritem = std::make_unique<RenderItem>();
+    pointLight1Ritem->ObjCBIndex = 3;
+    pointLight1Ritem->World = MathHelper::Identity4x4();
+    pointLight1Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight1Ritem->Mat = mMaterials["testMaterial"].get();
+    pointLight1Ritem->Geo = mGeometries["boxGeo"].get();
+    pointLight1Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    pointLight1Ritem->IndexCount = pointLight1Ritem->Geo->DrawArgs["pointLight1"].IndexCount;
+    pointLight1Ritem->StartIndexLocation = pointLight1Ritem->Geo->DrawArgs["pointLight1"].StartIndexLocation;
+    pointLight1Ritem->BaseVertexLocation = pointLight1Ritem->Geo->DrawArgs["pointLight1"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(pointLight1Ritem));
+
+    auto pointLight2Ritem = std::make_unique<RenderItem>();
+    pointLight2Ritem->ObjCBIndex = 4;
+    pointLight2Ritem->World = MathHelper::Identity4x4();
+    pointLight2Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight2Ritem->Mat = mMaterials["testMaterial"].get();
+    pointLight2Ritem->Geo = mGeometries["boxGeo"].get();
+    pointLight2Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    pointLight2Ritem->IndexCount = pointLight2Ritem->Geo->DrawArgs["pointLight2"].IndexCount;
+    pointLight2Ritem->StartIndexLocation = pointLight2Ritem->Geo->DrawArgs["pointLight2"].StartIndexLocation;
+    pointLight2Ritem->BaseVertexLocation = pointLight2Ritem->Geo->DrawArgs["pointLight2"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(pointLight2Ritem));
+
+    auto pointLight3Ritem = std::make_unique<RenderItem>();
+    pointLight3Ritem->ObjCBIndex = 5;
+    pointLight3Ritem->World = MathHelper::Identity4x4();
+    pointLight3Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight3Ritem->Mat = mMaterials["testMaterial"].get();
+    pointLight3Ritem->Geo = mGeometries["boxGeo"].get();
+    pointLight3Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    pointLight3Ritem->IndexCount = pointLight3Ritem->Geo->DrawArgs["pointLight3"].IndexCount;
+    pointLight3Ritem->StartIndexLocation = pointLight3Ritem->Geo->DrawArgs["pointLight3"].StartIndexLocation;
+    pointLight3Ritem->BaseVertexLocation = pointLight3Ritem->Geo->DrawArgs["pointLight3"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(pointLight3Ritem));
 
     // All the render items are opaque.
-    for (auto& e : mAllRitems)
-        mRitemLayer[(int)RenderLayer::Opaque].push_back(e.get());
+    for (int i = 0; i < mAllRitems.size(); ++i)
+    {
+        mRitemLayer[(int)RenderLayer::Opaque].push_back(mAllRitems[i].get());
+        mRitemLayer[(int)RenderLayer::OpaqueWireframe].push_back(mAllRitems[i].get());
+    }
 }
 
 void Engine::InitGBuffer()
@@ -1233,7 +1377,7 @@ void Engine::InitGBuffer()
 
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
-    hDescriptor.Offset(7, mCbvSrvDescriptorSize);
+    hDescriptor.Offset(10, mCbvSrvDescriptorSize);
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDRDesc = {};
     srvDRDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -1363,9 +1507,7 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
             cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
             cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
-            if (i != 3)
-                cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
-            else cmdList->DrawInstanced(ri->VertexCount, 1, ri->BaseVertexLocation, 0);
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
         }
     }
 }
@@ -1539,6 +1681,10 @@ void Engine::RenderUI()
             ImGui::EndTable();
         }
         ImGui::ColorPicker3("Point light 3 color", col3, ImGuiColorEditFlags_NoAlpha);
+
+        mAllRitems[3]->NumFramesDirty = 1;
+        mAllRitems[4]->NumFramesDirty = 1;
+        mAllRitems[5]->NumFramesDirty = 1;
     } ImGui::End();
 
 
@@ -1553,7 +1699,7 @@ void Engine::RenderUI()
         if (ImGui::Begin("Deferred Render Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
         {
             CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-            tex.Offset(7, mCbvSrvDescriptorSize);
+            tex.Offset(10, mCbvSrvDescriptorSize);
             ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
             tex.Offset(1, mCbvSrvDescriptorSize);
             ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
