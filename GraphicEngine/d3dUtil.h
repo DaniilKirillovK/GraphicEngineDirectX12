@@ -150,6 +150,7 @@ struct SubmeshGeometry
     UINT IndexCount = 0;
     UINT StartIndexLocation = 0;
     INT BaseVertexLocation = 0;
+    UINT VertexCount = 0;
 
     // Bounding box of the geometry defined by this submesh. 
     // This is used in later chapters of the book.
@@ -219,6 +220,7 @@ struct Light
     float FalloffEnd = 10.0f;                           // point/spot light only
     DirectX::XMFLOAT3 Position = { 0.0f, 0.0f, 0.0f };  // point/spot light only
     float SpotPower = 64.0f;                            // spot light only
+    DirectX::XMFLOAT4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
 #define MaxLights 16

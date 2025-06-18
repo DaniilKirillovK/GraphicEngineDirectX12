@@ -14,6 +14,7 @@ struct Light
     float FalloffEnd;   // point/spot light only
     float3 Position;    // point light only
     float SpotPower;    // spot light only
+    float4 Color;
 };
 
 struct Material
@@ -146,21 +147,21 @@ float4 ComputeLighting(Light gLights[MaxLights], Material mat,
 #if (NUM_DIR_LIGHTS > 0)
     for(i = 0; i < NUM_DIR_LIGHTS; ++i)
     {
-        result += shadowFactor[i] * ComputeDirectionalLight(gLights[i], mat, normal, toEye);
+        result += shadowFactor[i] * ComputeDirectionalLight(gLights[i], mat, normal, toEye) * gLights[i].Color.xyz;
     }
 #endif
 
 #if (NUM_POINT_LIGHTS > 0)
     for(i = NUM_DIR_LIGHTS; i < NUM_DIR_LIGHTS+NUM_POINT_LIGHTS; ++i)
     {
-        result += ComputePointLight(gLights[i], mat, pos, normal, toEye);
+        result += ComputePointLight(gLights[i], mat, pos, normal, toEye) * gLights[i].Color.xyz;
     }
 #endif
 
 #if (NUM_SPOT_LIGHTS > 0)
     for(i = NUM_DIR_LIGHTS + NUM_POINT_LIGHTS; i < NUM_DIR_LIGHTS + NUM_POINT_LIGHTS + NUM_SPOT_LIGHTS; ++i)
     {
-        result += ComputeSpotLight(gLights[i], mat, pos, normal, toEye);
+        result += ComputeSpotLight(gLights[i], mat, pos, normal, toEye) * gLights[i].Color.xyz;
     }
 #endif 
 

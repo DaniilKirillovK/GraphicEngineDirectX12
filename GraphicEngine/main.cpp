@@ -13,6 +13,7 @@
 #include "FrameResource.h"
 #include "Camera.h"
 #include "GBuffer.h"
+#include "Model.h"
 
 
 
@@ -67,6 +68,9 @@ struct RenderItem
     UINT IndexCount = 0;
     UINT StartIndexLocation = 0;
     int BaseVertexLocation = 0;
+
+    // DrawInstanced parameters
+    UINT VertexCount = 0;
 };
 
 enum class RenderLayer : int
@@ -202,6 +206,14 @@ float Obj2rotY = 0.f;
 float Obj2rotZ = 0.f;
 
 float tessFactor = 8.f;
+
+float col1[3] = { 1.0f, 1.0f, 1.0f };
+float col2[3] = { 1.0f, 1.0f, 1.0f };
+float col3[3] = { 1.0f, 1.0f, 1.0f };
+
+float lightPos1[3] = { 0.0f, 0.0f, 0.0f };
+float lightPos2[3] = { 0.0f, 0.0f, 0.0f };
+float lightPos3[3] = { 0.0f, 0.0f, 0.0f };
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -465,7 +477,7 @@ void Engine::OnMouseMove(WPARAM btnState, int x, int y)
     if (x <= 1024
         && (x <= 960 && y <= 600))
     {
-        if ((btnState & MK_LBUTTON) != 0)
+        if ((btnState & MK_MBUTTON) != 0)
         {
             // Make each pixel correspond to a quarter of a degree.
             float dx = DirectX::XMConvertToRadians(0.25f * static_cast<float>(x - mLastMousePos.x));
@@ -611,12 +623,42 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.TotalTime = gt.TotalTime();
     mMainPassCB.DeltaTime = gt.DeltaTime();
     mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+    
+    // Directional lights
     mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
     mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
+    mMainPassCB.Lights[0].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
     mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
     mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+    mMainPassCB.Lights[1].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
     mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
     mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+    mMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    // Point lights
+    mMainPassCB.Lights[3].Position = { lightPos1[0], lightPos1[1], lightPos1[2] };
+    mMainPassCB.Lights[3].FalloffStart = 1.0f;
+    mMainPassCB.Lights[3].FalloffEnd = 1.0f;
+    mMainPassCB.Lights[3].Color = { col1[0], col1[1], col1[2], 1.0f };
+    mMainPassCB.Lights[4].Position = { lightPos2[0], lightPos2[1], lightPos2[2] };
+    mMainPassCB.Lights[4].FalloffStart = 1.0f;
+    mMainPassCB.Lights[4].FalloffEnd = 1.0f;
+    mMainPassCB.Lights[4].Color = { col2[0], col2[1], col2[2], 1.0f };
+    mMainPassCB.Lights[5].Position = { lightPos3[0], lightPos3[1], lightPos3[2] };
+    mMainPassCB.Lights[5].FalloffStart = 1.0f;
+    mMainPassCB.Lights[5].FalloffEnd = 1.0f;
+    mMainPassCB.Lights[5].Color = { col3[0], col3[1], col3[2], 1.0f };
+
+
+    // Spot lights
+    //mMainPassCB.Lights[6].FalloffStart = 1.0f;
+    //mMainPassCB.Lights[6].FalloffEnd = 100.0f;
+    //mMainPassCB.Lights[6].Color = { 1.0f, 0.0f, 1.0f, 1.0f };
+    //mMainPassCB.Lights[6].SpotPower = 1000.0f;
+    //XMStoreFloat3(&mMainPassCB.Lights[6].Direction, mCamera.GetLook());
+    //XMStoreFloat3(&mMainPassCB.Lights[6].Position, mCamera.GetPosition());
+
+
     mMainPassCB.TessFactor = tessFactor;
     mMainPassCB.PixelationFactor = pixelationFactor;
 
@@ -847,8 +889,15 @@ void Engine::BuildShapeGeometry()
     boxSubmesh3.StartIndexLocation = boxSubmesh.IndexCount + boxSubmesh2.IndexCount;
     boxSubmesh3.BaseVertexLocation = box.Vertices.size() + box2.Vertices.size();
 
+    SubmeshGeometry objectSubmesh;
+    objectSubmesh.IndexCount = 0;
+    objectSubmesh.StartIndexLocation = 0;
+    objectSubmesh.BaseVertexLocation = box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size();
+    Model objectModel("Obj/head.obj");
+    objectSubmesh.VertexCount = objectModel.nverts();
 
-    std::vector<Vertex> vertices(box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size());
+
+    std::vector<Vertex> vertices(box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size() + objectModel.nverts());
 
     for (size_t i = 0; i < box.Vertices.size(); ++i)
     {
@@ -867,6 +916,12 @@ void Engine::BuildShapeGeometry()
         vertices[i + box.Vertices.size() + box2.Vertices.size()].Pos = box3.Vertices[i].Position;
         vertices[i + box.Vertices.size() + box2.Vertices.size()].Normal = box3.Vertices[i].Normal;
         vertices[i + box.Vertices.size() + box2.Vertices.size()].TexC = box3.Vertices[i].TexC;
+    }
+    for (size_t i = 0; i < objectModel.nverts(); ++i)
+    {
+        vertices[i + box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size()].Pos = DirectX::XMFLOAT3{ objectModel.vert(i).x, objectModel.vert(i).y, objectModel.vert(i).z };
+        vertices[i + box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size()].Normal = DirectX::XMFLOAT3{ objectModel.norm(i).x, objectModel.norm(i).y, objectModel.norm(i).z };
+        vertices[i + box.Vertices.size() + box2.Vertices.size() + box3.Vertices.size()].TexC = DirectX::XMFLOAT2{ objectModel.uv(i).x, objectModel.uv(i).y };
     }
 
     std::vector<std::uint16_t> indices;
@@ -900,6 +955,7 @@ void Engine::BuildShapeGeometry()
     geo->DrawArgs["box"] = boxSubmesh;
     geo->DrawArgs["box2"] = boxSubmesh2;
     geo->DrawArgs["box3"] = boxSubmesh3;
+    geo->DrawArgs["object"] = objectSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -1085,6 +1141,19 @@ void Engine::BuildRenderItems()
     stoneTesselationRitem->StartIndexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].StartIndexLocation;
     stoneTesselationRitem->BaseVertexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
     mAllRitems.push_back(std::move(stoneTesselationRitem));
+
+    //auto objectRitem = std::make_unique<RenderItem>();
+    //objectRitem->ObjCBIndex = 3;
+    //XMStoreFloat4x4(&objectRitem->World, DirectX::XMMatrixScaling(1.0f, 1.0f, 1.0f) * DirectX::XMMatrixTranslation(-10.0f, 0.0f, 0.0f));
+    //objectRitem->TexTransform = MathHelper::Identity4x4();
+    //objectRitem->Mat = mMaterials["stoneMaterial"].get();
+    //objectRitem->Geo = mGeometries["boxGeo"].get();
+    //objectRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    //objectRitem->IndexCount = objectRitem->Geo->DrawArgs["object"].IndexCount;
+    //objectRitem->StartIndexLocation = objectRitem->Geo->DrawArgs["object"].StartIndexLocation;
+    //objectRitem->BaseVertexLocation = objectRitem->Geo->DrawArgs["object"].BaseVertexLocation;
+    //objectRitem->VertexCount = objectRitem->Geo->DrawArgs["object"].VertexCount;
+    //mAllRitems.push_back(std::move(objectRitem));
 
     // All the render items are opaque.
     for (auto& e : mAllRitems)
@@ -1294,7 +1363,9 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
             cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
             cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
-            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+            if (i != 3)
+                cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+            else cmdList->DrawInstanced(ri->VertexCount, 1, ri->BaseVertexLocation, 0);
         }
     }
 }
@@ -1384,8 +1455,90 @@ void Engine::RenderUI()
             else selectedObjectID = 2;
         }
 
-        mAllRitems[0]->NumFramesDirty = gNumFrameResources;
-        mAllRitems[1]->NumFramesDirty = gNumFrameResources;
+        mAllRitems[0]->NumFramesDirty = 1;
+        mAllRitems[1]->NumFramesDirty = 1;
+    } ImGui::End();
+
+    ImVec2 lightPanelSize = ImVec2(350.f, 350.f);
+    ImGui::SetNextWindowSize(lightPanelSize);
+    if (ImGui::Begin("Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+    {
+        ImGui::Text("Point Light 1");
+        if (ImGui::BeginTable("PointLight1", 3))
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("Pos X");
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::InputFloat("##PointLightPos1X", &lightPos1[0], 0.1f, 0.1f);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("Pos Y");
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::InputFloat("##PointLightPos1Y", &lightPos1[1], 0.1f, 0.1f);
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("Pos Z");
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::InputFloat("##PointLightPos1Z", &lightPos1[2], 0.1f, 0.1f);
+            ImGui::EndTable();
+        }
+        ImGui::ColorPicker3("Point light 1 color", col1, ImGuiColorEditFlags_NoAlpha);
+
+        ImGui::Text("");
+        ImGui::Text("Point Light 2");
+        if (ImGui::BeginTable("PointLight2", 3))
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("Pos X");
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::InputFloat("##PointLightPos2X", &lightPos2[0], 0.1f, 0.1f);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("Pos Y");
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::InputFloat("##PointLightPos2Y", &lightPos2[1], 0.1f, 0.1f);
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("Pos Z");
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::InputFloat("##PointLightPos2Z", &lightPos2[2], 0.1f, 0.1f);
+            ImGui::EndTable();
+        }
+        ImGui::ColorPicker3("Point light 2 color", col2, ImGuiColorEditFlags_NoAlpha);
+
+        ImGui::Text("");
+        ImGui::Text("Point Light 3");
+        if (ImGui::BeginTable("PointLight3", 3))
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("Pos X");
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::InputFloat("##PointLightPos3X", &lightPos3[0], 0.1f, 0.1f);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("Pos Y");
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::InputFloat("##PointLightPos3Y", &lightPos3[1], 0.1f, 0.1f);
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("Pos Z");
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::InputFloat("##PointLightPos3Z", &lightPos3[2], 0.1f, 0.1f);
+            ImGui::EndTable();
+        }
+        ImGui::ColorPicker3("Point light 3 color", col3, ImGuiColorEditFlags_NoAlpha);
     } ImGui::End();
 
 
