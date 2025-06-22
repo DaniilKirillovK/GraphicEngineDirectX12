@@ -188,6 +188,7 @@ int selectedObjectID = 1;
 bool isAnimateMaterial = true;
 bool isSolid = true;
 bool deferredRenderDisplayInfo = false;
+bool isParallaxMapping = false;
 
 bool isPixelated = false;
 int pixelationFactor = 16.f;
@@ -436,6 +437,21 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
         mCommandList->ResourceBarrier(6, barriersClose);
+
+        //mCommandList->OMSetRenderTargets(1, &rtvs[0], FALSE, nullptr);
+
+        //// Установка шейдеров и корневой сигнатуры
+        //commandList->SetPipelineState(lightingPSO.Get());
+        //commandList->SetGraphicsRootSignature(lightingRootSig.Get());
+
+        //// Привязка G-буферов как SRV
+        //commandList->SetGraphicsRootDescriptorTable(0, gBufferSrvHandle);
+        //commandList->SetGraphicsRootDescriptorTable(1, shadowMapSrvHandle);
+
+        //// Рисование полноэкранного квада
+        //commandList->IASetVertexBuffers(0, 1, &fullscreenQuadVertexBufferView);
+        //commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+        //commandList->DrawInstanced(4, 1, 0, 0);
     }
 
 
@@ -670,6 +686,9 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
 
     mMainPassCB.TessFactor = tessFactor;
     mMainPassCB.PixelationFactor = pixelationFactor;
+    if (isParallaxMapping)
+        mMainPassCB.ParallaxMapping = 1.0f;
+    else mMainPassCB.ParallaxMapping = 0.0f;
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -917,6 +936,9 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["tessDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_0");
     mShaders["tessPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_0");
     mShaders["PSPixel"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PSPixel", "ps_5_0");
+
+    //mShaders["DeferredVSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "VSMain", "vs_5_0");
+    //mShaders["DeferredPSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "PSMain", "ps_5_0");
 
     mInputLayout =
     {
@@ -1636,6 +1658,7 @@ void Engine::RenderUI()
         ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
         ImGui::Text("");
         ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
+        ImGui::Checkbox("Parallax Mapping", &isParallaxMapping);
         ImGui::Checkbox("Solid Mode", &isSolid);
         ImGui::SliderFloat("Tesselation Factor", &tessFactor, 1.f, 64.f);
         ImGui::Checkbox("Pixelation Shader", &isPixelated);

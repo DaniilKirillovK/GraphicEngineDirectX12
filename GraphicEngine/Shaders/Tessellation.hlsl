@@ -1,21 +1,8 @@
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 3
-#endif
-
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 3
-#endif
-
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 0
-#endif
-
 #include "LightingUtil.hlsl"
 #include "Common.hlsl"
 
 Texture2D<float4> gTextures[3] : register(t0);
-Texture2D<float4> decalTexture : register(t14);
-
+Texture2D<float4> decalTexture : register(t15);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -66,7 +53,8 @@ cbuffer cbPass : register(b1)
     
     float tessFactor;
     float pixelationFactor;
-    float2 cbPerObjectPad3;
+    float isParallaxMapping;
+    float cbPerObjectPad3;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -253,41 +241,20 @@ GBuffer PS(DomainOut pin) : SV_Target
 {
     GBuffer gBuffer;
     gBuffer.Position = float4(pin.PosW, 1.0f);
-    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
-    gBuffer.Normal *= float4(pin.NormalW, 1.0f);
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
     
-    float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
-    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+    float2 texCoord = pin.TexC;
+    if (isParallaxMapping == 1.0f)
+    {
+        texCoord = ParallaxMapping(pin.TexC, gEyePosW - pin.PosW, gsamLinearWrap, gTextures[2], 0.05f);
+    }
+    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, texCoord) * gDiffuseAlbedo;
+    
+    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, texCoord);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
-
-    // Interpolating normal can unnormalize it, so renormalize it.
-    //pin.NormalW = normalize(normalMap.xyz);
-    pin.NormalW = normalMap.xyz;
-
-    // Vector from point being lit to eye. 
-    float3 toEyeW = normalize(gEyePosW - pin.PosW);
-
-    // Light terms.
-    float4 ambient = gAmbientLight * diffuseAlbedo;
-
-    const float shininess = 1.0f - gRoughness;
-    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
-    float3 shadowFactor = 1.0f;
-    float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
-        bumpedNormalW, toEyeW, shadowFactor);
     
-    Material matDeferred = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
-    
-    float4 directLightDeferred = ComputeLighting(gLights, matDeferred, pin.PosW,
-        bumpedNormalW, toEyeW, shadowFactor);
-
-    float4 litColor = ambient + directLight;
-    gBuffer.Specular = float4(directLightDeferred.x, directLightDeferred.y, directLightDeferred.z, 1.0f);
-
-    // Common convention to take alpha from diffuse material.
-    litColor.a = diffuseAlbedo.a;
-    gBuffer.Color = litColor;
+    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
+    gBuffer.Color = gBuffer.Albedo;
+    gBuffer.Specular = gBuffer.Position;
 
     return gBuffer;
 }
@@ -298,90 +265,15 @@ GBuffer PSPixel(DomainOut pin) : SV_Target
     float2 pixelatedUV = floor(pin.TexC * pixelationFactor) / pixelationFactor;
     
     gBuffer.Position = float4(pin.PosW, 1.0f);
-    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
-    gBuffer.Normal *= float4(pin.NormalW, 1.0f);
     gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
     
-    float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
     float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
     
-
-    // Interpolating normal can unnormalize it, so renormalize it.
-    //pin.NormalW = normalize(normalMap.xyz);
-    pin.NormalW = normalMap.xyz;
-
-    // Vector from point being lit to eye. 
-    float3 toEyeW = normalize(gEyePosW - pin.PosW);
-
-    // Light terms.
-    float4 ambient = gAmbientLight * diffuseAlbedo;
-
-    const float shininess = 1.0f - gRoughness * normalMap.a;
-    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
-    float3 shadowFactor = 1.0f;
-    float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
-        bumpedNormalW, toEyeW, shadowFactor);
-    
-    Material matDeferred = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
-    
-    float4 directLightDeferred = ComputeLighting(gLights, matDeferred, pin.PosW,
-        bumpedNormalW, toEyeW, shadowFactor);
-    
-
-    float4 litColor = ambient + directLight;
-    
-    gBuffer.Specular = float4(directLightDeferred.x, directLightDeferred.y, directLightDeferred.z, 1.0f);
-
-    // Common convention to take alpha from diffuse material.
-    litColor.a = diffuseAlbedo.a;
-    gBuffer.Color = litColor;
-
-    return gBuffer;
-}
-
-
-
-
-// DEBUG
-GBuffer PSAlbedo(DomainOut pin) : SV_Target
-{
-    GBuffer gBuffer;
-    gBuffer.Position = float4(pin.PosW, 1.0f);
-    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
-    
-    gBuffer.Color = float4(1.0f, 1.0f, 1.0f, 1.0f);
-    
+    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
     gBuffer.Color = gBuffer.Albedo;
-    
+    gBuffer.Specular = gBuffer.Position;
+
     return gBuffer;
 }
 
-GBuffer PSPosition(DomainOut pin) : SV_Target
-{
-    GBuffer gBuffer;
-    gBuffer.Position = float4(pin.PosW, 1.0f);
-    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
-    
-    gBuffer.Color = float4(1.0f, 1.0f, 1.0f, 1.0f);
-    
-    gBuffer.Color = gBuffer.Position;
-    
-    return gBuffer;
-}
-
-GBuffer PSNormal(DomainOut pin) : SV_Target
-{
-    GBuffer gBuffer;
-    gBuffer.Position = float4(pin.PosW, 1.0f);
-    gBuffer.Normal = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
-    
-    gBuffer.Color = float4(1.0f, 1.0f, 1.0f, 1.0f);
-    
-    gBuffer.Color = gBuffer.Normal;
-    
-    return gBuffer;
-}
