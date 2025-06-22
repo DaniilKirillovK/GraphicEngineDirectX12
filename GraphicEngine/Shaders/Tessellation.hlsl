@@ -11,8 +11,10 @@
 #endif
 
 #include "LightingUtil.hlsl"
+#include "Common.hlsl"
 
 Texture2D<float4> gTextures[3] : register(t0);
+Texture2D<float4> decalTexture : register(t14);
 
 
 SamplerState gsamPointWrap : register(s0);
@@ -88,6 +90,7 @@ struct VertexIn
     float3 PosL : POSITION;
     float3 NormalL : NORMAL;
     float2 TexC : TEXCOORD;
+    float3 TangentU : TANGENT;
 };
 
 struct VertexOut
@@ -96,6 +99,7 @@ struct VertexOut
     float3 PosW : POSITION;
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
+    float3 TangentW : TANGENT;
 };
 
 VertexOut VS(VertexIn vin)
@@ -111,6 +115,8 @@ VertexOut VS(VertexIn vin)
 
     // Transform to homogeneous clip space.
     vout.PosH = mul(posW, gViewProj);
+    
+    vout.TangentW = mul(vin.TangentU, (float3x3) gWorld);
 	
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC * tilesCount, 0.0f, 1.0f), gTexTransform);
@@ -163,6 +169,7 @@ struct HullOut
     float3 PosL : POSITION;
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
+    float3 TangentW : TANGENT;
 };
 
 [domain("tri")]
@@ -180,6 +187,7 @@ HullOut HS(InputPatch<VertexOut, 3> p,
     hout.PosL = p[i].PosW;
     hout.NormalW = p[i].NormalW;
     hout.TexC = p[i].TexC;
+    hout.TangentW = p[i].TangentW;
 	
     return hout;
 }
@@ -190,6 +198,7 @@ struct DomainOut
     float3 PosW : POSITION;
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
+    float3 TangentW : TANGENT;
 };
 
 
@@ -218,6 +227,11 @@ DomainOut DS(PatchTess patchTess,
         barycentric.x * tri[0].TexC +
         barycentric.y * tri[1].TexC +
         barycentric.z * tri[2].TexC;
+    
+    float3 tangent = 
+        barycentric.x * tri[0].TangentW +
+        barycentric.y * tri[1].TangentW +
+        barycentric.z * tri[2].TangentW;
 
     float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
     float displacementScale = 0.1f;
@@ -230,6 +244,7 @@ DomainOut DS(PatchTess patchTess,
     output.PosW = position;
     output.NormalW = normal;
     output.TexC = texCoord;
+    output.TangentW = tangent;
     
     return output;
 }
@@ -244,6 +259,7 @@ GBuffer PS(DomainOut pin) : SV_Target
     
     float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
     float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+    float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
 
     // Interpolating normal can unnormalize it, so renormalize it.
     //pin.NormalW = normalize(normalMap.xyz);
@@ -259,12 +275,12 @@ GBuffer PS(DomainOut pin) : SV_Target
     Material mat = { diffuseAlbedo, gFresnelR0, shininess };
     float3 shadowFactor = 1.0f;
     float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
-        pin.NormalW, toEyeW, shadowFactor);
+        bumpedNormalW, toEyeW, shadowFactor);
     
     Material matDeferred = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
     
     float4 directLightDeferred = ComputeLighting(gLights, matDeferred, pin.PosW,
-        pin.NormalW, toEyeW, shadowFactor);
+        bumpedNormalW, toEyeW, shadowFactor);
 
     float4 litColor = ambient + directLight;
     gBuffer.Specular = float4(directLightDeferred.x, directLightDeferred.y, directLightDeferred.z, 1.0f);
@@ -277,7 +293,7 @@ GBuffer PS(DomainOut pin) : SV_Target
 }
 
 GBuffer PSPixel(DomainOut pin) : SV_Target
-{
+{  
     GBuffer gBuffer;
     float2 pixelatedUV = floor(pin.TexC * pixelationFactor) / pixelationFactor;
     
@@ -288,6 +304,8 @@ GBuffer PSPixel(DomainOut pin) : SV_Target
     
     float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
     float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
+    float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
+    
 
     // Interpolating normal can unnormalize it, so renormalize it.
     //pin.NormalW = normalize(normalMap.xyz);
@@ -299,18 +317,20 @@ GBuffer PSPixel(DomainOut pin) : SV_Target
     // Light terms.
     float4 ambient = gAmbientLight * diffuseAlbedo;
 
-    const float shininess = 1.0f - gRoughness;
+    const float shininess = 1.0f - gRoughness * normalMap.a;
     Material mat = { diffuseAlbedo, gFresnelR0, shininess };
     float3 shadowFactor = 1.0f;
     float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
-        pin.NormalW, toEyeW, shadowFactor);
+        bumpedNormalW, toEyeW, shadowFactor);
     
     Material matDeferred = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
     
     float4 directLightDeferred = ComputeLighting(gLights, matDeferred, pin.PosW,
-        pin.NormalW, toEyeW, shadowFactor);
+        bumpedNormalW, toEyeW, shadowFactor);
+    
 
     float4 litColor = ambient + directLight;
+    
     gBuffer.Specular = float4(directLightDeferred.x, directLightDeferred.y, directLightDeferred.z, 1.0f);
 
     // Common convention to take alpha from diffuse material.

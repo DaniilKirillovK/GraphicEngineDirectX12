@@ -17,6 +17,7 @@
 #include "GBuffer.h"
 #include "Model.h"
 
+extern "C" { _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
 
 
 #ifdef _DEBUG
@@ -208,7 +209,7 @@ float Obj2rotX = 0.f;
 float Obj2rotY = 0.f;
 float Obj2rotZ = 0.f;
 
-float tessFactor = 8.f;
+float tessFactor = 1.f;
 
 float col1[3] = { 1.0f, 1.0f, 1.0f };
 float col2[3] = { 1.0f, 1.0f, 1.0f };
@@ -449,7 +450,7 @@ void Engine::Draw(const GameTimer& gt)
     mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
     // Swap the back and front buffers
-    ThrowIfFailed(mSwapChain->Present(0, 0));
+    ThrowIfFailed(mSwapChain->Present(0, DXGI_PRESENT_DO_NOT_WAIT));
     mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
 
     // Advance the fence value to mark commands up to this fence point.
@@ -871,7 +872,7 @@ void Engine::UploadTextures()
 void Engine::BuildRootSignature()
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 14, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 15, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[4];
@@ -921,7 +922,8 @@ void Engine::BuildShadersAndInputLayout()
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 }
 
@@ -986,6 +988,7 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].Pos = box.Vertices[i].Position;
         vertices[i + totalVertexCount2].Normal = box.Vertices[i].Normal;
         vertices[i + totalVertexCount2].TexC = box.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = box.Vertices[i].TangentU;
     }
     totalVertexCount2 += box.Vertices.size();
     for (size_t i = 0; i < box2.Vertices.size(); ++i)
@@ -993,6 +996,7 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].Pos = box2.Vertices[i].Position;
         vertices[i + totalVertexCount2].Normal = box2.Vertices[i].Normal;
         vertices[i + totalVertexCount2].TexC = box2.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = box2.Vertices[i].TangentU;
     }
     totalVertexCount2 += box.Vertices.size();
     for (size_t i = 0; i < box3.Vertices.size(); ++i)
@@ -1000,6 +1004,7 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].Pos = box3.Vertices[i].Position;
         vertices[i + totalVertexCount2].Normal = box3.Vertices[i].Normal;
         vertices[i + totalVertexCount2].TexC = box3.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = box3.Vertices[i].TangentU;
     }
     totalVertexCount2 += box.Vertices.size();
     for (size_t i = 0; i < sphere.Vertices.size(); ++i)
@@ -1007,6 +1012,7 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
         vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
         vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphere.Vertices[i].TangentU;
     }
     totalVertexCount2 += sphere.Vertices.size();
     for (size_t i = 0; i < sphere.Vertices.size(); ++i)
@@ -1014,6 +1020,7 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
         vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
         vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphere.Vertices[i].TangentU;
     }
     totalVertexCount2 += sphere.Vertices.size();
     for (size_t i = 0; i < sphere.Vertices.size(); ++i)
@@ -1021,6 +1028,7 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
         vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
         vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphere.Vertices[i].TangentU;
     }
     totalVertexCount2 += sphere.Vertices.size();
 
@@ -1624,9 +1632,12 @@ void Engine::RenderUI()
     ImGui::SetNextWindowBgAlpha(0.5f);
     if (ImGui::Begin("Configuration", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
     {
+        ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+        ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
+        ImGui::Text("");
         ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
         ImGui::Checkbox("Solid Mode", &isSolid);
-        ImGui::SliderFloat("Tesselation Factor", &tessFactor, 8.f, 64.f);
+        ImGui::SliderFloat("Tesselation Factor", &tessFactor, 1.f, 64.f);
         ImGui::Checkbox("Pixelation Shader", &isPixelated);
         ImGui::SliderInt("Pixelated Factor", &pixelationFactor, 16.f, 128.f);
         if (ImGui::Button("Object 1", ImVec2(100, 40)))

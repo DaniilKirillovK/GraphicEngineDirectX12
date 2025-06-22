@@ -35,7 +35,7 @@ struct PassConstants
     float gFogRange = 150.0f;
     DirectX::XMFLOAT2 cbPerObjectPad2;
 
-    float TessFactor = 8.f;
+    float TessFactor = 1.f;
     float PixelationFactor = 16.f;
     DirectX::XMFLOAT2 cbPerObjectPad3;
 
@@ -58,6 +58,7 @@ struct Vertex
     DirectX::XMFLOAT3 Pos;
     DirectX::XMFLOAT3 Normal;
     DirectX::XMFLOAT2 TexC;
+    DirectX::XMFLOAT3 TangentU;
 };
 
 // Stores the resources needed for the CPU to build the command lists

@@ -141,7 +141,7 @@ void D3D12Engine::OnResize()
 		SwapChainBufferCount,
 		mClientWidth, mClientHeight,
 		mBackBufferFormat,
-		DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
+		DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING));
 
 	mCurrBackBuffer = 0;
 
@@ -430,10 +430,10 @@ bool D3D12Engine::InitMainWindow()
 
 	LONG_PTR style = GetWindowLongPtr(mhMainWnd, GWL_STYLE);
 	style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
-	SetWindowLongPtr(mhMainWnd, GWL_STYLE, style);
+	SetWindowLongPtr(mhMainWnd, GWL_STYLE, style & ~WS_EX_TOPMOST);
 	SetWindowPos(mhMainWnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_FRAMECHANGED);
 
-	ShowWindow(mhMainWnd, SW_SHOW);
+	ShowWindow(mhMainWnd, SW_RESTORE);
 	UpdateWindow(mhMainWnd);
 
 	return true;
@@ -605,7 +605,9 @@ void D3D12Engine::CreateSwapChain()
 	sd.OutputWindow = mhMainWnd;
 	sd.Windowed = true;
 	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+	sd.SampleDesc.Count = 1;
+	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+
 
 	// Note: Swap chain uses queue to perform flush.
 	ThrowIfFailed(mdxgiFactory->CreateSwapChain(
