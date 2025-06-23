@@ -1,7 +1,7 @@
 #include "LightingUtil.hlsl"
 #include "Common.hlsl"
 
-Texture2D<float4> gTextures[3] : register(t0);
+Texture2D<float4> gTextures[5] : register(t0);
 Texture2D<float4> decalTexture : register(t15);
 
 SamplerState gsamPointWrap : register(s0);
@@ -13,11 +13,10 @@ SamplerState gsamAnisotropicClamp : register(s5);
 
 struct GBuffer
 {
-    float4 Color : SV_TARGET0;
-    float4 Albedo : SV_TARGET1;
-    float4 Position : SV_TARGET2;
-    float4 Normal : SV_TARGET3;
-    float4 Specular : SV_TARGET4;
+    float4 Albedo : SV_TARGET0;
+    float4 Position : SV_TARGET1;
+    float4 Normal : SV_TARGET2;
+    float4 Specular : SV_TARGET3;
 };
 
 
@@ -237,7 +236,7 @@ DomainOut DS(PatchTess patchTess,
     return output;
 }
 
-GBuffer PS(DomainOut pin) : SV_Target
+GBuffer PS(DomainOut pin)
 {
     GBuffer gBuffer;
     gBuffer.Position = float4(pin.PosW, 1.0f);
@@ -253,13 +252,15 @@ GBuffer PS(DomainOut pin) : SV_Target
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
     
     gBuffer.Normal = float4(bumpedNormalW, 1.0f);
-    gBuffer.Color = gBuffer.Albedo;
-    gBuffer.Specular = gBuffer.Position;
+    
+    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, texCoord);
+    float3 AO = gTextures[4].Sample(gsamLinearWrap, texCoord);
+    gBuffer.Specular = float4(Roughness.xyz, AO.x);
 
     return gBuffer;
 }
 
-GBuffer PSPixel(DomainOut pin) : SV_Target
+GBuffer PSPixel(DomainOut pin)
 {  
     GBuffer gBuffer;
     float2 pixelatedUV = floor(pin.TexC * pixelationFactor) / pixelationFactor;
@@ -271,8 +272,10 @@ GBuffer PSPixel(DomainOut pin) : SV_Target
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
     
     gBuffer.Normal = float4(bumpedNormalW, 1.0f);
-    gBuffer.Color = gBuffer.Albedo;
-    gBuffer.Specular = gBuffer.Position;
+    
+    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, pixelatedUV);
+    float3 AO = gTextures[4].Sample(gsamLinearWrap, pixelatedUV);
+    gBuffer.Specular = float4(Roughness.xyz, AO.x);
 
     return gBuffer;
 }

@@ -141,7 +141,7 @@ void D3D12Engine::OnResize()
 		SwapChainBufferCount,
 		mClientWidth, mClientHeight,
 		mBackBufferFormat,
-		DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING));
+		DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH));
 
 	mCurrBackBuffer = 0;
 
@@ -416,7 +416,7 @@ bool D3D12Engine::InitMainWindow()
 
 	// Compute window rectangle dimensions based on requested client area dimensions.
 	RECT R = { 0, 0, mClientWidth, mClientHeight };
-	AdjustWindowRect(&R, WS_OVERLAPPEDWINDOW | WM_GETMINMAXINFO, false);
+	AdjustWindowRect(&R, WS_OVERLAPPEDWINDOW, false);
 	int width = R.right - R.left;
 	int height = R.bottom - R.top;
 
@@ -441,14 +441,11 @@ bool D3D12Engine::InitMainWindow()
 
 bool D3D12Engine::InitDirect3D()
 {
-//#if defined(DEBUG) || defined(_DEBUG) 
-//	// Enable the D3D12 debug layer.
-//	{
-//		ComPtr<ID3D12Debug> debugController;
-//		ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)));
-//		debugController->EnableDebugLayer();
-//	}
-//#endif
+	// Enable the D3D12 debug layer.
+	//ID3D12Debug* debugController = nullptr;
+	//D3D12GetDebugInterface(IID_PPV_ARGS(&debugController));
+	//debugController->EnableDebugLayer();
+	//debugController->Release();
 
 ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
 
@@ -590,30 +587,30 @@ void D3D12Engine::CreateSwapChain()
 	// Release the previous swapchain we will be recreating.
 	mSwapChain.Reset();
 
-	DXGI_SWAP_CHAIN_DESC sd;
-	sd.BufferDesc.Width = mClientWidth;
-	sd.BufferDesc.Height = mClientHeight;
-	sd.BufferDesc.RefreshRate.Numerator = 60;
-	sd.BufferDesc.RefreshRate.Denominator = 1;
-	sd.BufferDesc.Format = mBackBufferFormat;
-	sd.BufferDesc.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
-	sd.BufferDesc.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+	DXGI_SWAP_CHAIN_DESC1 sd;
+	sd.Width = mClientWidth;
+	sd.Height = mClientHeight;
+	sd.Format = mBackBufferFormat;
+	sd.Stereo = FALSE;
 	sd.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	sd.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	sd.BufferCount = SwapChainBufferCount;
-	sd.OutputWindow = mhMainWnd;
-	sd.Windowed = true;
 	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	sd.Scaling = DXGI_SCALING_STRETCH;
 	sd.SampleDesc.Count = 1;
-	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
+	sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+	sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
 
 
 	// Note: Swap chain uses queue to perform flush.
-	ThrowIfFailed(mdxgiFactory->CreateSwapChain(
+	ThrowIfFailed(mdxgiFactory->CreateSwapChainForHwnd(
 		mCommandQueue.Get(),
+		mhMainWnd,
 		&sd,
-		mSwapChain.GetAddressOf()));
+		nullptr,
+		nullptr,
+		&mSwapChain));
 }
 
 void D3D12Engine::FlushCommandQueue()

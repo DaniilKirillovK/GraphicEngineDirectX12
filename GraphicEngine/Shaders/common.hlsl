@@ -21,7 +21,7 @@ float2 ParallaxMapping(float2 texCoords, float3 viewDir, SamplerState samplerSta
     // Number of depth layers
     const float minLayers = 8;
     const float maxLayers = 32;
-    float numLayers = lerp(minLayers, maxLayers, abs(dot(float3(0, 0, 1), viewDir)));
+    float numLayers = lerp(minLayers, maxLayers, abs(dot(float3(0, 1, 0), viewDir)));
     
     // Calculate the size of each layer
     float layerDepth = 1.0 / numLayers;

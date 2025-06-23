@@ -9,6 +9,7 @@
 #include <crtdbg.h>
 #endif
 
+#include <d3d12.h>
 #include "d3dUtil.h"
 #include "GameTimer.h"
 #include "GBuffer.h"
@@ -154,7 +155,7 @@ protected:
     GameTimer mTimer;
 
     Microsoft::WRL::ComPtr<IDXGIFactory4> mdxgiFactory;
-    Microsoft::WRL::ComPtr<IDXGISwapChain> mSwapChain;
+    Microsoft::WRL::ComPtr<IDXGISwapChain1> mSwapChain;
     Microsoft::WRL::ComPtr<ID3D12Device> md3dDevice;
 
     Microsoft::WRL::ComPtr<ID3D12Fence> mFence;

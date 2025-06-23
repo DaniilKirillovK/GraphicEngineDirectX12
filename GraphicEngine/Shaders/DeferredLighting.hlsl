@@ -53,7 +53,8 @@ cbuffer cbPass : register(b0)
     
     float tessFactor;
     float pixelationFactor;
-    float2 cbPerObjectPad3;
+    float isParallaxMapping;
+    float cbPerObjectPad3;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -64,7 +65,7 @@ cbuffer cbPass : register(b0)
 
 struct VertexIn
 {
-    float4 position : SV_POSITION;
+    float3 position : POSITION;
     float2 uv : TEXCOORD;
 };
 
@@ -74,12 +75,14 @@ struct VertexOut
     float2 uv : TEXCOORD;
 };
 
-VertexOut VSMain(VertexIn vIn)
+VertexOut VSMain(uint vertexID : SV_VertexID, VertexIn vIn)
 {
     VertexOut vOut = (VertexOut) 0.0f;
     
-    vOut.position = vIn.position;
-    vOut.uv = vIn.uv;
+    vOut.uv = float2((vertexID << 1) & 2, vertexID & 2);
+    vOut.position = float4(vOut.uv * 2.0 - 1.0, 0.0, 1.0);
+    
+    vOut.position.y *= -1;
     
     return vOut;
 }
@@ -92,6 +95,9 @@ float4 PSMain(VertexOut vOut) : SV_TARGET
     float3 normal = gNormal.Sample(gsamPointWrap, vOut.uv).xyz;
     float3 normalResult = normalize(normal.rgb * 2.0 - 1.0);
     
+    float Roughness = gSpecular.Sample(gsamPointWrap, vOut.uv).x;
+    float AO = gSpecular.Sample(gsamPointWrap, vOut.uv).w;
+    
     float depth = gDepth.Sample(gsamPointWrap, vOut.uv).r;
     
     float3 toEyeW = normalize(gEyePosW - worldPos);
@@ -99,14 +105,13 @@ float4 PSMain(VertexOut vOut) : SV_TARGET
     // Light terms.
     float4 ambient = gAmbientLight * albedo;
 
-    float gRoughness = 0.0f;
-    float3 gFresnelR0 = float3(0.0f, 0.0f, 0.0f);
+    float3 gFresnelR0 = float3(0.01f, 0.01f, 0.01f);
     
-    const float shininess = 1.0f - gRoughness;
+    const float shininess = 1.0f - Roughness;
     Material mat = { albedo, gFresnelR0, shininess };
-    float3 shadowFactor = 1.0f;
+    float3 shadowFactor = float3(AO, AO, AO);
     float4 directLight = ComputeLighting(gLights, mat, worldPos,
-        normalResult, toEyeW, shadowFactor);
+        normal, toEyeW, shadowFactor);
     
     float4 litColor = ambient + directLight;
     
