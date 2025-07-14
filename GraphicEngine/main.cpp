@@ -16,6 +16,7 @@
 #include "Camera.h"
 #include "GBuffer.h"
 #include "Model.h"
+#include "Instancing.h"
 
 extern "C" { _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
 
@@ -143,6 +144,8 @@ private:
     virtual void InitGBuffer() override;
     void ResizeGBuffer();
 
+    virtual void InitInstanceBuffer() override;
+
     void RenderUI();
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -198,6 +201,7 @@ bool isAnimateMaterial = true;
 bool isSolid = true;
 bool deferredRenderDisplayInfo = false;
 bool isParallaxMapping = false;
+bool isDeferredRender = false;
 
 bool isPixelated = false;
 int pixelationFactor = 16.f;
@@ -228,6 +232,10 @@ float col3[3] = { 1.0f, 1.0f, 1.0f };
 float lightPos1[3] = { 0.0f, 0.0f, 3.0f };
 float lightPos2[3] = { 0.0f, 0.0f, 0.0f };
 float lightPos3[3] = { 0.0f, 0.0f, -3.0f };
+
+float light1Strength = 0.5f;
+float light2Strength = 0.5f;
+float light3Strength = 0.5f;
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -377,6 +385,14 @@ void Engine::Draw(const GameTimer& gt)
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize),
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize),
     };
+    D3D12_CPU_DESCRIPTOR_HANDLE rtvsForward[] = {
+        CurrentBackBufferView(),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, mRtvDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 3, mRtvDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize),
+    };
+
     auto dsv = DepthStencilView();
 
     // Draw calls
@@ -387,7 +403,7 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
         auto passCB = mCurrFrameResource->PassCB->Resource();
-        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+        mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
         // Indicate a state transition on the resource usage.
         auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -651,22 +667,30 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
     mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
     mMainPassCB.Lights[0].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
     mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
     mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
     mMainPassCB.Lights[1].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
     mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
     mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
     mMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
+
     // Point lights
+    mMainPassCB.Lights[3].Strength = { light1Strength, light1Strength, light1Strength };
     mMainPassCB.Lights[3].Position = { lightPos1[0], lightPos1[1], lightPos1[2] };
     mMainPassCB.Lights[3].FalloffStart = 1.0f;
     mMainPassCB.Lights[3].FalloffEnd = 1.0f;
     mMainPassCB.Lights[3].Color = { col1[0], col1[1], col1[2], 1.0f };
+
+    mMainPassCB.Lights[4].Strength = { light2Strength, light2Strength, light2Strength };
     mMainPassCB.Lights[4].Position = { lightPos2[0], lightPos2[1], lightPos2[2] };
     mMainPassCB.Lights[4].FalloffStart = 1.0f;
     mMainPassCB.Lights[4].FalloffEnd = 1.0f;
     mMainPassCB.Lights[4].Color = { col2[0], col2[1], col2[2], 1.0f };
+
+    mMainPassCB.Lights[5].Strength = { light3Strength, light3Strength, light3Strength };
     mMainPassCB.Lights[5].Position = { lightPos3[0], lightPos3[1], lightPos3[2] };
     mMainPassCB.Lights[5].FalloffStart = 1.0f;
     mMainPassCB.Lights[5].FalloffEnd = 1.0f;
@@ -784,7 +808,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 14;
+    srvHeapDesc.NumDescriptors = 16;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -869,19 +893,23 @@ void Engine::UploadTextures()
 void Engine::BuildRootSignature()
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 15, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 15, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTableSpace1;
+    texTableSpace1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+
     CD3DX12_DESCRIPTOR_RANGE texTable2;
-    texTable2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0);
+    texTable2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
-    CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+    CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
-    slotRootParameter[1].InitAsConstantBufferView(0);
-    slotRootParameter[2].InitAsConstantBufferView(1);
-    slotRootParameter[3].InitAsConstantBufferView(2);
+    slotRootParameter[1].InitAsDescriptorTable(1, &texTableSpace1);
+    slotRootParameter[2].InitAsConstantBufferView(0);
+    slotRootParameter[3].InitAsConstantBufferView(1);
+    slotRootParameter[4].InitAsConstantBufferView(2);
 
     slotRootParameter2[0].InitAsDescriptorTable(1, &texTable2);
     slotRootParameter2[1].InitAsConstantBufferView(0);
@@ -889,7 +917,7 @@ void Engine::BuildRootSignature()
     auto staticSamplers = GetStaticSamplers();
 
     // A root signature is an array of root parameters.
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter,
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -936,14 +964,19 @@ void Engine::BuildRootSignature()
 
 void Engine::BuildShadersAndInputLayout()
 {
-    mShaders["tessVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "VS", "vs_5_0");
-    mShaders["tessHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_0");
-    mShaders["tessDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_0");
-    mShaders["tessPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_0");
-    mShaders["PSPixel"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PSPixel", "ps_5_0");
+    mShaders["tessVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["tessHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_1");
+    mShaders["tessDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_1");
+    mShaders["tessPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_1");
+    mShaders["PSPixel"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PSPixel", "ps_5_1");
 
-    mShaders["DeferredVSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "VSMain", "vs_5_0");
-    mShaders["DeferredPSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "PSMain", "ps_5_0");
+    mShaders["forwardVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["forwardHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "HS", "hs_5_1");
+    mShaders["forwardDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "DS", "ds_5_1");
+    mShaders["forwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "PSForward", "ps_5_1");
+
+    mShaders["DeferredVSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "VSMain", "vs_5_1");
+    mShaders["DeferredPSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "PSMain", "ps_5_1");
 
     mInputLayout =
     {
@@ -1263,6 +1296,52 @@ void Engine::BuildPSOs()
     lightPsoDesc.SampleDesc.Quality = 0;
     lightPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLighting"])));
+
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDescForward;
+
+    //
+    // PSO for opaque objects.
+    //
+    ZeroMemory(&opaquePsoDescForward, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    opaquePsoDescForward.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    opaquePsoDescForward.pRootSignature = mRootSignature.Get();
+    opaquePsoDescForward.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardVS"]->GetBufferPointer()),
+        mShaders["forwardVS"]->GetBufferSize()
+    };
+    opaquePsoDescForward.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardHS"]->GetBufferPointer()),
+        mShaders["forwardHS"]->GetBufferSize()
+    };
+    opaquePsoDescForward.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardDS"]->GetBufferPointer()),
+        mShaders["forwardDS"]->GetBufferSize()
+    };
+    opaquePsoDescForward.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardPS"]->GetBufferPointer()),
+        mShaders["forwardPS"]->GetBufferSize()
+    };
+    opaquePsoDescForward.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    opaquePsoDescForward.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    opaquePsoDescForward.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    opaquePsoDescForward.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    opaquePsoDescForward.SampleMask = UINT_MAX;
+    opaquePsoDescForward.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    opaquePsoDescForward.NumRenderTargets = 5;
+    opaquePsoDescForward.RTVFormats[0] = mBackBufferFormat;
+    opaquePsoDescForward.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    opaquePsoDescForward.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    opaquePsoDescForward.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    opaquePsoDescForward.RTVFormats[4] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    opaquePsoDescForward.SampleDesc.Count = 1;
+    opaquePsoDescForward.SampleDesc.Quality = 0;
+    opaquePsoDescForward.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueForward"])));
 }
 
 void Engine::BuildFrameResources()
@@ -1617,6 +1696,79 @@ void Engine::ResizeGBuffer()
     FlushCommandQueue();
 }
 
+void Engine::InitInstanceBuffer()
+{
+    int instanceCount = 9;
+    std::vector<InstanceData> instanceData(instanceCount);
+    for (UINT i = 0; i < instanceCount; ++i)
+    {
+        DirectX::XMStoreFloat4x4(&instanceData[i].WorldMatrix,
+            DirectX::XMMatrixTranspose(DirectX::XMMatrixTranslation((i / 3) * 2, 0, (i % 3) * 2)));
+
+        instanceData[i].Color = DirectX::XMFLOAT4((float)i/9, (float)i / 9, (float)i / 9, 1.0f);
+    }
+
+    const UINT instanceBufferSize = instanceCount * sizeof(InstanceData);
+
+    D3D12_HEAP_PROPERTIES defaultHeapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(instanceBufferSize);
+
+    md3dDevice->CreateCommittedResource(
+        &defaultHeapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &bufferDesc,
+        D3D12_RESOURCE_STATE_COMMON,
+        nullptr,
+        IID_PPV_ARGS(&instanceBuffer));
+
+    D3D12_HEAP_PROPERTIES uploadHeapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
+
+    md3dDevice->CreateCommittedResource(
+        &uploadHeapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &bufferDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&instanceUploadBuffer));
+
+    D3D12_SUBRESOURCE_DATA instanceDataSub = {
+        .pData = instanceData.data(),
+        .RowPitch = instanceBufferSize,
+        .SlicePitch = instanceBufferSize
+    };
+
+    CD3DX12_RESOURCE_BARRIER barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+        instanceBuffer.Get(),
+        D3D12_RESOURCE_STATE_COMMON,
+        D3D12_RESOURCE_STATE_COPY_DEST);
+    mCommandList->ResourceBarrier(1, &barrier1);
+
+    UpdateSubresources<1>(mCommandList.Get(),
+        instanceBuffer.Get(),
+        instanceUploadBuffer.Get(),
+        0, 0, 1, &instanceDataSub);
+
+    CD3DX12_RESOURCE_BARRIER barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+        instanceBuffer.Get(),
+        D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+    mCommandList->ResourceBarrier(1, &barrier2);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srvDesc.Buffer.NumElements = instanceCount;
+    srvDesc.Buffer.StructureByteStride = sizeof(InstanceData);
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(15, mCbvSrvDescriptorSize);
+    md3dDevice->CreateShaderResourceView(
+        instanceBuffer.Get(),
+        &srvDesc,
+        hDescriptor);
+}
+
 void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -1628,6 +1780,7 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
     // For each render item...
     for (size_t i = 0; i < ritems.size(); ++i)
     {
+        if (i == 0)
         {
             auto ri = ritems[i];
 
@@ -1643,11 +1796,16 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
             D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
             D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
-            cmdList->SetGraphicsRootDescriptorTable(0, tex);
-            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
-            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+            CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            instanceTableHandle.Offset(15, mCbvSrvDescriptorSize);
 
-            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 9, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
     }
 }
@@ -1738,6 +1896,7 @@ void Engine::RenderUI()
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
         ImGui::Text("");
+        ImGui::Checkbox("Deferred Render", &isDeferredRender);
         ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
         ImGui::Checkbox("Parallax Mapping", &isParallaxMapping);
         ImGui::Checkbox("Solid Mode", &isSolid);
@@ -1788,6 +1947,7 @@ void Engine::RenderUI()
             ImGui::InputFloat("##PointLightPos1Z", &lightPos1[2], 0.1f, 0.1f);
             ImGui::EndTable();
         }
+        ImGui::SliderFloat("Point light 1 strength", &light1Strength, 0.0f, 1.0f);
         ImGui::ColorPicker3("Point light 1 color", col1, ImGuiColorEditFlags_NoAlpha);
 
         ImGui::Text("");
@@ -1814,6 +1974,7 @@ void Engine::RenderUI()
             ImGui::InputFloat("##PointLightPos2Z", &lightPos2[2], 0.1f, 0.1f);
             ImGui::EndTable();
         }
+        ImGui::SliderFloat("Point light 2 strength", &light2Strength, 0.0f, 1.0f);
         ImGui::ColorPicker3("Point light 2 color", col2, ImGuiColorEditFlags_NoAlpha);
 
         ImGui::Text("");
@@ -1840,7 +2001,9 @@ void Engine::RenderUI()
             ImGui::InputFloat("##PointLightPos3Z", &lightPos3[2], 0.1f, 0.1f);
             ImGui::EndTable();
         }
+        ImGui::SliderFloat("Point light 3 strength", &light3Strength, 0.0f, 1.0f);
         ImGui::ColorPicker3("Point light 3 color", col3, ImGuiColorEditFlags_NoAlpha);
+
     } ImGui::End();
 
 

@@ -13,11 +13,11 @@
 #include "LightingUtil.hlsl"
 #include "Common.hlsl"
 
-Texture2D<float4> gAlbedo : register(t0);
-Texture2D<float4> gPosition : register(t1);
-Texture2D<float4> gNormal : register(t2);
-Texture2D<float4> gSpecular : register(t3);
-Texture2D<float4> gDepth : register(t4);
+Texture2D<float4> gAlbedo : register(t0, space0);
+Texture2D<float4> gPosition : register(t1, space0);
+Texture2D<float4> gNormal : register(t2, space0);
+Texture2D<float4> gSpecular : register(t3, space0);
+Texture2D<float4> gDepth : register(t4, space0);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);

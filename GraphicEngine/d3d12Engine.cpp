@@ -515,6 +515,7 @@ BuildRenderItems();
 BuildFrameResources();
 InitGBuffer();
 BuildPSOs();
+InitInstanceBuffer();
 
 // Execute the initialization commands.
 ThrowIfFailed(mCommandList->Close());

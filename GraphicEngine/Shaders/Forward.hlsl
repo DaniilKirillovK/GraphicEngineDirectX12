@@ -1,7 +1,8 @@
 #include "LightingUtil.hlsl"
 #include "Common.hlsl"
 
-Texture2D<float4> gTextures[5] : register(t0, space0);
+Texture2D<float4> gTextures[5] : register(t0);
+Texture2D<float4> decalTexture : register(t15);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -12,20 +13,12 @@ SamplerState gsamAnisotropicClamp : register(s5);
 
 struct GBuffer
 {
-    float4 Albedo : SV_TARGET0;
-    float4 Position : SV_TARGET1;
-    float4 Normal : SV_TARGET2;
-    float4 Specular : SV_TARGET3;
+    float4 Color : SV_TARGET0;
+    float4 Albedo : SV_TARGET1;
+    float4 Position : SV_TARGET2;
+    float4 Normal : SV_TARGET3;
+    float4 Specular : SV_TARGET4;
 };
-
-struct InstanceData
-{
-    float4x4 WorldMatrix;
-    float4 Color;
-};
-
-StructuredBuffer<InstanceData> instanceBuffer : register(t0, space1);
-
 
 cbuffer cbPerObject : register(b0)
 {
@@ -94,17 +87,14 @@ struct VertexOut
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
     float3 TangentW : TANGENT;
-    float4 Color : COLOR;
 };
 
-VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
+VertexOut VS(VertexIn vin)
 {
     VertexOut vout = (VertexOut) 0.0f;
-    
-    InstanceData instance = instanceBuffer[instanceID];
 	
     // Transform to world space.
-    float4 posW = mul(float4(vin.PosL, 1.0f), instance.WorldMatrix);
+    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosW = posW.xyz;
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
@@ -118,7 +108,6 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC * tilesCount, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
-    vout.Color = instance.Color;
 
     return vout;
 }
@@ -168,7 +157,6 @@ struct HullOut
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
     float3 TangentW : TANGENT;
-    float4 Color : COLOR;
 };
 
 [domain("tri")]
@@ -187,7 +175,6 @@ HullOut HS(InputPatch<VertexOut, 3> p,
     hout.NormalW = p[i].NormalW;
     hout.TexC = p[i].TexC;
     hout.TangentW = p[i].TangentW;
-    hout.Color = p[i].Color;
 	
     return hout;
 }
@@ -199,7 +186,6 @@ struct DomainOut
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
     float3 TangentW : TANGENT;
-    float4 Color : COLOR;
 };
 
 
@@ -229,15 +215,10 @@ DomainOut DS(PatchTess patchTess,
         barycentric.y * tri[1].TexC +
         barycentric.z * tri[2].TexC;
     
-    float3 tangent = 
+    float3 tangent =
         barycentric.x * tri[0].TangentW +
         barycentric.y * tri[1].TangentW +
         barycentric.z * tri[2].TangentW;
-    
-    float4 color =
-        barycentric.x * tri[0].Color +
-        barycentric.y * tri[1].Color +
-        barycentric.z * tri[2].Color;
 
     float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
     float displacementScale = 0.1f;
@@ -245,59 +226,55 @@ DomainOut DS(PatchTess patchTess,
 
     position += normal * displacement;
     
+    
     output.PosH = mul(float4(position, 1.0), gViewProj);
     output.PosW = position;
     output.NormalW = normal;
     output.TexC = texCoord;
     output.TangentW = tangent;
-    output.Color = color;
     
     return output;
 }
 
-
-GBuffer PS(DomainOut pin)
+GBuffer PSForward(DomainOut pin) : SV_Target
 {
     GBuffer gBuffer;
-    gBuffer.Position = float4(pin.PosW, 1.0f);
     
-    float2 texCoord = pin.TexC;
-    if (isParallaxMapping == 1.0f)
-    {
-        texCoord = ParallaxMapping(pin.TexC, gEyePosW - pin.PosW, gsamLinearWrap, gTextures[2], 0.05f);
-    }
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, texCoord) * gDiffuseAlbedo * pin.Color;
-    
-    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, texCoord);
+    float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
+    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
-    
-    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
-    
-    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, texCoord);
-    float3 AO = gTextures[4].Sample(gsamLinearWrap, texCoord);
-    gBuffer.Specular = pin.Color;
-    //gBuffer.Specular = float4(Roughness.xyz, AO.x);
 
-    return gBuffer;
-}
+    // Interpolating normal can unnormalize it, so renormalize it.
+    //pin.NormalW = normalize(normalMap.xyz);
+    pin.NormalW = normalMap.xyz;
 
+    // Vector from point being lit to eye. 
+    float3 toEyeW = normalize(gEyePosW - pin.PosW);
 
-GBuffer PSPixel(DomainOut pin)
-{  
-    GBuffer gBuffer;
-    float2 pixelatedUV = floor(pin.TexC * pixelationFactor) / pixelationFactor;
+    // Light terms.
+    float4 ambient = gAmbientLight * diffuseAlbedo;
+
+    const float shininess = 1.0f - gRoughness;
+    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
+    float3 shadowFactor = 1.0f;
+    float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
+        bumpedNormalW, toEyeW, shadowFactor);
     
-    gBuffer.Position = float4(pin.PosW, 1.0f);
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
+    Material matDeferred = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
     
-    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
-    float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
+    float4 directLightDeferred = ComputeLighting(gLights, matDeferred, pin.PosW,
+        bumpedNormalW, toEyeW, shadowFactor);
+
+    float4 litColor = ambient + directLight;
+
+    // Common convention to take alpha from diffuse material.
+    litColor.a = diffuseAlbedo.a;
     
-    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
-    
-    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, pixelatedUV);
-    float3 AO = gTextures[4].Sample(gsamLinearWrap, pixelatedUV);
-    gBuffer.Specular = float4(Roughness.xyz, AO.x);
+    gBuffer.Color = litColor;
+    gBuffer.Albedo = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    gBuffer.Normal = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    gBuffer.Position = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    gBuffer.Specular = float4(1.0f, 1.0f, 1.0f, 1.0f);
 
     return gBuffer;
 }

@@ -108,6 +108,7 @@ protected:
     virtual void BuildShapeGeometry() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
+    virtual void InitInstanceBuffer() {}
 
     virtual void LoadTextures() {}
     virtual void UploadTextures() {}
@@ -171,6 +172,9 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBuffer;
 
     GBuffer gBuffer;
+    Microsoft::WRL::ComPtr<ID3D12Resource> instanceBuffer;
+    D3D12_VERTEX_BUFFER_VIEW instanceVertexBufferView;
+    Microsoft::WRL::ComPtr<ID3D12Resource> instanceUploadBuffer;
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRtvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;
