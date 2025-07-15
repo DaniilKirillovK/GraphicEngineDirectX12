@@ -203,14 +203,16 @@ bool deferredRenderDisplayInfo = false;
 bool isParallaxMapping = false;
 bool isDeferredRender = false;
 
+float displacementLevel = 1.0f;
+
 bool isPixelated = false;
 int pixelationFactor = 16;
 
 int instancingLevel = 5;
 
-float Obj1posX = 2.f;
+float Obj1posX = 0.f;
 float Obj1posY = 0.f;
-float Obj1posZ = 10.f;
+float Obj1posZ = 0.f;
 
 float Obj1rotX = 0.f;
 float Obj1rotY = 0.f;
@@ -595,6 +597,10 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, Obj2rotY)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 0.0f, 1.0f }, Obj2rotZ)
                 * DirectX::XMMatrixTranslation(Obj2posX, Obj2posY, Obj2posZ);
+            else if (i == 2)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(10.0f, 0.0f, 0.0f);
+            else if (i == 3)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, 5.0f);
 
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
@@ -713,6 +719,7 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     if (isParallaxMapping)
         mMainPassCB.ParallaxMapping = 1.0f;
     else mMainPassCB.ParallaxMapping = 0.0f;
+    mMainPassCB.displacementLevel = displacementLevel;
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -737,7 +744,7 @@ void Engine::ChangeTileObjectTiles()
 void Engine::LoadTextures()
 {
     auto metalAnimateTex = std::make_unique<Texture>();
-    metalAnimateTex->Name = "MetalAnimateTex";
+    metalAnimateTex->Name = "MetalTex";
     metalAnimateTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalTex.dds";
     DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
         mCommandList.Get(), metalAnimateTex->Filename.c_str(),
@@ -746,7 +753,7 @@ void Engine::LoadTextures()
     mTextures[metalAnimateTex->Name] = std::move(metalAnimateTex);
 
     auto metalAnimateNorm = std::make_unique<Texture>();
-    metalAnimateNorm->Name = "MetalAnimateNorm";
+    metalAnimateNorm->Name = "MetalNorm";
     metalAnimateNorm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalNorm.dds";
     DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
         mCommandList.Get(), metalAnimateNorm->Filename.c_str(),
@@ -755,13 +762,31 @@ void Engine::LoadTextures()
     mTextures[metalAnimateNorm->Name] = std::move(metalAnimateNorm);
 
     auto metalAnimateDisplacement = std::make_unique<Texture>();
-    metalAnimateDisplacement->Name = "MetalAnimateDisplacement";
+    metalAnimateDisplacement->Name = "MetalDisplacement";
     metalAnimateDisplacement->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalDisplacement.dds";
     DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
         mCommandList.Get(), metalAnimateDisplacement->Filename.c_str(),
         metalAnimateDisplacement->Resource, metalAnimateDisplacement->UploadHeap);
 
     mTextures[metalAnimateDisplacement->Name] = std::move(metalAnimateDisplacement);
+
+    auto metalRoughness = std::make_unique<Texture>();
+    metalRoughness->Name = "MetalRoughness";
+    metalRoughness->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalRoughness.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), metalRoughness->Filename.c_str(),
+        metalRoughness->Resource, metalRoughness->UploadHeap), true);
+
+    mTextures[metalRoughness->Name] = std::move(metalRoughness);
+
+    auto metalAO = std::make_unique<Texture>();
+    metalAO->Name = "MetalAO";
+    metalAO->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalAO.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), metalAO->Filename.c_str(),
+        metalAO->Resource, metalAO->UploadHeap), true);
+
+    mTextures[metalAO->Name] = std::move(metalAO);
 
     auto stoneTex = std::make_unique<Texture>();
     stoneTex->Name = "StoneTex";
@@ -810,7 +835,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 16;
+    srvHeapDesc.NumDescriptors = 17;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -826,9 +851,11 @@ void Engine::UploadTextures()
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
-    auto MetalTex = mTextures["MetalAnimateTex"]->Resource;
-    auto MetalNorm = mTextures["MetalAnimateNorm"]->Resource;
-    auto MetalDisplacement = mTextures["MetalAnimateDisplacement"]->Resource;
+    auto MetalTex = mTextures["MetalTex"]->Resource;
+    auto MetalNorm = mTextures["MetalNorm"]->Resource;
+    auto MetalDisplacement = mTextures["MetalDisplacement"]->Resource;
+    auto MetalRoughness = mTextures["MetalRoughness"]->Resource;
+    auto MetalAO = mTextures["MetalAO"]->Resource;
 
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc1 = {};
@@ -849,6 +876,16 @@ void Engine::UploadTextures()
     srvDesc1.Format = MetalDisplacement->GetDesc().Format;
     srvDesc1.Texture2D.MipLevels = MetalDisplacement->GetDesc().MipLevels;
     md3dDevice->CreateShaderResourceView(MetalDisplacement.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc1.Format = MetalRoughness->GetDesc().Format;
+    md3dDevice->CreateShaderResourceView(MetalRoughness.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc1.Format = MetalAO->GetDesc().Format;
+    md3dDevice->CreateShaderResourceView(MetalAO.Get(), &srvDesc1, hDescriptor);
 
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
@@ -895,7 +932,7 @@ void Engine::UploadTextures()
 void Engine::BuildRootSignature()
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 15, 0, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 16, 0, 0);
     CD3DX12_DESCRIPTOR_RANGE texTableSpace1;
     texTableSpace1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
 
@@ -998,9 +1035,10 @@ void Engine::BuildShadersAndInputLayout()
 void Engine::BuildShapeGeometry()
 {
     GeometryGenerator geoGen;
-    GeometryGenerator::MeshData box = geoGen.CreateBoxTiling(1.0f, 1.0f, 1.0f, 1, 1);
+    GeometryGenerator::MeshData box = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
     GeometryGenerator::MeshData box2 = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
     GeometryGenerator::MeshData box3 = geoGen.CreateBoxTiling(5.f, 5.f, 5.f, 1, 1);
+    GeometryGenerator::MeshData box4 = geoGen.CreateBoxTiling(1.f, 1.f, 1.f, 1, 1);
     GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.2f, 7, 3, 0.f, 0.f, 0.f);
 
     UINT totalIndexCount = 0;
@@ -1026,6 +1064,13 @@ void Engine::BuildShapeGeometry()
     boxSubmesh3.BaseVertexLocation = totalVertexCount;
     totalIndexCount += boxSubmesh3.IndexCount;
     totalVertexCount += box3.Vertices.size();
+
+    SubmeshGeometry boxSubmesh4;
+    boxSubmesh4.IndexCount = (UINT)box4.Indices32.size();
+    boxSubmesh4.StartIndexLocation = totalIndexCount;
+    boxSubmesh4.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += boxSubmesh4.IndexCount;
+    totalVertexCount += box4.Vertices.size();
 
     SubmeshGeometry pointLight1Submesh;
     pointLight1Submesh.IndexCount = (UINT)sphere.Indices32.size();
@@ -1100,6 +1145,14 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].TangentU = box3.Vertices[i].TangentU;
     }
     totalVertexCount2 += box.Vertices.size();
+    for (size_t i = 0; i < box4.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = box4.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = box4.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = box4.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = box4.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += box.Vertices.size();
     for (size_t i = 0; i < sphere.Vertices.size(); ++i)
     {
         vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
@@ -1130,6 +1183,7 @@ void Engine::BuildShapeGeometry()
     indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
     indices.insert(indices.end(), std::begin(box2.GetIndices16()), std::end(box2.GetIndices16()));
     indices.insert(indices.end(), std::begin(box3.GetIndices16()), std::end(box3.GetIndices16()));
+    indices.insert(indices.end(), std::begin(box4.GetIndices16()), std::end(box4.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
@@ -1160,6 +1214,7 @@ void Engine::BuildShapeGeometry()
     geo->DrawArgs["box"] = boxSubmesh;
     geo->DrawArgs["box2"] = boxSubmesh2;
     geo->DrawArgs["box3"] = boxSubmesh3;
+    geo->DrawArgs["box4"] = boxSubmesh4;
     geo->DrawArgs["pointLight1"] = pointLight1Submesh;
     geo->DrawArgs["pointLight2"] = pointLight2Submesh;
     geo->DrawArgs["pointLight3"] = pointLight3Submesh;
@@ -1380,22 +1435,12 @@ void Engine::BuildMaterials()
     auto stoneMat = std::make_unique<Material>();
     stoneMat->Name = "stoneMaterial";
     stoneMat->MatCBIndex = 2;
-    stoneMat->DiffuseSrvHeapIndex = 4;
+    stoneMat->DiffuseSrvHeapIndex = 6;
     stoneMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     stoneMat->FresnelR0 = DirectX::XMFLOAT3(0.1f, 0.1f, 0.1f);
     stoneMat->Roughness = 0.5f;
 
     mMaterials["stoneMaterial"] = std::move(stoneMat);
-
-    auto testMat = std::make_unique<Material>();
-    testMat->Name = "testMaterial";
-    testMat->MatCBIndex = 3;
-    testMat->DiffuseSrvHeapIndex = 7;
-    testMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    testMat->FresnelR0 = DirectX::XMFLOAT3(0.1f, 0.1f, 0.1f);
-    testMat->Roughness = 0.5f;
-
-    mMaterials["testMaterial"] = std::move(testMat);
 }
 
 void Engine::BuildRenderItems()
@@ -1403,7 +1448,7 @@ void Engine::BuildRenderItems()
     auto boxRitem = std::make_unique<RenderItem>();
     boxRitem->ObjCBIndex = 0;
     boxRitem->World = MathHelper::Identity4x4();
-    boxRitem->Mat = mMaterials["stoneMaterial"].get();
+    boxRitem->Mat = mMaterials["metalAnimate"].get();
     boxRitem->Geo = mGeometries["boxGeo"].get();
     boxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
@@ -1414,7 +1459,7 @@ void Engine::BuildRenderItems()
     auto boxTileRitem = std::make_unique<RenderItem>();
     boxTileRitem->ObjCBIndex = 1;
     XMStoreFloat4x4(&boxTileRitem->World, DirectX::XMMatrixScaling(1.0f, 1.0f, 1.0f) * DirectX::XMMatrixTranslation(2.0f, 2.0f, 0.0f));
-    boxTileRitem->Mat = mMaterials["stoneMaterial"].get();
+    boxTileRitem->Mat = mMaterials["tileCrate"].get();
     boxTileRitem->Geo = mGeometries["boxGeo"].get();
     boxTileRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
     boxTileRitem->IndexCount = boxTileRitem->Geo->DrawArgs["box2"].IndexCount;
@@ -1433,6 +1478,17 @@ void Engine::BuildRenderItems()
     stoneTesselationRitem->StartIndexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].StartIndexLocation;
     stoneTesselationRitem->BaseVertexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
     mAllRitems.push_back(std::move(stoneTesselationRitem));
+
+    auto boxInstancingRitem = std::make_unique<RenderItem>();
+    boxInstancingRitem->ObjCBIndex = 3;
+    boxInstancingRitem->World = MathHelper::Identity4x4();
+    boxInstancingRitem->Mat = mMaterials["stoneMaterial"].get();
+    boxInstancingRitem->Geo = mGeometries["boxGeo"].get();
+    boxInstancingRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    boxInstancingRitem->IndexCount = boxInstancingRitem->Geo->DrawArgs["box4"].IndexCount;
+    boxInstancingRitem->StartIndexLocation = boxInstancingRitem->Geo->DrawArgs["box4"].StartIndexLocation;
+    boxInstancingRitem->BaseVertexLocation = boxInstancingRitem->Geo->DrawArgs["box4"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(boxInstancingRitem));
 
     //auto objectModelRitem = std::make_unique<RenderItem>();
     //objectModelRitem->ObjCBIndex = 3;
@@ -1594,7 +1650,7 @@ void Engine::InitGBuffer()
 
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
-    hDescriptor.Offset(10, mCbvSrvDescriptorSize);
+    hDescriptor.Offset(11, mCbvSrvDescriptorSize);
 
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDRDesc = {};
     srvDRDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
@@ -1771,7 +1827,7 @@ void Engine::InitInstanceBuffer()
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
-    hDescriptor.Offset(15, mCbvSrvDescriptorSize);
+    hDescriptor.Offset(16, mCbvSrvDescriptorSize);
     md3dDevice->CreateShaderResourceView(
         instanceBuffer.Get(),
         &srvDesc,
@@ -1805,14 +1861,14 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
             D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
             CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-            instanceTableHandle.Offset(15, mCbvSrvDescriptorSize);
+            instanceTableHandle.Offset(16, mCbvSrvDescriptorSize);
 
             cmdList->SetGraphicsRootDescriptorTable(0, tex);
             cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
             cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
             cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
 
-            if (i == 0)
+            if (i == 3)
                 cmdList->DrawIndexedInstanced(ri->IndexCount, instancingLevel * instancingLevel, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
             else cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
@@ -1827,7 +1883,7 @@ void Engine::DrawScreenQuad(ID3D12GraphicsCommandList* cmdList)
     cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE srvs(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-    srvs.Offset(10, mCbvSrvDescriptorSize);
+    srvs.Offset(11, mCbvSrvDescriptorSize);
 
     cmdList->SetGraphicsRootDescriptorTable(0, srvs);
 
@@ -1916,9 +1972,10 @@ void Engine::RenderUI()
         ImGui::Checkbox("Parallax Mapping", &isParallaxMapping);
 
         ImGui::Text("");
-        ImGui::Text("Tesselation");
+        ImGui::Text("Tesselation & Displacement");
         ImGui::Checkbox("Solid Mode", &isSolid);
         ImGui::SliderFloat("Tesselation Factor", &tessFactor, 1.f, 64.f);
+        ImGui::SliderFloat("Displacement Level", &displacementLevel, 0.f, 5.f);
 
         ImGui::Text("");
         ImGui::Text("Pixelation");
@@ -2045,7 +2102,7 @@ void Engine::RenderUI()
         if (ImGui::Begin("Deferred Render Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
         {
             CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-            tex.Offset(10, mCbvSrvDescriptorSize);
+            tex.Offset(11, mCbvSrvDescriptorSize);
             ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
             tex.Offset(1, mCbvSrvDescriptorSize);
             ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));

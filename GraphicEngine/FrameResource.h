@@ -38,7 +38,7 @@ struct PassConstants
     float TessFactor = 1.f;
     float PixelationFactor = 16.f;
     float ParallaxMapping = 0.f;
-    float cbPerObjectPad3;
+    float displacementLevel = 1.0f;
 
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;

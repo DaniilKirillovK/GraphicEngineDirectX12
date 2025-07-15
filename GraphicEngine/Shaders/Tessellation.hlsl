@@ -60,7 +60,7 @@ cbuffer cbPass : register(b1)
     float tessFactor;
     float pixelationFactor;
     float isParallaxMapping;
-    float cbPerObjectPad3;
+    float displacementLevel;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -240,7 +240,7 @@ DomainOut DS(PatchTess patchTess,
         barycentric.z * tri[2].Color;
 
     float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
-    float displacementScale = 0.1f;
+    float displacementScale = 0.1f * displacementLevel;
     displacement = (2.f * displacement - 1.0f) * displacementScale;
 
     position += normal * displacement;
@@ -275,8 +275,7 @@ GBuffer PS(DomainOut pin)
     
     float3 Roughness = gTextures[3].Sample(gsamLinearWrap, texCoord);
     float3 AO = gTextures[4].Sample(gsamLinearWrap, texCoord);
-    gBuffer.Specular = pin.Color;
-    //gBuffer.Specular = float4(Roughness.xyz, AO.x);
+    gBuffer.Specular = float4(Roughness.xyz, AO.x);
 
     return gBuffer;
 }
