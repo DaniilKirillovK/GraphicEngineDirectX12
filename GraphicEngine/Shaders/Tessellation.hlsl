@@ -102,9 +102,9 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
     VertexOut vout = (VertexOut) 0.0f;
     
     InstanceData instance = instanceBuffer[instanceID];
-	
+   
     // Transform to world space.
-    float4 posW = mul(float4(vin.PosL, 1.0f), instance.WorldMatrix);
+    float4 posW = mul(mul(float4(vin.PosL, 1.0f), gWorld), instance.WorldMatrix);
     vout.PosW = posW.xyz;
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.

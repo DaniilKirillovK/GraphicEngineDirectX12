@@ -204,11 +204,13 @@ bool isParallaxMapping = false;
 bool isDeferredRender = false;
 
 bool isPixelated = false;
-int pixelationFactor = 16.f;
+int pixelationFactor = 16;
+
+int instancingLevel = 5;
 
 float Obj1posX = 2.f;
 float Obj1posY = 0.f;
-float Obj1posZ = 0.f;
+float Obj1posZ = 10.f;
 
 float Obj1rotX = 0.f;
 float Obj1rotY = 0.f;
@@ -1698,14 +1700,21 @@ void Engine::ResizeGBuffer()
 
 void Engine::InitInstanceBuffer()
 {
-    int instanceCount = 9;
+    int instanceCount = 100 * 100;
     std::vector<InstanceData> instanceData(instanceCount);
     for (UINT i = 0; i < instanceCount; ++i)
     {
-        DirectX::XMStoreFloat4x4(&instanceData[i].WorldMatrix,
-            DirectX::XMMatrixTranspose(DirectX::XMMatrixTranslation((i / 3) * 2, 0, (i % 3) * 2)));
+        int x = i % 100;
+        int y = i / 100;
+        int index = 0;
+        if (y >= x)
+            index = y * y + x;
+        else index = (x + 1) * (x + 1) - y - 1;
 
-        instanceData[i].Color = DirectX::XMFLOAT4((float)i/9, (float)i / 9, (float)i / 9, 1.0f);
+        DirectX::XMStoreFloat4x4(&instanceData[index].WorldMatrix,
+            DirectX::XMMatrixTranspose(DirectX::XMMatrixTranslation((float)x * 2, 0, (float)y * 2)));
+
+        instanceData[index].Color = DirectX::XMFLOAT4(1.0f - (float)i/ instanceCount, 1.0f - (float)i / instanceCount, 1.0f - (float)i / instanceCount, 1.0f);
     }
 
     const UINT instanceBufferSize = instanceCount * sizeof(InstanceData);
@@ -1780,7 +1789,6 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
     // For each render item...
     for (size_t i = 0; i < ritems.size(); ++i)
     {
-        if (i == 0)
         {
             auto ri = ritems[i];
 
@@ -1804,8 +1812,9 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
             cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
             cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
 
-
-            cmdList->DrawIndexedInstanced(ri->IndexCount, 9, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+            if (i == 0)
+                cmdList->DrawIndexedInstanced(ri->IndexCount, instancingLevel * instancingLevel, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+            else cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
     }
 }
@@ -1896,13 +1905,31 @@ void Engine::RenderUI()
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
         ImGui::Text("");
+
+        ImGui::Text("");
+        ImGui::Text("Deferred Render");
         ImGui::Checkbox("Deferred Render", &isDeferredRender);
         ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
+
+        ImGui::Text("");
+        ImGui::Text("Parallax Mapping");
         ImGui::Checkbox("Parallax Mapping", &isParallaxMapping);
+
+        ImGui::Text("");
+        ImGui::Text("Tesselation");
         ImGui::Checkbox("Solid Mode", &isSolid);
         ImGui::SliderFloat("Tesselation Factor", &tessFactor, 1.f, 64.f);
+
+        ImGui::Text("");
+        ImGui::Text("Pixelation");
         ImGui::Checkbox("Pixelation Shader", &isPixelated);
         ImGui::SliderInt("Pixelated Factor", &pixelationFactor, 16.f, 128.f);
+
+        ImGui::Text("");
+        ImGui::Text("Instancing");
+        ImGui::SliderInt("Instancing Level", &instancingLevel, 1.f, 100.f);
+
+        ImGui::Text("");
         if (ImGui::Button("Object 1", ImVec2(100, 40)))
         {
             if (selectedObjectID == 1)
