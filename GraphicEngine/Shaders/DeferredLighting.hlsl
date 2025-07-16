@@ -55,6 +55,9 @@ cbuffer cbPass : register(b0)
     float pixelationFactor;
     float isParallaxMapping;
     float displacementLevel;
+    
+    float isNegative;
+    float3 cbPad;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -114,6 +117,20 @@ float4 PSMain(VertexOut vOut) : SV_TARGET
         normal, toEyeW, shadowFactor);
     
     float4 litColor = ambient + directLight;
+    
+    if (gNormal.Sample(gsamPointWrap, vOut.uv).x == 0.0f
+        && gNormal.Sample(gsamPointWrap, vOut.uv).y == 0.0f
+        && gNormal.Sample(gsamPointWrap, vOut.uv).z == 0.0f
+        && gNormal.Sample(gsamPointWrap, vOut.uv).w == 0.0f)
+    {
+        litColor = albedo;
+    }
+    
+    if (isNegative == 1.0f)
+    {
+        float4 tmpColor = litColor;
+        litColor = float4(1.0f - tmpColor.x, 1.0f - tmpColor.y, 1.0f - tmpColor.z, 1.0f);
+    }
     
     return litColor;
 }

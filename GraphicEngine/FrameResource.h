@@ -8,7 +8,8 @@ struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-    float TessFactor = 8.f;
+    float isTesselationNeeded = 1.0f;
+    float scale = 1.0f;
 };
 
 struct PassConstants
@@ -39,6 +40,9 @@ struct PassConstants
     float PixelationFactor = 16.f;
     float ParallaxMapping = 0.f;
     float displacementLevel = 1.0f;
+
+    float isNegative = 0.0f;
+    DirectX::XMFLOAT3 cbPad;
 
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;

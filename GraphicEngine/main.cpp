@@ -149,6 +149,7 @@ private:
     void RenderUI();
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
@@ -161,6 +162,7 @@ private:
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureLight = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebug = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -195,6 +197,12 @@ private:
 
 // Imgui Variables
 bool opened = true;
+
+bool isDebug = true;
+bool gridIsActive = false;
+
+bool isNegative = false;
+
 int tilesCountInt = 1;
 int selectedObjectID = 1;
 bool isAnimateMaterial = true;
@@ -209,6 +217,8 @@ bool isPixelated = false;
 int pixelationFactor = 16;
 
 int instancingLevel = 5;
+
+float Obj1Scale = 1.0f;
 
 float Obj1posX = 0.f;
 float Obj1posY = 0.f;
@@ -240,6 +250,10 @@ float lightPos3[3] = { 0.0f, 0.0f, -3.0f };
 float light1Strength = 0.5f;
 float light2Strength = 0.5f;
 float light3Strength = 0.5f;
+
+float light1Distance = 1.0f;
+float light2Distance = 1.0f;
+float light3Distance = 1.0f;
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -375,11 +389,11 @@ void Engine::Draw(const GameTimer& gt)
     D3D12_RECT rects[] = { mScissorRect, mScissorRect2, mScissorRect3, mScissorRect4, mScissorRectFull };
 
     // Clear the back buffer and depth buffer.
-    mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::LightSteelBlue, 0, nullptr);
-    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, mRtvDescriptorSize), DirectX::Colors::LightSteelBlue, 0, nullptr);
-    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 3, mRtvDescriptorSize), DirectX::Colors::LightSteelBlue, 0, nullptr);
-    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize), DirectX::Colors::LightSteelBlue, 0, nullptr);
-    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize), DirectX::Colors::LightSteelBlue, 0, nullptr);
+    mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
+    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 3, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
 
     mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
@@ -399,14 +413,69 @@ void Engine::Draw(const GameTimer& gt)
 
     auto dsv = DepthStencilView();
 
+    ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvHeap.Get() };
+    auto passCB = mCurrFrameResource->PassCB->Resource();
+
     // Draw calls
+    // Draw Wireframe (debug)
+    if (isDebug)
     {
-        ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvHeap.Get() };
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignatureDebug.Get());
+
+        mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+        // Indicate a state transition on the resource usage.
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
+        mCommandList->ResourceBarrier(6, barriers);
+
+        mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetPipelineState(mPSOs["debug"].Get());
+
+
+        DrawDebugRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueWireframe]);
+
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
+        mCommandList->ResourceBarrier(6, barriersClose);
+    }
+
+    // Draw Opaque
+    {
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
         mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
-        auto passCB = mCurrFrameResource->PassCB->Resource();
         mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
         // Indicate a state transition on the resource usage.
@@ -435,7 +504,7 @@ void Engine::Draw(const GameTimer& gt)
         else mCommandList->SetPipelineState(mPSOs["opaqueWireframe"].Get());
 
 
-        DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueWireframe]);
+        DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 
 
         // Indicate a state transition on the resource usage.
@@ -453,7 +522,12 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
         CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
         mCommandList->ResourceBarrier(6, barriersClose);
+    }
 
+    
+
+    // Draw screen quad
+    {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
@@ -601,12 +675,29 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(10.0f, 0.0f, 0.0f);
             else if (i == 3)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, 5.0f);
+            else if (i == 4)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos1[0], lightPos1[1], lightPos1[2]);
+            else if (i == 5)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos2[0], lightPos2[1], lightPos2[2]);
+            else if (i == 6)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos3[0], lightPos3[1], lightPos3[2]);
 
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
             ObjectConstants objConstants;
             XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
             XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
+            if (i <= 3)
+                objConstants.isTesselationNeeded = 1.0f;
+            else objConstants.isTesselationNeeded = 0.0f;
+            if (i == 0)
+                objConstants.scale = Obj1Scale;
+            else if (i == 4)
+                objConstants.scale = light1Distance;
+            else if (i == 5)
+                objConstants.scale = light2Distance;
+            else if (i == 6)
+                objConstants.scale = light3Distance;
 
             currObjectCB->CopyData(mAllRitems[i]->ObjCBIndex, objConstants);
 
@@ -688,20 +779,20 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     // Point lights
     mMainPassCB.Lights[3].Strength = { light1Strength, light1Strength, light1Strength };
     mMainPassCB.Lights[3].Position = { lightPos1[0], lightPos1[1], lightPos1[2] };
-    mMainPassCB.Lights[3].FalloffStart = 1.0f;
-    mMainPassCB.Lights[3].FalloffEnd = 1.0f;
+    mMainPassCB.Lights[3].FalloffStart = light1Distance;
+    mMainPassCB.Lights[3].FalloffEnd = light1Distance;
     mMainPassCB.Lights[3].Color = { col1[0], col1[1], col1[2], 1.0f };
 
     mMainPassCB.Lights[4].Strength = { light2Strength, light2Strength, light2Strength };
     mMainPassCB.Lights[4].Position = { lightPos2[0], lightPos2[1], lightPos2[2] };
-    mMainPassCB.Lights[4].FalloffStart = 1.0f;
-    mMainPassCB.Lights[4].FalloffEnd = 1.0f;
+    mMainPassCB.Lights[4].FalloffStart = light2Distance;
+    mMainPassCB.Lights[4].FalloffEnd = light2Distance;
     mMainPassCB.Lights[4].Color = { col2[0], col2[1], col2[2], 1.0f };
 
     mMainPassCB.Lights[5].Strength = { light3Strength, light3Strength, light3Strength };
     mMainPassCB.Lights[5].Position = { lightPos3[0], lightPos3[1], lightPos3[2] };
-    mMainPassCB.Lights[5].FalloffStart = 1.0f;
-    mMainPassCB.Lights[5].FalloffEnd = 1.0f;
+    mMainPassCB.Lights[5].FalloffStart = light3Distance;
+    mMainPassCB.Lights[5].FalloffEnd = light3Distance;
     mMainPassCB.Lights[5].Color = { col3[0], col3[1], col3[2], 1.0f };
 
 
@@ -720,6 +811,10 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
         mMainPassCB.ParallaxMapping = 1.0f;
     else mMainPassCB.ParallaxMapping = 0.0f;
     mMainPassCB.displacementLevel = displacementLevel;
+
+    if (isNegative)
+        mMainPassCB.isNegative = 1.0f;
+    else mMainPassCB.isNegative = 0.0f;
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -942,6 +1037,7 @@ void Engine::BuildRootSignature()
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
+    CD3DX12_ROOT_PARAMETER slotRootParameterDebug[2];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -953,6 +1049,9 @@ void Engine::BuildRootSignature()
     slotRootParameter2[0].InitAsDescriptorTable(1, &texTable2);
     slotRootParameter2[1].InitAsConstantBufferView(0);
 
+    slotRootParameterDebug[0].InitAsConstantBufferView(0);
+    slotRootParameterDebug[1].InitAsConstantBufferView(1);
+
     auto staticSamplers = GetStaticSamplers();
 
     // A root signature is an array of root parameters.
@@ -961,6 +1060,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc2(2, slotRootParameter2, 
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDebug(2, slotRootParameterDebug,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -998,6 +1101,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureLight.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescDebug, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureDebug.GetAddressOf())));
 }
 
 
@@ -1016,6 +1136,9 @@ void Engine::BuildShadersAndInputLayout()
 
     mShaders["DeferredVSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "VSMain", "vs_5_1");
     mShaders["DeferredPSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "PSMain", "ps_5_1");
+
+    mShaders["debugVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DebugLayer.hlsl", nullptr, "VS", "vs_5_0");
+    mShaders["debugPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DebugLayer.hlsl", nullptr, "PS", "ps_5_0");
 
     mInputLayout =
     {
@@ -1039,7 +1162,8 @@ void Engine::BuildShapeGeometry()
     GeometryGenerator::MeshData box2 = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
     GeometryGenerator::MeshData box3 = geoGen.CreateBoxTiling(5.f, 5.f, 5.f, 1, 1);
     GeometryGenerator::MeshData box4 = geoGen.CreateBoxTiling(1.f, 1.f, 1.f, 1, 1);
-    GeometryGenerator::MeshData sphere = geoGen.CreateSphere(0.2f, 7, 3, 0.f, 0.f, 0.f);
+    GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.0f, 7, 7, 0.f, 0.f, 0.f);
+    GeometryGenerator::MeshData grid = geoGen.CreateGrid(200.0f, 200.0f, 100, 100);
 
     UINT totalIndexCount = 0;
     UINT totalVertexCount = 0;
@@ -1092,6 +1216,13 @@ void Engine::BuildShapeGeometry()
     pointLight3Submesh.BaseVertexLocation = totalVertexCount;
     totalIndexCount += pointLight3Submesh.IndexCount;
     totalVertexCount += sphere.Vertices.size();
+
+    SubmeshGeometry gridSubmesh;
+    gridSubmesh.IndexCount = (UINT)grid.Indices32.size();
+    gridSubmesh.StartIndexLocation = totalIndexCount;
+    gridSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += gridSubmesh.IndexCount;
+    totalVertexCount += grid.Vertices.size();
 
     std::vector<VertexLightStage> verticesLightStage = 
     {
@@ -1177,6 +1308,14 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].TangentU = sphere.Vertices[i].TangentU;
     }
     totalVertexCount2 += sphere.Vertices.size();
+    for (size_t i = 0; i < grid.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = grid.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = grid.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = grid.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = grid.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += grid.Vertices.size();
 
 
     std::vector<std::uint16_t> indices;
@@ -1187,6 +1326,7 @@ void Engine::BuildShapeGeometry()
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
+    indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -1218,6 +1358,7 @@ void Engine::BuildShapeGeometry()
     geo->DrawArgs["pointLight1"] = pointLight1Submesh;
     geo->DrawArgs["pointLight2"] = pointLight2Submesh;
     geo->DrawArgs["pointLight3"] = pointLight3Submesh;
+    geo->DrawArgs["grid"] = gridSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -1326,6 +1467,40 @@ void Engine::BuildPSOs()
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDescPixel, IID_PPV_ARGS(&mPSOs["opaquePixel"])));
 
 
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc;
+    //
+    // PSO for debug layer
+    //
+    ZeroMemory(&debugPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    debugPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    debugPsoDesc.pRootSignature = mRootSignatureDebug.Get();
+    debugPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["debugVS"]->GetBufferPointer()),
+        mShaders["debugVS"]->GetBufferSize()
+    };
+    debugPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["debugPS"]->GetBufferPointer()),
+        mShaders["debugPS"]->GetBufferSize()
+    };
+    debugPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    debugPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    debugPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    debugPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    debugPsoDesc.SampleMask = UINT_MAX;
+    debugPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    debugPsoDesc.NumRenderTargets = 4;
+    debugPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    debugPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    debugPsoDesc.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    debugPsoDesc.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    debugPsoDesc.SampleDesc.Count = 1;
+    debugPsoDesc.SampleDesc.Quality = 0;
+    debugPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc, IID_PPV_ARGS(&mPSOs["debug"])));
+
+
     D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPsoDesc;
     ZeroMemory(&lightPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     lightPsoDesc.InputLayout = { mInputLayoutLight.data(), (UINT)mInputLayoutLight.size() };
@@ -1354,51 +1529,6 @@ void Engine::BuildPSOs()
     lightPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLighting"])));
 
-
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDescForward;
-
-    //
-    // PSO for opaque objects.
-    //
-    ZeroMemory(&opaquePsoDescForward, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-    opaquePsoDescForward.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    opaquePsoDescForward.pRootSignature = mRootSignature.Get();
-    opaquePsoDescForward.VS =
-    {
-        reinterpret_cast<BYTE*>(mShaders["forwardVS"]->GetBufferPointer()),
-        mShaders["forwardVS"]->GetBufferSize()
-    };
-    opaquePsoDescForward.HS =
-    {
-        reinterpret_cast<BYTE*>(mShaders["forwardHS"]->GetBufferPointer()),
-        mShaders["forwardHS"]->GetBufferSize()
-    };
-    opaquePsoDescForward.DS =
-    {
-        reinterpret_cast<BYTE*>(mShaders["forwardDS"]->GetBufferPointer()),
-        mShaders["forwardDS"]->GetBufferSize()
-    };
-    opaquePsoDescForward.PS =
-    {
-        reinterpret_cast<BYTE*>(mShaders["forwardPS"]->GetBufferPointer()),
-        mShaders["forwardPS"]->GetBufferSize()
-    };
-    opaquePsoDescForward.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    opaquePsoDescForward.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-    opaquePsoDescForward.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-    opaquePsoDescForward.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    opaquePsoDescForward.SampleMask = UINT_MAX;
-    opaquePsoDescForward.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
-    opaquePsoDescForward.NumRenderTargets = 5;
-    opaquePsoDescForward.RTVFormats[0] = mBackBufferFormat;
-    opaquePsoDescForward.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    opaquePsoDescForward.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    opaquePsoDescForward.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    opaquePsoDescForward.RTVFormats[4] = DXGI_FORMAT_R32G32B32A32_FLOAT;
-    opaquePsoDescForward.SampleDesc.Count = 1;
-    opaquePsoDescForward.SampleDesc.Quality = 0;
-    opaquePsoDescForward.DSVFormat = mDepthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueForward"])));
 }
 
 void Engine::BuildFrameResources()
@@ -1502,47 +1632,60 @@ void Engine::BuildRenderItems()
     //objectModelRitem->BaseVertexLocation = objectModelRitem->Geo->DrawArgs["objectModel"].BaseVertexLocation;
     //mAllRitems.push_back(std::move(objectModelRitem));
 
-    //auto pointLight1Ritem = std::make_unique<RenderItem>();
-    //pointLight1Ritem->ObjCBIndex = 3;
-    //pointLight1Ritem->World = MathHelper::Identity4x4();
-    //pointLight1Ritem->TexTransform = MathHelper::Identity4x4();
-    //pointLight1Ritem->Mat = mMaterials["testMaterial"].get();
-    //pointLight1Ritem->Geo = mGeometries["boxGeo"].get();
-    //pointLight1Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-    //pointLight1Ritem->IndexCount = pointLight1Ritem->Geo->DrawArgs["pointLight1"].IndexCount;
-    //pointLight1Ritem->StartIndexLocation = pointLight1Ritem->Geo->DrawArgs["pointLight1"].StartIndexLocation;
-    //pointLight1Ritem->BaseVertexLocation = pointLight1Ritem->Geo->DrawArgs["pointLight1"].BaseVertexLocation;
-    //mAllRitems.push_back(std::move(pointLight1Ritem));
+    auto pointLight1Ritem = std::make_unique<RenderItem>();
+    pointLight1Ritem->ObjCBIndex = 4;
+    pointLight1Ritem->World = MathHelper::Identity4x4();
+    pointLight1Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight1Ritem->Mat = mMaterials["stoneMaterial"].get();
+    pointLight1Ritem->Geo = mGeometries["boxGeo"].get();
+    pointLight1Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    pointLight1Ritem->IndexCount = pointLight1Ritem->Geo->DrawArgs["pointLight1"].IndexCount;
+    pointLight1Ritem->StartIndexLocation = pointLight1Ritem->Geo->DrawArgs["pointLight1"].StartIndexLocation;
+    pointLight1Ritem->BaseVertexLocation = pointLight1Ritem->Geo->DrawArgs["pointLight1"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(pointLight1Ritem));
 
-    //auto pointLight2Ritem = std::make_unique<RenderItem>();
-    //pointLight2Ritem->ObjCBIndex = 4;
-    //pointLight2Ritem->World = MathHelper::Identity4x4();
-    //pointLight2Ritem->TexTransform = MathHelper::Identity4x4();
-    //pointLight2Ritem->Mat = mMaterials["testMaterial"].get();
-    //pointLight2Ritem->Geo = mGeometries["boxGeo"].get();
-    //pointLight2Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-    //pointLight2Ritem->IndexCount = pointLight2Ritem->Geo->DrawArgs["pointLight2"].IndexCount;
-    //pointLight2Ritem->StartIndexLocation = pointLight2Ritem->Geo->DrawArgs["pointLight2"].StartIndexLocation;
-    //pointLight2Ritem->BaseVertexLocation = pointLight2Ritem->Geo->DrawArgs["pointLight2"].BaseVertexLocation;
-    //mAllRitems.push_back(std::move(pointLight2Ritem));
+    auto pointLight2Ritem = std::make_unique<RenderItem>();
+    pointLight2Ritem->ObjCBIndex = 5;
+    pointLight2Ritem->World = MathHelper::Identity4x4();
+    pointLight2Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight2Ritem->Mat = mMaterials["stoneMaterial"].get();
+    pointLight2Ritem->Geo = mGeometries["boxGeo"].get();
+    pointLight2Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    pointLight2Ritem->IndexCount = pointLight2Ritem->Geo->DrawArgs["pointLight2"].IndexCount;
+    pointLight2Ritem->StartIndexLocation = pointLight2Ritem->Geo->DrawArgs["pointLight2"].StartIndexLocation;
+    pointLight2Ritem->BaseVertexLocation = pointLight2Ritem->Geo->DrawArgs["pointLight2"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(pointLight2Ritem));
 
-    //auto pointLight3Ritem = std::make_unique<RenderItem>();
-    //pointLight3Ritem->ObjCBIndex = 5;
-    //pointLight3Ritem->World = MathHelper::Identity4x4();
-    //pointLight3Ritem->TexTransform = MathHelper::Identity4x4();
-    //pointLight3Ritem->Mat = mMaterials["testMaterial"].get();
-    //pointLight3Ritem->Geo = mGeometries["boxGeo"].get();
-    //pointLight3Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-    //pointLight3Ritem->IndexCount = pointLight3Ritem->Geo->DrawArgs["pointLight3"].IndexCount;
-    //pointLight3Ritem->StartIndexLocation = pointLight3Ritem->Geo->DrawArgs["pointLight3"].StartIndexLocation;
-    //pointLight3Ritem->BaseVertexLocation = pointLight3Ritem->Geo->DrawArgs["pointLight3"].BaseVertexLocation;
-    //mAllRitems.push_back(std::move(pointLight3Ritem));
+    auto pointLight3Ritem = std::make_unique<RenderItem>();
+    pointLight3Ritem->ObjCBIndex = 6;
+    pointLight3Ritem->World = MathHelper::Identity4x4();
+    pointLight3Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight3Ritem->Mat = mMaterials["stoneMaterial"].get();
+    pointLight3Ritem->Geo = mGeometries["boxGeo"].get();
+    pointLight3Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    pointLight3Ritem->IndexCount = pointLight3Ritem->Geo->DrawArgs["pointLight3"].IndexCount;
+    pointLight3Ritem->StartIndexLocation = pointLight3Ritem->Geo->DrawArgs["pointLight3"].StartIndexLocation;
+    pointLight3Ritem->BaseVertexLocation = pointLight3Ritem->Geo->DrawArgs["pointLight3"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(pointLight3Ritem));
 
-    // All the render items are opaque.
+    auto gridRitem = std::make_unique<RenderItem>();
+    gridRitem->ObjCBIndex = 7;
+    gridRitem->World = MathHelper::Identity4x4();
+    gridRitem->TexTransform = MathHelper::Identity4x4();
+    gridRitem->Mat = mMaterials["stoneMaterial"].get();
+    gridRitem->Geo = mGeometries["boxGeo"].get();
+    gridRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    gridRitem->IndexCount = gridRitem->Geo->DrawArgs["grid"].IndexCount;
+    gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
+    gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(gridRitem));
+
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
-        mRitemLayer[(int)RenderLayer::Opaque].push_back(mAllRitems[i].get());
-        mRitemLayer[(int)RenderLayer::OpaqueWireframe].push_back(mAllRitems[i].get());
+        if (i < 4)
+            mRitemLayer[(int)RenderLayer::Opaque].push_back(mAllRitems[i].get());
+        else
+            mRitemLayer[(int)RenderLayer::OpaqueWireframe].push_back(mAllRitems[i].get());
     }
 }
 
@@ -1875,6 +2018,38 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
     }
 }
 
+void Engine::DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+
+            cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+
+            if (i == 3 && gridIsActive)
+                cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+            if (i != 3)
+                cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
 void Engine::DrawScreenQuad(ID3D12GraphicsCommandList* cmdList)
 {
     auto geo = mGeometries["screenQuad"].get();
@@ -1960,6 +2135,8 @@ void Engine::RenderUI()
     {
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
+        ImGui::Checkbox("Debug Layer", &isDebug);
+        ImGui::Checkbox("Debug Grid", &gridIsActive);
         ImGui::Text("");
 
         ImGui::Text("");
@@ -1978,7 +2155,8 @@ void Engine::RenderUI()
         ImGui::SliderFloat("Displacement Level", &displacementLevel, 0.f, 5.f);
 
         ImGui::Text("");
-        ImGui::Text("Pixelation");
+        ImGui::Text("Effects");
+        ImGui::Checkbox("Negative", &isNegative);
         ImGui::Checkbox("Pixelation Shader", &isPixelated);
         ImGui::SliderInt("Pixelated Factor", &pixelationFactor, 16.f, 128.f);
 
@@ -2002,6 +2180,9 @@ void Engine::RenderUI()
 
         mAllRitems[0]->NumFramesDirty = 1;
         mAllRitems[1]->NumFramesDirty = 1;
+        mAllRitems[4]->NumFramesDirty = 1;
+        mAllRitems[5]->NumFramesDirty = 1;
+        mAllRitems[6]->NumFramesDirty = 1;
     } ImGui::End();
 
     ImVec2 lightPanelSize = ImVec2(350.f, 350.f);
@@ -2031,8 +2212,9 @@ void Engine::RenderUI()
             ImGui::InputFloat("##PointLightPos1Z", &lightPos1[2], 0.1f, 0.1f);
             ImGui::EndTable();
         }
-        ImGui::SliderFloat("Point light 1 strength", &light1Strength, 0.0f, 1.0f);
-        ImGui::ColorPicker3("Point light 1 color", col1, ImGuiColorEditFlags_NoAlpha);
+        ImGui::SliderFloat("Distance 1", &light1Distance, 0.0f, 2.0f);
+        ImGui::SliderFloat("Strength 1", &light1Strength, 0.0f, 1.0f);
+        ImGui::ColorPicker3("Color 1", col1, ImGuiColorEditFlags_NoAlpha);
 
         ImGui::Text("");
         ImGui::Text("Point Light 2");
@@ -2058,8 +2240,9 @@ void Engine::RenderUI()
             ImGui::InputFloat("##PointLightPos2Z", &lightPos2[2], 0.1f, 0.1f);
             ImGui::EndTable();
         }
-        ImGui::SliderFloat("Point light 2 strength", &light2Strength, 0.0f, 1.0f);
-        ImGui::ColorPicker3("Point light 2 color", col2, ImGuiColorEditFlags_NoAlpha);
+        ImGui::SliderFloat("Distance 2", &light2Distance, 0.0f, 2.0f);
+        ImGui::SliderFloat("Strength 2", &light2Strength, 0.0f, 1.0f);
+        ImGui::ColorPicker3("Color 2", col2, ImGuiColorEditFlags_NoAlpha);
 
         ImGui::Text("");
         ImGui::Text("Point Light 3");
@@ -2085,8 +2268,9 @@ void Engine::RenderUI()
             ImGui::InputFloat("##PointLightPos3Z", &lightPos3[2], 0.1f, 0.1f);
             ImGui::EndTable();
         }
-        ImGui::SliderFloat("Point light 3 strength", &light3Strength, 0.0f, 1.0f);
-        ImGui::ColorPicker3("Point light 3 color", col3, ImGuiColorEditFlags_NoAlpha);
+        ImGui::SliderFloat("Distance 3", &light3Distance, 0.0f, 2.0f);
+        ImGui::SliderFloat("Strength 3", &light3Strength, 0.0f, 1.0f);
+        ImGui::ColorPicker3("Color 3", col3, ImGuiColorEditFlags_NoAlpha);
 
     } ImGui::End();
 
@@ -2173,6 +2357,7 @@ void Engine::RenderUI()
                     ImGui::InputFloat("##RotZObj1", &Obj1rotZ, 0.1f, 0.1f);
                     ImGui::EndTable();
                 }
+                ImGui::SliderFloat("Scale", &Obj1Scale, 0.1f, 5.0f);
                 ImGui::Checkbox("Animate Material", &isAnimateMaterial);
                 break;
 
