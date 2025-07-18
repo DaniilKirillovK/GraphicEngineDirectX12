@@ -114,6 +114,8 @@ public:
 	///</summary>
 	MeshData CreateQuad(float x, float y, float w, float h, float depth);
 
+	MeshData CreateCone(float height, float radius, int segments);
+
 private:
 	void Subdivide(MeshData& meshData);
 	Vertex MidPoint(const Vertex& v0, const Vertex& v1);

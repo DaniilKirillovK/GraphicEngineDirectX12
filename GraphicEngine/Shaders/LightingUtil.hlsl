@@ -130,7 +130,7 @@ float3 ComputeSpotLight(Light L, Material mat, float3 pos, float3 normal, float3
     lightStrength *= att;
 
     // Scale by spotlight
-    float spotFactor = pow(max(dot(-lightVec, L.Direction), 0.0f), L.SpotPower);
+    float spotFactor = pow(max(dot(-lightVec, normalize(L.Direction)), 0.0f), L.SpotPower);
     lightStrength *= spotFactor;
 
     return BlinnPhong(lightStrength, lightVec, normal, toEye, mat);

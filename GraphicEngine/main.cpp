@@ -201,6 +201,8 @@ bool opened = true;
 bool isDebug = true;
 bool gridIsActive = false;
 
+bool flashlightIsActive = false;
+
 bool isNegative = false;
 
 int tilesCountInt = 1;
@@ -254,6 +256,19 @@ float light3Strength = 0.5f;
 float light1Distance = 1.0f;
 float light2Distance = 1.0f;
 float light3Distance = 1.0f;
+
+
+float lightPosSpot1[3] = { 0.0f, 0.0f, 0.0f };
+float spotLight1Direction[3] = { 0.0, 0.0f, 0.0f };
+float light1SpotStrength = 0.5f;
+float light1SpotDistance = 1.0f;
+float spotLight1Power = 64.f;
+float colSpot1[3] = { 1.0f, 1.0f, 1.0f };
+
+float light2SpotStrength = 0.5f;
+float light2SpotDistance = 3.0f;
+float spotLight2Power = 64.f;
+float colSpot2[3] = { 1.0f, 1.0f, 1.0f };
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -681,6 +696,11 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos2[0], lightPos2[1], lightPos2[2]);
             else if (i == 6)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos3[0], lightPos3[1], lightPos3[2]);
+            else if (i == 8)
+                world = XMLoadFloat4x4(&worldM)
+                * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, DirectX::XM_PI/2)
+                * DirectX::XMMatrixRotationRollPitchYaw(spotLight1Direction[0], spotLight1Direction[1], spotLight1Direction[2])
+                * DirectX::XMMatrixTranslation(lightPosSpot1[0], lightPosSpot1[1], lightPosSpot1[2]);
 
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
@@ -698,6 +718,8 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 objConstants.scale = light2Distance;
             else if (i == 6)
                 objConstants.scale = light3Distance;
+            else if (i == 8)
+                objConstants.scale = light1SpotDistance;
 
             currObjectCB->CopyData(mAllRitems[i]->ObjCBIndex, objConstants);
 
@@ -797,12 +819,28 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
 
 
     // Spot lights
-    //mMainPassCB.Lights[6].FalloffStart = 1.0f;
-    //mMainPassCB.Lights[6].FalloffEnd = 100.0f;
-    //mMainPassCB.Lights[6].Color = { 1.0f, 0.0f, 1.0f, 1.0f };
-    //mMainPassCB.Lights[6].SpotPower = 1000.0f;
-    //XMStoreFloat3(&mMainPassCB.Lights[6].Direction, mCamera.GetLook());
-    //XMStoreFloat3(&mMainPassCB.Lights[6].Position, mCamera.GetPosition());
+    mMainPassCB.Lights[6].Strength = { light1SpotStrength, light1SpotStrength, light1SpotStrength };
+    mMainPassCB.Lights[6].FalloffStart = light1SpotDistance;
+    mMainPassCB.Lights[6].FalloffEnd = light1SpotDistance;
+    mMainPassCB.Lights[6].Color = { colSpot1[0], colSpot1[1], colSpot1[2], 1.0f };
+    mMainPassCB.Lights[6].SpotPower = spotLight1Power;
+    DirectX::XMVECTOR vector = DirectX::XMVectorSet(0.0f, -1.0f, 0.0f, 0.0f);
+    DirectX::XMMATRIX rotation = DirectX::XMMatrixRotationRollPitchYaw(spotLight1Direction[0], spotLight1Direction[1], spotLight1Direction[2]);
+    DirectX::XMVECTOR rotatedVector = DirectX::XMVector3Transform(vector, rotation);
+    DirectX::XMStoreFloat3(&mMainPassCB.Lights[6].Direction, rotatedVector);
+    mMainPassCB.Lights[6].Position = { lightPosSpot1[0], lightPosSpot1[1], lightPosSpot1[2] };
+
+    if (flashlightIsActive)
+    {
+        mMainPassCB.Lights[7].Strength = { light2SpotStrength, light2SpotStrength, light2SpotStrength };
+        mMainPassCB.Lights[7].FalloffStart = light2SpotDistance;
+        mMainPassCB.Lights[7].FalloffEnd = light2SpotDistance;
+        mMainPassCB.Lights[7].SpotPower = spotLight2Power;
+        mMainPassCB.Lights[7].Color = { colSpot2[0], colSpot2[1], colSpot2[2], 1.0f };
+        mMainPassCB.Lights[7].Direction = mCamera.GetLook3f();
+        mMainPassCB.Lights[7].Position = mCamera.GetPosition3f();
+    }
+    else mMainPassCB.Lights[7].Strength = { 0.0f, 0.0f, 0.0f };
 
 
     mMainPassCB.TessFactor = tessFactor;
@@ -1164,6 +1202,7 @@ void Engine::BuildShapeGeometry()
     GeometryGenerator::MeshData box4 = geoGen.CreateBoxTiling(1.f, 1.f, 1.f, 1, 1);
     GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.0f, 7, 7, 0.f, 0.f, 0.f);
     GeometryGenerator::MeshData grid = geoGen.CreateGrid(200.0f, 200.0f, 100, 100);
+    GeometryGenerator::MeshData cone = geoGen.CreateCone(1.0f, 0.2f, 20);
 
     UINT totalIndexCount = 0;
     UINT totalVertexCount = 0;
@@ -1223,6 +1262,13 @@ void Engine::BuildShapeGeometry()
     gridSubmesh.BaseVertexLocation = totalVertexCount;
     totalIndexCount += gridSubmesh.IndexCount;
     totalVertexCount += grid.Vertices.size();
+
+    SubmeshGeometry coneSubmesh;
+    coneSubmesh.IndexCount = (UINT)cone.Indices32.size();
+    coneSubmesh.StartIndexLocation = totalIndexCount;
+    coneSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += coneSubmesh.IndexCount;
+    totalVertexCount += cone.Vertices.size();
 
     std::vector<VertexLightStage> verticesLightStage = 
     {
@@ -1316,6 +1362,14 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].TangentU = grid.Vertices[i].TangentU;
     }
     totalVertexCount2 += grid.Vertices.size();
+    for (size_t i = 0; i < cone.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = cone.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = cone.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = cone.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = cone.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += cone.Vertices.size();
 
 
     std::vector<std::uint16_t> indices;
@@ -1327,6 +1381,7 @@ void Engine::BuildShapeGeometry()
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
+    indices.insert(indices.end(), std::begin(cone.GetIndices16()), std::end(cone.GetIndices16()));
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -1359,6 +1414,7 @@ void Engine::BuildShapeGeometry()
     geo->DrawArgs["pointLight2"] = pointLight2Submesh;
     geo->DrawArgs["pointLight3"] = pointLight3Submesh;
     geo->DrawArgs["grid"] = gridSubmesh;
+    geo->DrawArgs["cone"] = coneSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -1679,6 +1735,18 @@ void Engine::BuildRenderItems()
     gridRitem->StartIndexLocation = gridRitem->Geo->DrawArgs["grid"].StartIndexLocation;
     gridRitem->BaseVertexLocation = gridRitem->Geo->DrawArgs["grid"].BaseVertexLocation;
     mAllRitems.push_back(std::move(gridRitem));
+
+    auto coneRitem = std::make_unique<RenderItem>();
+    coneRitem->ObjCBIndex = 8;
+    coneRitem->World = MathHelper::Identity4x4();
+    coneRitem->TexTransform = MathHelper::Identity4x4();
+    coneRitem->Mat = mMaterials["stoneMaterial"].get();
+    coneRitem->Geo = mGeometries["boxGeo"].get();
+    coneRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    coneRitem->IndexCount = coneRitem->Geo->DrawArgs["cone"].IndexCount;
+    coneRitem->StartIndexLocation = coneRitem->Geo->DrawArgs["cone"].StartIndexLocation;
+    coneRitem->BaseVertexLocation = coneRitem->Geo->DrawArgs["cone"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(coneRitem));
 
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
@@ -2139,6 +2207,12 @@ void Engine::RenderUI()
         ImGui::Checkbox("Debug Grid", &gridIsActive);
         ImGui::Text("");
 
+        ImGui::Text("Flashlight");
+        ImGui::Checkbox("Is Active", &flashlightIsActive);
+        ImGui::SliderFloat("Distance Flashlight", &light2SpotDistance, 0.0f, 20.0f);
+        ImGui::SliderFloat("Strength Flashlight", &light2SpotStrength, 0.0f, 5.0f);
+        ImGui::ColorPicker3("Color Flashlight", colSpot2, ImGuiColorEditFlags_NoAlpha);
+
         ImGui::Text("");
         ImGui::Text("Deferred Render");
         ImGui::Checkbox("Deferred Render", &isDeferredRender);
@@ -2183,11 +2257,12 @@ void Engine::RenderUI()
         mAllRitems[4]->NumFramesDirty = 1;
         mAllRitems[5]->NumFramesDirty = 1;
         mAllRitems[6]->NumFramesDirty = 1;
+        mAllRitems[8]->NumFramesDirty = 1;
     } ImGui::End();
 
     ImVec2 lightPanelSize = ImVec2(350.f, 350.f);
     ImGui::SetNextWindowSize(lightPanelSize);
-    if (ImGui::Begin("Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+    if (ImGui::Begin("Point Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
     {
         ImGui::Text("Point Light 1");
         if (ImGui::BeginTable("PointLight1", 3))
@@ -2271,6 +2346,45 @@ void Engine::RenderUI()
         ImGui::SliderFloat("Distance 3", &light3Distance, 0.0f, 2.0f);
         ImGui::SliderFloat("Strength 3", &light3Strength, 0.0f, 1.0f);
         ImGui::ColorPicker3("Color 3", col3, ImGuiColorEditFlags_NoAlpha);
+
+    } ImGui::End();
+
+    ImVec2 spotLightPanelSize = ImVec2(350.f, 350.f);
+    ImVec2 spotLightPanelPos = ImVec2(100.f, 200.f);
+    ImGui::SetNextWindowSize(spotLightPanelSize);
+    ImGui::SetNextWindowPos(spotLightPanelPos);
+    if (ImGui::Begin("Spot Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        ImGui::Text("Spot Light 1");
+        if (ImGui::BeginTable("SpotLight1", 3))
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("Pos X");
+
+            ImGui::TableSetColumnIndex(0);
+            ImGui::InputFloat("##SpotLightPos1X", &lightPosSpot1[0], 0.1f, 0.1f);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("Pos Y");
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::InputFloat("##SpotLightPos1Y", &lightPosSpot1[1], 0.1f, 0.1f);
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("Pos Z");
+
+            ImGui::TableSetColumnIndex(2);
+            ImGui::InputFloat("##SpotLightPos1Z", &lightPosSpot1[2], 0.1f, 0.1f);
+            ImGui::EndTable();
+        }
+        ImGui::SliderFloat("SpotLightDir1X", &spotLight1Direction[0], -DirectX::XM_PI, DirectX::XM_PI);
+        ImGui::SliderFloat("SpotLightDir1Y", &spotLight1Direction[1], -DirectX::XM_PI, DirectX::XM_PI);
+        ImGui::SliderFloat("SpotLightDir1Z", &spotLight1Direction[2], -DirectX::XM_PI, DirectX::XM_PI);
+
+        ImGui::SliderFloat("Spot Distance 1", &light1SpotDistance, 0.0f, 20.0f);
+        ImGui::SliderFloat("Spot Strength 1", &light1SpotStrength, 0.0f, 10.0f);
+        ImGui::ColorPicker3("Spot Color 1", colSpot1, ImGuiColorEditFlags_NoAlpha);
 
     } ImGui::End();
 

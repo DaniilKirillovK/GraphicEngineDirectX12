@@ -733,3 +733,94 @@ GeometryGenerator::MeshData GeometryGenerator::CreateQuad(float x, float y, floa
 
 	return meshData;
 }
+
+GeometryGenerator::MeshData GeometryGenerator::CreateCone(float height, float radius, int segments)
+{
+	MeshData meshData;
+	Vertex centerVertex;
+	centerVertex.Position = { 0.0f, -height, 0.0f };
+	centerVertex.Normal = { 0.0f, -1.0f, 0.0f };
+	centerVertex.TangentU = { 1.0f, 0.0f, 0.0f };
+	centerVertex.TexC = { 0.5f, 0.5f };
+
+	meshData.Vertices.push_back(centerVertex);
+
+	for (int i = 0; i <= segments; ++i) 
+	{
+		float angle = XM_2PI * i / segments;
+		float x = radius * cosf(angle);
+		float z = radius * sinf(angle);
+
+		Vertex baseVertex;
+		baseVertex.Position = { x, -height, z };
+		baseVertex.Normal = { 0.0f, -1.0f, 0.0f };
+		baseVertex.TangentU = { 1.0f, 0.0f, 0.0f };
+		baseVertex.TexC = { 0.5f + 0.5f * cosf(angle), 0.5f + 0.5f * sinf(angle) };
+		meshData.Vertices.push_back(baseVertex);
+	}
+
+	Vertex topVertex;
+	topVertex.Position = { 0.0f, 0.0f, 0.0f };
+	topVertex.Normal = { 0.0f, 1.0f, 0.0f };
+	topVertex.TangentU = { 1.0f, 0.0f, 0.0f };
+	topVertex.TexC = { 0.5f, 0.5f };
+	meshData.Vertices.push_back(topVertex);
+
+	for (int i = 1; i <= segments; ++i) 
+	{
+		meshData.Indices32.push_back(0);
+		meshData.Indices32.push_back(i);
+		meshData.Indices32.push_back(i % segments + 1);
+	}
+
+	for (int i = 1; i <= segments; ++i) 
+	{
+		meshData.Indices32.push_back(i);
+		meshData.Indices32.push_back(segments + 2);
+		meshData.Indices32.push_back(i % segments + 1);
+	}
+
+
+	for (size_t i = 0; i < meshData.Indices32.size(); i += 3) {
+		uint16_t i0 = meshData.Indices32[i];
+		uint16_t i1 = meshData.Indices32[i + 1];
+		uint16_t i2 = meshData.Indices32[i + 2];
+
+		Vertex& v0 = meshData.Vertices[i0];
+		Vertex& v1 = meshData.Vertices[i1];
+		Vertex& v2 = meshData.Vertices[i2];
+
+		XMVECTOR p0 = XMLoadFloat3(&v0.Position);
+		XMVECTOR p1 = XMLoadFloat3(&v1.Position);
+		XMVECTOR p2 = XMLoadFloat3(&v2.Position);
+
+		XMVECTOR e1 = p1 - p0;
+		XMVECTOR e2 = p2 - p0;
+
+		XMVECTOR uv1 = XMLoadFloat2(&v1.TexC) - XMLoadFloat2(&v0.TexC);
+		XMVECTOR uv2 = XMLoadFloat2(&v2.TexC) - XMLoadFloat2(&v0.TexC);
+
+		float r = 1.0f / (uv1.m128_f32[0] * uv2.m128_f32[1] - uv1.m128_f32[1] * uv2.m128_f32[0]);
+		XMVECTOR tangent = (e1 * uv2.m128_f32[1] - e2 * uv1.m128_f32[1]) * r;
+
+		XMStoreFloat3(&v0.TangentU, tangent);
+		XMStoreFloat3(&v1.TangentU, tangent);
+		XMStoreFloat3(&v2.TangentU, tangent);
+
+		if (i0 != 0 && i0 != segments + 1) 
+		{ 
+			XMVECTOR normal = XMVector3Cross(e1, e2);
+			normal = XMVector3Normalize(normal);
+
+			XMVECTOR centerToVertex = p0 - XMVectorSet(0.0f, -height, 0.0f, 0.0f);
+			if (XMVectorGetX(XMVector3Dot(normal, centerToVertex)) < 0) 
+			{
+				normal = -normal;
+			}
+
+			XMStoreFloat3(&v0.Normal, normal);
+		}
+	}
+	
+	return meshData;
+}
