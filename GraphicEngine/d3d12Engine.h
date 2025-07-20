@@ -112,9 +112,11 @@ protected:
 
     virtual void LoadTextures() {}
     virtual void UploadTextures() {}
+    virtual void UploadTextures2() {}
     virtual void BuildFrameResources() {}
     virtual void BuildMaterials() {}
     virtual void BuildRenderItems() {}
+    virtual void BuildBillboardSpritesGeometry() {}
 
 protected:
 

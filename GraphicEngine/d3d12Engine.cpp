@@ -510,12 +510,14 @@ BuildDescriptorHeaps();
 UploadTextures();
 BuildShadersAndInputLayout();
 BuildShapeGeometry();
+BuildBillboardSpritesGeometry();
 BuildMaterials();
 BuildRenderItems();
 BuildFrameResources();
 InitGBuffer();
 BuildPSOs();
 InitInstanceBuffer();
+UploadTextures2();
 
 // Execute the initialization commands.
 ThrowIfFailed(mCommandList->Close());

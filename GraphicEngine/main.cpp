@@ -87,6 +87,7 @@ enum class RenderLayer : int
 {
     Opaque = 0,
     OpaqueWireframe = 1,
+    BillboardSprites = 2,
     Count
 };
 
@@ -139,7 +140,9 @@ private:
     virtual void BuildFrameResources() override;
     virtual void BuildMaterials() override;
     virtual void BuildRenderItems() override;
+    virtual void BuildBillboardSpritesGeometry() override;
     virtual void UploadTextures() override;
+    virtual void UploadTextures2() override;
 
     virtual void InitGBuffer() override;
     void ResizeGBuffer();
@@ -150,6 +153,7 @@ private:
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
@@ -163,6 +167,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureLight = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebug = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureBillboard = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -172,6 +177,7 @@ private:
 
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayoutLight;
+    std::vector<D3D12_INPUT_ELEMENT_DESC> mBillboardSpriteInputLayout;
 
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
@@ -212,6 +218,8 @@ bool isSolid = true;
 bool deferredRenderDisplayInfo = false;
 bool isParallaxMapping = false;
 bool isDeferredRender = false;
+
+bool fpsObjectIsActive = false;
 
 float displacementLevel = 1.0f;
 
@@ -466,23 +474,25 @@ void Engine::Draw(const GameTimer& gt)
 
 
         DrawDebugRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueWireframe]);
+    }
+
+    // Draw billboards
+    {
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignatureBillboard.Get());
+
+        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+        mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetPipelineState(mPSOs["billboardSprites"].Get());
 
 
-        // Indicate a state transition on the resource usage.
-        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-        auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
-        mCommandList->ResourceBarrier(6, barriersClose);
+        DrawBillboardRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::BillboardSprites]);
     }
 
     // Draw Opaque
@@ -492,22 +502,6 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
         mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
-
-        // Indicate a state transition on the resource usage.
-        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
-        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth};
-        mCommandList->ResourceBarrier(6, barriers);
 
         mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
@@ -691,12 +685,14 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
             else if (i == 3)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, 5.0f);
             else if (i == 4)
-                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos1[0], lightPos1[1], lightPos1[2]);
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(-5.0f, 0.0f, 0.0f);
             else if (i == 5)
-                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos2[0], lightPos2[1], lightPos2[2]);
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos1[0], lightPos1[1], lightPos1[2]);
             else if (i == 6)
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos2[0], lightPos2[1], lightPos2[2]);
+            else if (i == 7)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos3[0], lightPos3[1], lightPos3[2]);
-            else if (i == 8)
+            else if (i == 9)
                 world = XMLoadFloat4x4(&worldM)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, DirectX::XM_PI/2)
                 * DirectX::XMMatrixRotationRollPitchYaw(spotLight1Direction[0], spotLight1Direction[1], spotLight1Direction[2])
@@ -707,18 +703,18 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
             ObjectConstants objConstants;
             XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
             XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
-            if (i <= 3)
+            if (i <= 4)
                 objConstants.isTesselationNeeded = 1.0f;
             else objConstants.isTesselationNeeded = 0.0f;
             if (i == 0)
                 objConstants.scale = Obj1Scale;
-            else if (i == 4)
-                objConstants.scale = light1Distance;
             else if (i == 5)
-                objConstants.scale = light2Distance;
+                objConstants.scale = light1Distance;
             else if (i == 6)
+                objConstants.scale = light2Distance;
+            else if (i == 7)
                 objConstants.scale = light3Distance;
-            else if (i == 8)
+            else if (i == 9)
                 objConstants.scale = light1SpotDistance;
 
             currObjectCB->CopyData(mAllRitems[i]->ObjCBIndex, objConstants);
@@ -960,6 +956,14 @@ void Engine::LoadTextures()
         mCommandList.Get(), stoneAO->Filename.c_str(),
         stoneAO->Resource, stoneAO->UploadHeap), true);
     mTextures[stoneAO->Name] = std::move(stoneAO);
+
+    auto planetTex = std::make_unique<Texture>();
+    planetTex->Name = "PlanetTex";
+    planetTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PlanetTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), planetTex->Filename.c_str(),
+        planetTex->Resource, planetTex->UploadHeap), true);
+    mTextures[planetTex->Name] = std::move(planetTex);
 }
 
 void Engine::BuildDescriptorHeaps()
@@ -968,7 +972,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 17;
+    srvHeapDesc.NumDescriptors = 18;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -1061,11 +1065,29 @@ void Engine::UploadTextures()
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 }
 
+void Engine::UploadTextures2()
+{
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(17, mCbvSrvDescriptorSize);
+
+    auto PlanetTex = mTextures["PlanetTex"]->Resource;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc1 = {};
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PlanetTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PlanetTex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+}
+
 
 void Engine::BuildRootSignature()
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
-    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 16, 0, 0);
+    texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
     CD3DX12_DESCRIPTOR_RANGE texTableSpace1;
     texTableSpace1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
 
@@ -1076,6 +1098,7 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
     CD3DX12_ROOT_PARAMETER slotRootParameterDebug[2];
+    CD3DX12_ROOT_PARAMETER slotRootParameterBillboard[4];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -1090,6 +1113,11 @@ void Engine::BuildRootSignature()
     slotRootParameterDebug[0].InitAsConstantBufferView(0);
     slotRootParameterDebug[1].InitAsConstantBufferView(1);
 
+    slotRootParameterBillboard[0].InitAsDescriptorTable(1, &texTableSpace1);
+    slotRootParameterBillboard[1].InitAsConstantBufferView(0);
+    slotRootParameterBillboard[2].InitAsConstantBufferView(1);
+    slotRootParameterBillboard[3].InitAsConstantBufferView(2);
+
     auto staticSamplers = GetStaticSamplers();
 
     // A root signature is an array of root parameters.
@@ -1102,6 +1130,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDebug(2, slotRootParameterDebug,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescBillboard(4, slotRootParameterBillboard,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1156,6 +1188,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureDebug.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescBillboard, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureBillboard.GetAddressOf())));
 }
 
 
@@ -1178,6 +1227,10 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["debugVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DebugLayer.hlsl", nullptr, "VS", "vs_5_0");
     mShaders["debugPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DebugLayer.hlsl", nullptr, "PS", "ps_5_0");
 
+    mShaders["billboardSpriteVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Billboard.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["billboardSpriteGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Billboard.hlsl", nullptr, "GS", "gs_5_1");
+    mShaders["billboardSpritePS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Billboard.hlsl", nullptr, "PS", "ps_5_1");
+
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1191,6 +1244,12 @@ void Engine::BuildShadersAndInputLayout()
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
+
+    mBillboardSpriteInputLayout =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+    };
 }
 
 void Engine::BuildShapeGeometry()
@@ -1200,6 +1259,7 @@ void Engine::BuildShapeGeometry()
     GeometryGenerator::MeshData box2 = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
     GeometryGenerator::MeshData box3 = geoGen.CreateBoxTiling(5.f, 5.f, 5.f, 1, 1);
     GeometryGenerator::MeshData box4 = geoGen.CreateBoxTiling(1.f, 1.f, 1.f, 1, 1);
+    GeometryGenerator::MeshData boxFPS = geoGen.CreateBoxTiling(2.f, 2.f, 2.f, 5, 1);
     GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.0f, 7, 7, 0.f, 0.f, 0.f);
     GeometryGenerator::MeshData grid = geoGen.CreateGrid(200.0f, 200.0f, 100, 100);
     GeometryGenerator::MeshData cone = geoGen.CreateCone(1.0f, 0.2f, 20);
@@ -1234,6 +1294,13 @@ void Engine::BuildShapeGeometry()
     boxSubmesh4.BaseVertexLocation = totalVertexCount;
     totalIndexCount += boxSubmesh4.IndexCount;
     totalVertexCount += box4.Vertices.size();
+
+    SubmeshGeometry boxSubmeshFPS;
+    boxSubmeshFPS.IndexCount = (UINT)boxFPS.Indices32.size();
+    boxSubmeshFPS.StartIndexLocation = totalIndexCount;
+    boxSubmeshFPS.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += boxSubmeshFPS.IndexCount;
+    totalVertexCount += boxFPS.Vertices.size();
 
     SubmeshGeometry pointLight1Submesh;
     pointLight1Submesh.IndexCount = (UINT)sphere.Indices32.size();
@@ -1313,7 +1380,7 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].TexC = box2.Vertices[i].TexC;
         vertices[i + totalVertexCount2].TangentU = box2.Vertices[i].TangentU;
     }
-    totalVertexCount2 += box.Vertices.size();
+    totalVertexCount2 += box2.Vertices.size();
     for (size_t i = 0; i < box3.Vertices.size(); ++i)
     {
         vertices[i + totalVertexCount2].Pos = box3.Vertices[i].Position;
@@ -1321,7 +1388,7 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].TexC = box3.Vertices[i].TexC;
         vertices[i + totalVertexCount2].TangentU = box3.Vertices[i].TangentU;
     }
-    totalVertexCount2 += box.Vertices.size();
+    totalVertexCount2 += box3.Vertices.size();
     for (size_t i = 0; i < box4.Vertices.size(); ++i)
     {
         vertices[i + totalVertexCount2].Pos = box4.Vertices[i].Position;
@@ -1329,7 +1396,15 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].TexC = box4.Vertices[i].TexC;
         vertices[i + totalVertexCount2].TangentU = box4.Vertices[i].TangentU;
     }
-    totalVertexCount2 += box.Vertices.size();
+    totalVertexCount2 += box4.Vertices.size();
+    for (size_t i = 0; i < boxFPS.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = boxFPS.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = boxFPS.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = boxFPS.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = boxFPS.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += boxFPS.Vertices.size();
     for (size_t i = 0; i < sphere.Vertices.size(); ++i)
     {
         vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
@@ -1377,6 +1452,7 @@ void Engine::BuildShapeGeometry()
     indices.insert(indices.end(), std::begin(box2.GetIndices16()), std::end(box2.GetIndices16()));
     indices.insert(indices.end(), std::begin(box3.GetIndices16()), std::end(box3.GetIndices16()));
     indices.insert(indices.end(), std::begin(box4.GetIndices16()), std::end(box4.GetIndices16()));
+    indices.insert(indices.end(), std::begin(boxFPS.GetIndices16()), std::end(boxFPS.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
@@ -1410,6 +1486,7 @@ void Engine::BuildShapeGeometry()
     geo->DrawArgs["box2"] = boxSubmesh2;
     geo->DrawArgs["box3"] = boxSubmesh3;
     geo->DrawArgs["box4"] = boxSubmesh4;
+    geo->DrawArgs["boxFPS"] = boxSubmeshFPS;
     geo->DrawArgs["pointLight1"] = pointLight1Submesh;
     geo->DrawArgs["pointLight2"] = pointLight2Submesh;
     geo->DrawArgs["pointLight3"] = pointLight3Submesh;
@@ -1585,6 +1662,45 @@ void Engine::BuildPSOs()
     lightPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLighting"])));
 
+    //
+    // PSO for billboard sprites
+    //
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC billboardSpritePsoDesc;
+    ZeroMemory(&billboardSpritePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    billboardSpritePsoDesc.pRootSignature = mRootSignatureBillboard.Get();
+    billboardSpritePsoDesc.InputLayout = { mBillboardSpriteInputLayout.data(), (UINT)mBillboardSpriteInputLayout.size() };
+    billboardSpritePsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["billboardSpriteVS"]->GetBufferPointer()),
+        mShaders["billboardSpriteVS"]->GetBufferSize()
+    };
+    billboardSpritePsoDesc.GS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["billboardSpriteGS"]->GetBufferPointer()),
+        mShaders["billboardSpriteGS"]->GetBufferSize()
+    };
+    billboardSpritePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["billboardSpritePS"]->GetBufferPointer()),
+        mShaders["billboardSpritePS"]->GetBufferSize()
+    };
+    billboardSpritePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    billboardSpritePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    billboardSpritePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    billboardSpritePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    billboardSpritePsoDesc.SampleMask = UINT_MAX;
+    billboardSpritePsoDesc.NumRenderTargets = 4;
+    billboardSpritePsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    billboardSpritePsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    billboardSpritePsoDesc.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    billboardSpritePsoDesc.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    billboardSpritePsoDesc.SampleDesc.Count = 1;
+    billboardSpritePsoDesc.SampleDesc.Quality = 0;
+    billboardSpritePsoDesc.DSVFormat = mDepthStencilFormat;
+    billboardSpritePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    billboardSpritePsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&billboardSpritePsoDesc, IID_PPV_ARGS(&mPSOs["billboardSprites"])));
 }
 
 void Engine::BuildFrameResources()
@@ -1627,6 +1743,16 @@ void Engine::BuildMaterials()
     stoneMat->Roughness = 0.5f;
 
     mMaterials["stoneMaterial"] = std::move(stoneMat);
+
+    auto planetMat = std::make_unique<Material>();
+    planetMat->Name = "planetMaterial";
+    planetMat->MatCBIndex = 3;
+    planetMat->DiffuseSrvHeapIndex = 17;
+    planetMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    planetMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
+    planetMat->Roughness = 0.125f;
+
+    mMaterials["planetMaterial"] = std::move(planetMat);
 }
 
 void Engine::BuildRenderItems()
@@ -1676,6 +1802,17 @@ void Engine::BuildRenderItems()
     boxInstancingRitem->BaseVertexLocation = boxInstancingRitem->Geo->DrawArgs["box4"].BaseVertexLocation;
     mAllRitems.push_back(std::move(boxInstancingRitem));
 
+    auto boxFPSRitem = std::make_unique<RenderItem>();
+    boxFPSRitem->ObjCBIndex = 4;
+    boxFPSRitem->World = MathHelper::Identity4x4();
+    boxFPSRitem->Mat = mMaterials["stoneMaterial"].get();
+    boxFPSRitem->Geo = mGeometries["boxGeo"].get();
+    boxFPSRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    boxFPSRitem->IndexCount = boxFPSRitem->Geo->DrawArgs["boxFPS"].IndexCount;
+    boxFPSRitem->StartIndexLocation = boxFPSRitem->Geo->DrawArgs["boxFPS"].StartIndexLocation;
+    boxFPSRitem->BaseVertexLocation = boxFPSRitem->Geo->DrawArgs["boxFPS"].BaseVertexLocation;
+    mAllRitems.push_back(std::move(boxFPSRitem));
+
     //auto objectModelRitem = std::make_unique<RenderItem>();
     //objectModelRitem->ObjCBIndex = 3;
     //XMStoreFloat4x4(&objectModelRitem->World, DirectX::XMMatrixScaling(0.01f, 0.01f, 0.01f) * DirectX::XMMatrixTranslation(-8.0f, 0.0f, 0.0f));
@@ -1689,7 +1826,7 @@ void Engine::BuildRenderItems()
     //mAllRitems.push_back(std::move(objectModelRitem));
 
     auto pointLight1Ritem = std::make_unique<RenderItem>();
-    pointLight1Ritem->ObjCBIndex = 4;
+    pointLight1Ritem->ObjCBIndex = 5;
     pointLight1Ritem->World = MathHelper::Identity4x4();
     pointLight1Ritem->TexTransform = MathHelper::Identity4x4();
     pointLight1Ritem->Mat = mMaterials["stoneMaterial"].get();
@@ -1701,7 +1838,7 @@ void Engine::BuildRenderItems()
     mAllRitems.push_back(std::move(pointLight1Ritem));
 
     auto pointLight2Ritem = std::make_unique<RenderItem>();
-    pointLight2Ritem->ObjCBIndex = 5;
+    pointLight2Ritem->ObjCBIndex = 6;
     pointLight2Ritem->World = MathHelper::Identity4x4();
     pointLight2Ritem->TexTransform = MathHelper::Identity4x4();
     pointLight2Ritem->Mat = mMaterials["stoneMaterial"].get();
@@ -1713,7 +1850,7 @@ void Engine::BuildRenderItems()
     mAllRitems.push_back(std::move(pointLight2Ritem));
 
     auto pointLight3Ritem = std::make_unique<RenderItem>();
-    pointLight3Ritem->ObjCBIndex = 6;
+    pointLight3Ritem->ObjCBIndex = 7;
     pointLight3Ritem->World = MathHelper::Identity4x4();
     pointLight3Ritem->TexTransform = MathHelper::Identity4x4();
     pointLight3Ritem->Mat = mMaterials["stoneMaterial"].get();
@@ -1725,7 +1862,7 @@ void Engine::BuildRenderItems()
     mAllRitems.push_back(std::move(pointLight3Ritem));
 
     auto gridRitem = std::make_unique<RenderItem>();
-    gridRitem->ObjCBIndex = 7;
+    gridRitem->ObjCBIndex = 8;
     gridRitem->World = MathHelper::Identity4x4();
     gridRitem->TexTransform = MathHelper::Identity4x4();
     gridRitem->Mat = mMaterials["stoneMaterial"].get();
@@ -1737,7 +1874,7 @@ void Engine::BuildRenderItems()
     mAllRitems.push_back(std::move(gridRitem));
 
     auto coneRitem = std::make_unique<RenderItem>();
-    coneRitem->ObjCBIndex = 8;
+    coneRitem->ObjCBIndex = 9;
     coneRitem->World = MathHelper::Identity4x4();
     coneRitem->TexTransform = MathHelper::Identity4x4();
     coneRitem->Mat = mMaterials["stoneMaterial"].get();
@@ -1748,13 +1885,85 @@ void Engine::BuildRenderItems()
     coneRitem->BaseVertexLocation = coneRitem->Geo->DrawArgs["cone"].BaseVertexLocation;
     mAllRitems.push_back(std::move(coneRitem));
 
+    auto planetSpritesRitem = std::make_unique<RenderItem>();
+    planetSpritesRitem->World = MathHelper::Identity4x4();
+    planetSpritesRitem->ObjCBIndex = 10;
+    planetSpritesRitem->Mat = mMaterials["planetMaterial"].get();
+    planetSpritesRitem->Geo = mGeometries["planetSpritesGeo"].get();
+    planetSpritesRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+    planetSpritesRitem->IndexCount = planetSpritesRitem->Geo->DrawArgs["points"].IndexCount;
+    planetSpritesRitem->StartIndexLocation = planetSpritesRitem->Geo->DrawArgs["points"].StartIndexLocation;
+    planetSpritesRitem->BaseVertexLocation = planetSpritesRitem->Geo->DrawArgs["points"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::BillboardSprites].push_back(planetSpritesRitem.get());
+    mAllRitems.push_back(std::move(planetSpritesRitem));
+
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
-        if (i < 4)
+        if (i < 5)
             mRitemLayer[(int)RenderLayer::Opaque].push_back(mAllRitems[i].get());
-        else
+        else if (i < 10)
             mRitemLayer[(int)RenderLayer::OpaqueWireframe].push_back(mAllRitems[i].get());
     }
+}
+
+void Engine::BuildBillboardSpritesGeometry()
+{
+    struct PlanetSpriteVertex
+    {
+        DirectX::XMFLOAT3 Pos;
+        DirectX::XMFLOAT2 Size;
+    };
+
+    static const int planetCount = 2;
+    std::array<PlanetSpriteVertex, 2> vertices;
+    for (UINT i = 0; i < 2; ++i)
+    {
+        float x = 45.f * pow(-1, i);
+        float z = 45.f * pow(-1, i);
+        float y = 35.f;
+
+        vertices[i].Pos = DirectX::XMFLOAT3(x, y, z);
+        vertices[i].Size = DirectX::XMFLOAT2(20.0f, 20.0f);
+    }
+
+    std::array<std::uint16_t, 16> indices =
+    {
+        0, 1, 2, 3, 4, 5, 6, 7,
+        8, 9, 10, 11, 12, 13, 14, 15
+    };
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(PlanetSpriteVertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "planetSpritesGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(PlanetSpriteVertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    SubmeshGeometry submesh;
+    submesh.IndexCount = (UINT)indices.size();
+    submesh.StartIndexLocation = 0;
+    submesh.BaseVertexLocation = 0;
+
+    geo->DrawArgs["points"] = submesh;
+
+    mGeometries["planetSpritesGeo"] = std::move(geo);
 }
 
 void Engine::InitGBuffer()
@@ -2081,7 +2290,9 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
 
             if (i == 3)
                 cmdList->DrawIndexedInstanced(ri->IndexCount, instancingLevel * instancingLevel, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
-            else cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+            else if (i == 4 && fpsObjectIsActive)
+                cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+            else if (i != 4) cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
     }
 }
@@ -2106,6 +2317,9 @@ void Engine::DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std:
             cmdList->IASetIndexBuffer(&tmp2);
             cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
             D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 
             cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
@@ -2114,6 +2328,41 @@ void Engine::DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std:
                 cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
             if (i != 3)
                 cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
+void Engine::DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
     }
 }
@@ -2205,6 +2454,9 @@ void Engine::RenderUI()
         ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
         ImGui::Checkbox("Debug Layer", &isDebug);
         ImGui::Checkbox("Debug Grid", &gridIsActive);
+        ImGui::Text("");
+
+        ImGui::Checkbox("FPS Object", &fpsObjectIsActive);
         ImGui::Text("");
 
         ImGui::Text("Flashlight");
