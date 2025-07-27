@@ -442,10 +442,9 @@ bool D3D12Engine::InitMainWindow()
 bool D3D12Engine::InitDirect3D()
 {
 	// Enable the D3D12 debug layer.
-	//ID3D12Debug* debugController = nullptr;
-	//D3D12GetDebugInterface(IID_PPV_ARGS(&debugController));
-	//debugController->EnableDebugLayer();
-	//debugController->Release();
+	ID3D12Debug* debugController = nullptr;
+	D3D12GetDebugInterface(IID_PPV_ARGS(&debugController));
+	debugController->EnableDebugLayer();
 
 ThrowIfFailed(CreateDXGIFactory1(IID_PPV_ARGS(&mdxgiFactory)));
 
@@ -511,6 +510,7 @@ UploadTextures();
 BuildShadersAndInputLayout();
 BuildShapeGeometry();
 BuildBillboardSpritesGeometry();
+InitParticleSystem();
 BuildMaterials();
 BuildRenderItems();
 BuildFrameResources();

@@ -172,6 +172,8 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MathHelper.cpp" />
     <ClCompile Include="Model.cpp" />
+    <ClCompile Include="Particles.cpp" />
+    <ClCompile Include="ParticleSystem.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
@@ -197,6 +199,8 @@
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="Model.h" />
     <ClInclude Include="ModelHelper.h" />
+    <ClInclude Include="Particles.h" />
+    <ClInclude Include="ParticleSystem.h" />
     <ClInclude Include="UploadBuffer.h" />
   </ItemGroup>
   <ItemGroup>

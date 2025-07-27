@@ -17,6 +17,7 @@
 #include "GBuffer.h"
 #include "Model.h"
 #include "Instancing.h"
+#include "ParticleSystem.h"
 
 extern "C" { _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
 
@@ -40,43 +41,6 @@ static const int WINDOW_HEIGHT = 800;
 
 const int gNumFrameResources = 3;
 
-// Lightweight structure stores parameters to draw a shape.  This will
-// vary from app-to-app.
-struct RenderItem
-{
-    RenderItem() = default;
-
-    // World matrix of the shape that describes the object's local space
-    // relative to the world space, which defines the position, orientation,
-    // and scale of the object in the world.
-    DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
-
-    DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-
-    // Dirty flag indicating the object data has changed and we need to update the constant buffer.
-    // Because we have an object cbuffer for each FrameResource, we have to apply the
-    // update to each FrameResource.  Thus, when we modify obect data we should set 
-    // NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
-    int NumFramesDirty = gNumFrameResources;
-
-    // Index into GPU constant buffer corresponding to the ObjectCB for this render item.
-    UINT ObjCBIndex = -1;
-
-    Material* Mat = nullptr;
-    MeshGeometry* Geo = nullptr;
-
-    // Primitive topology.
-    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
-    // DrawIndexedInstanced parameters.
-    UINT IndexCount = 0;
-    UINT StartIndexLocation = 0;
-    int BaseVertexLocation = 0;
-
-    // DrawInstanced parameters
-    UINT VertexCount = 0;
-};
-
 struct VertexLightStage 
 {
     DirectX::XMFLOAT3 position;
@@ -88,6 +52,7 @@ enum class RenderLayer : int
     Opaque = 0,
     OpaqueWireframe = 1,
     BillboardSprites = 2,
+    Particles = 3,
     Count
 };
 
@@ -99,6 +64,8 @@ struct FrameContext
 };
 
 ExampleDescriptorHeapAllocator mSrvHeapAllocator;
+ExampleDescriptorHeapAllocator mSrvHeapAllocator2;
+ExampleDescriptorHeapAllocator mUavHeapAllocator;
 
 
 class Engine : public D3D12Engine
@@ -127,6 +94,7 @@ private:
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
+    void UpdateParticleEmitterCB(const GameTimer& gt);
 
     void ChangeTileObjectTiles();
 
@@ -148,6 +116,8 @@ private:
     void ResizeGBuffer();
 
     virtual void InitInstanceBuffer() override;
+    virtual void InitParticleSystem() override;
+    
 
     void RenderUI();
 
@@ -155,6 +125,7 @@ private:
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
+    void DrawParticles(ParticleSystem particleSystem);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -168,6 +139,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureLight = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebug = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureBillboard = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesCompute = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesRender = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -178,6 +151,7 @@ private:
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayoutLight;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mBillboardSpriteInputLayout;
+    std::vector<D3D12_INPUT_ELEMENT_DESC> mParticlesInputLayout;
 
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
@@ -189,6 +163,8 @@ private:
 
     PassConstants mMainPassCB;
     PassConstants mReflectedPassCB;
+
+    ParticleSystem* mParticleSystem;
 
     float mTheta = 1.3f * DirectX::XM_PI;
     float mPhi = 0.4f * DirectX::XM_PI;
@@ -206,6 +182,7 @@ bool opened = true;
 
 bool isDebug = true;
 bool gridIsActive = false;
+bool particlesIsActive = true;
 
 bool flashlightIsActive = false;
 
@@ -393,6 +370,7 @@ void Engine::Update(const GameTimer& gt)
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
+    UpdateParticleEmitterCB(gt);
 }
 
 void Engine::Draw(const GameTimer& gt)
@@ -439,7 +417,66 @@ void Engine::Draw(const GameTimer& gt)
     ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvHeap.Get() };
     auto passCB = mCurrFrameResource->PassCB->Resource();
 
-    // Draw calls
+    // Particles
+    if (particlesIsActive)
+    {
+        // Compute pass
+        {
+            ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
+            mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
+
+            CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+                particleBuffers[1 - currParticleReadBuffer].Get(),
+                D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            mCommandList->ResourceBarrier(1, &computeBarrier1);
+
+            auto emitterCB = mCurrFrameResource->EmitterCB->Resource();
+
+            mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
+
+            mCommandList->SetComputeRootUnorderedAccessView(0, particleBuffers[1 - currParticleReadBuffer]->GetGPUVirtualAddress());
+            mCommandList->SetComputeRootShaderResourceView(1, particleBuffers[currParticleReadBuffer]->GetGPUVirtualAddress());
+            mCommandList->SetComputeRootConstantBufferView(2, emitterCB->GetGPUVirtualAddress());
+
+            mCommandList->SetPipelineState(mPSOs["computeParticles"].Get());
+
+            UINT threadGroupCount = 64;
+            mCommandList->Dispatch(threadGroupCount, 1, 1);
+
+            CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+                particleBuffers[1 - currParticleReadBuffer].Get(),
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+            mCommandList->ResourceBarrier(1, &computeBarrier2);
+
+            currParticleReadBuffer = 1 - currParticleReadBuffer;
+        }
+
+        // Draw calls
+        // Draw particles
+        {
+            ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+            CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+            handle.Offset(currParticleReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
+            mCommandList->SetGraphicsRootDescriptorTable(1, handle);
+
+            mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["renderParticles"].Get());
+
+            DrawParticles(*mParticleSystem);
+        }
+    }
+
     // Draw Wireframe (debug)
     if (isDebug)
     {
@@ -854,6 +891,25 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     currPassCB->CopyData(0, mMainPassCB);
 }
 
+void Engine::UpdateParticleEmitterCB(const GameTimer& gt)
+{
+    EmitterConstants emitterConstPass;
+    
+    emitterConstPass.Position = mParticleSystem->emitterData.Position;
+    emitterConstPass.DeltaTime = gt.DeltaTime();
+    emitterConstPass.GravityForce = mParticleSystem->emitterData.GravityForce;
+    emitterConstPass.Pad1 = mParticleSystem->emitterData.Pad1;
+    emitterConstPass.StartColor = mParticleSystem->emitterData.StartColor;
+    emitterConstPass.EndColor = mParticleSystem->emitterData.EndColor;
+    emitterConstPass.StartSize = mParticleSystem->emitterData.StartSize;
+    emitterConstPass.EndSize = mParticleSystem->emitterData.EndSize;
+    emitterConstPass.MaxParticles = mParticleSystem->emitterData.MaxParticles;
+    emitterConstPass.EmitterIsActive = mParticleSystem->emitterData.EmitterIsActive;
+
+    auto currPassCB = mCurrFrameResource->EmitterCB.get();
+    currPassCB->CopyData(0, emitterConstPass);
+}
+
 void Engine::ChangeTileObjectTiles()
 {
     if ((int)tilesCount != tilesCountInt)
@@ -964,6 +1020,14 @@ void Engine::LoadTextures()
         mCommandList.Get(), planetTex->Filename.c_str(),
         planetTex->Resource, planetTex->UploadHeap), true);
     mTextures[planetTex->Name] = std::move(planetTex);
+
+    auto particleTex = std::make_unique<Texture>();
+    particleTex->Name = "ParticleTex";
+    particleTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\ParticleTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), particleTex->Filename.c_str(),
+        particleTex->Resource, particleTex->UploadHeap), true);
+    mTextures[particleTex->Name] = std::move(particleTex);
 }
 
 void Engine::BuildDescriptorHeaps()
@@ -972,12 +1036,23 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 18;
+    srvHeapDesc.NumDescriptors = 21;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
 
     mSrvHeapAllocator.Create(md3dDevice.Get(), mSrvHeap.Get());
+
+    //
+    // Create particles SRV/UAV heap.
+    //
+    D3D12_DESCRIPTOR_HEAP_DESC srvParticlesHeapDesc = {};
+    srvParticlesHeapDesc.NumDescriptors = 5;
+    srvParticlesHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srvParticlesHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvParticlesHeapDesc, IID_PPV_ARGS(&mParticlesSrvUavHeap)));
+
+    mSrvHeapAllocator2.Create(md3dDevice.Get(), mParticlesSrvUavHeap.Get());
 }
 
 void Engine::UploadTextures()
@@ -1081,6 +1156,20 @@ void Engine::UploadTextures2()
     md3dDevice->CreateShaderResourceView(PlanetTex.Get(), &srvDesc1, hDescriptor);
 
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto ParticleTex = mTextures["ParticleTex"]->Resource;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptorParticles(mParticlesSrvUavHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptorParticles.Offset(4, mCbvSrvDescriptorSize);
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = ParticleTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(ParticleTex.Get(), &srvDesc1, hDescriptorParticles);
+
+    hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
 }
 
 
@@ -1091,14 +1180,24 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableSpace1;
     texTableSpace1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableParticles;
+    texTableParticles.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTableParticlesSpace1;
+    texTableParticlesSpace1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+
     CD3DX12_DESCRIPTOR_RANGE texTable2;
     texTable2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
+
     CD3DX12_ROOT_PARAMETER slotRootParameterDebug[2];
+
     CD3DX12_ROOT_PARAMETER slotRootParameterBillboard[4];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterParticlesCompute[3];
+    CD3DX12_ROOT_PARAMETER slotRootParameterParticlesRender[4];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -1118,6 +1217,15 @@ void Engine::BuildRootSignature()
     slotRootParameterBillboard[2].InitAsConstantBufferView(1);
     slotRootParameterBillboard[3].InitAsConstantBufferView(2);
 
+    slotRootParameterParticlesCompute[0].InitAsUnorderedAccessView(0);
+    slotRootParameterParticlesCompute[1].InitAsShaderResourceView(0);
+    slotRootParameterParticlesCompute[2].InitAsConstantBufferView(0);
+
+    slotRootParameterParticlesRender[0].InitAsDescriptorTable(1, &texTableParticles);
+    slotRootParameterParticlesRender[1].InitAsDescriptorTable(1, &texTableParticlesSpace1);
+    slotRootParameterParticlesRender[2].InitAsConstantBufferView(0);
+    slotRootParameterParticlesRender[3].InitAsConstantBufferView(1);
+
     auto staticSamplers = GetStaticSamplers();
 
     // A root signature is an array of root parameters.
@@ -1134,6 +1242,14 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescBillboard(4, slotRootParameterBillboard,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescParticlesRender(4, slotRootParameterParticlesRender,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescParticlesCompute(3, slotRootParameterParticlesCompute,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1205,6 +1321,40 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureBillboard.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescParticlesRender, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureParticlesRender.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescParticlesCompute, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureParticlesCompute.GetAddressOf())));
 }
 
 
@@ -1231,6 +1381,12 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["billboardSpriteGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Billboard.hlsl", nullptr, "GS", "gs_5_1");
     mShaders["billboardSpritePS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Billboard.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["particlesVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Particles.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["particlesGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Particles.hlsl", nullptr, "GS", "gs_5_1");
+    mShaders["particlesPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Particles.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["particlesCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeParticles.hlsl", nullptr, "CS_UpdateParticles", "cs_5_1");
+
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1249,6 +1405,13 @@ void Engine::BuildShadersAndInputLayout()
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+    };
+
+    mParticlesInputLayout =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 }
 
@@ -1701,6 +1864,70 @@ void Engine::BuildPSOs()
     billboardSpritePsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&billboardSpritePsoDesc, IID_PPV_ARGS(&mPSOs["billboardSprites"])));
+
+    //
+    // PSO for particles compute
+    //
+    D3D12_COMPUTE_PIPELINE_STATE_DESC particlesComputePsoDesc;
+    ZeroMemory(&particlesComputePsoDesc, sizeof(D3D12_COMPUTE_PIPELINE_STATE_DESC));
+
+    particlesComputePsoDesc.pRootSignature = mRootSignatureParticlesCompute.Get();
+    particlesComputePsoDesc.CS = {
+        reinterpret_cast<BYTE*>(mShaders["particlesCS"]->GetBufferPointer()),
+        mShaders["particlesCS"]->GetBufferSize()
+    };
+    particlesComputePsoDesc.NodeMask = 0;
+    particlesComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+   
+
+    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeParticles"])));
+
+
+    //
+    // PSO for particles render
+    //
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesPsoDesc;
+    ZeroMemory(&particlesPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    particlesPsoDesc.pRootSignature = mRootSignatureParticlesRender.Get();
+    particlesPsoDesc.InputLayout = { mParticlesInputLayout.data(), (UINT)mParticlesInputLayout.size() };
+    particlesPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesVS"]->GetBufferPointer()),
+        mShaders["particlesVS"]->GetBufferSize()
+    };
+    particlesPsoDesc.GS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesGS"]->GetBufferPointer()),
+        mShaders["particlesGS"]->GetBufferSize()
+    };
+    particlesPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesPS"]->GetBufferPointer()),
+        mShaders["particlesPS"]->GetBufferSize()
+    };
+
+    particlesPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    particlesPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    particlesPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    particlesPsoDesc.RasterizerState.DepthClipEnable = TRUE;
+
+    particlesPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+
+    particlesPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    particlesPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+
+    particlesPsoDesc.SampleMask = UINT_MAX;
+    particlesPsoDesc.NumRenderTargets = 4;
+    particlesPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    particlesPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    particlesPsoDesc.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    particlesPsoDesc.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    particlesPsoDesc.SampleDesc.Count = 1;
+    particlesPsoDesc.SampleDesc.Quality = 0;
+    particlesPsoDesc.DSVFormat = mDepthStencilFormat;
+    particlesPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticles"])));
 }
 
 void Engine::BuildFrameResources()
@@ -1753,6 +1980,16 @@ void Engine::BuildMaterials()
     planetMat->Roughness = 0.125f;
 
     mMaterials["planetMaterial"] = std::move(planetMat);
+
+    auto particleMat = std::make_unique<Material>();
+    particleMat->Name = "particleMaterial";
+    particleMat->MatCBIndex = 4;
+    particleMat->DiffuseSrvHeapIndex = 4;
+    particleMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    particleMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
+    particleMat->Roughness = 0.125f;
+
+    mMaterials["particleMaterial"] = std::move(particleMat);
 }
 
 void Engine::BuildRenderItems()
@@ -1897,6 +2134,19 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::BillboardSprites].push_back(planetSpritesRitem.get());
     mAllRitems.push_back(std::move(planetSpritesRitem));
+
+    auto particleRitem = std::make_unique<RenderItem>();
+    particleRitem->World = MathHelper::Identity4x4();
+    particleRitem->ObjCBIndex = 11;
+    particleRitem->Mat = mMaterials["particleMaterial"].get();
+    particleRitem->Geo = mGeometries["particlesGeo"].get();
+    particleRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+    particleRitem->IndexCount = particleRitem->Geo->DrawArgs["points"].IndexCount;
+    particleRitem->StartIndexLocation = particleRitem->Geo->DrawArgs["points"].StartIndexLocation;
+    particleRitem->BaseVertexLocation = particleRitem->Geo->DrawArgs["points"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Particles].push_back(particleRitem.get());
+    mAllRitems.push_back(std::move(particleRitem));
 
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
@@ -2254,6 +2504,20 @@ void Engine::InitInstanceBuffer()
         hDescriptor);
 }
 
+void Engine::InitParticleSystem()
+{
+    mParticleSystem = new ParticleSystem(64, DirectX::XMFLOAT3(-5.f, 0.f, 0.f));
+
+    mParticleSystem->InitializeSystem(md3dDevice,
+        particleBuffers,
+        mParticlesSrvUavHeap,
+        mCbvSrvUavDescriptorSize);
+
+    mParticleSystem->BuildSystemVertexBuffers(mGeometries,
+        md3dDevice,
+        mCommandList);
+}
+
 void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -2382,6 +2646,15 @@ void Engine::DrawScreenQuad(ID3D12GraphicsCommandList* cmdList)
     cmdList->DrawInstanced(4, 1, 0, 0);
 }
 
+void Engine::DrawParticles(ParticleSystem particleSystem)
+{
+    particleSystem.Render(mCommandList.Get(),
+        mRitemLayer[(int)RenderLayer::Particles],
+        mCbvSrvDescriptorSize,
+        mCurrFrameResource,
+        mParticlesSrvUavHeap);
+}
+
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> Engine::GetStaticSamplers()
 {
@@ -2457,6 +2730,10 @@ void Engine::RenderUI()
         ImGui::Text("");
 
         ImGui::Checkbox("FPS Object", &fpsObjectIsActive);
+        ImGui::Text("");
+
+        ImGui::Text("Particles");
+        ImGui::Checkbox("Particles", &particlesIsActive);
         ImGui::Text("");
 
         ImGui::Text("Flashlight");

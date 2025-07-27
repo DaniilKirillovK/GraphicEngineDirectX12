@@ -109,6 +109,7 @@ protected:
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
     virtual void InitInstanceBuffer() {}
+    virtual void InitParticleSystem() {}
 
     virtual void LoadTextures() {}
     virtual void UploadTextures() {}
@@ -177,10 +178,15 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceBuffer;
     D3D12_VERTEX_BUFFER_VIEW instanceVertexBufferView;
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceUploadBuffer;
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2];
+    UINT currParticleReadBuffer = 0;
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRtvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSrvHeap;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mUavHeap;
+
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mParticlesSrvUavHeap;
 
     D3D12_VIEWPORT mScreenViewportFull;
     D3D12_VIEWPORT mScreenViewport;
