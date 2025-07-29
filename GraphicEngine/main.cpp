@@ -5,6 +5,7 @@
 #include <dxgi1_4.h>
 #include <tchar.h>
 #include <vector>
+#include <string>
 
 #include "ModelHelper.h"
 
@@ -53,6 +54,8 @@ enum class RenderLayer : int
     OpaqueWireframe = 1,
     BillboardSprites = 2,
     Particles = 3,
+    Scene2Opaque = 4,
+    Scene3 = 5,
     Count
 };
 
@@ -67,6 +70,30 @@ ExampleDescriptorHeapAllocator mSrvHeapAllocator;
 ExampleDescriptorHeapAllocator mSrvHeapAllocator2;
 ExampleDescriptorHeapAllocator mUavHeapAllocator;
 
+std::string ParseTime(const GameTimer &gt)
+{
+    int timeSec = (int)gt.TotalTime() % 1440;
+
+    int hours = timeSec / 60;
+    int minutes = timeSec % 60;
+
+    std::string result = "";
+    if (hours < 10)
+    {
+        result += "0";
+        result += std::to_string(hours);
+    }
+    else result += std::to_string(hours);
+    result += ":";
+    if (minutes < 10)
+    {
+        result += "0";
+        result += std::to_string(minutes);
+    }
+    else result += std::to_string(minutes);
+
+    return result;
+}
 
 class Engine : public D3D12Engine
 {
@@ -90,10 +117,13 @@ private:
 
     void OnKeyboardInput(const GameTimer& gt);
     void UpdateCamera(const GameTimer& gt);
+    void SetCamera2Scene3();
     void AnimateMaterials(const GameTimer& gt);
+    void UpdateInstanceData(const GameTimer& gt);
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
+    void UpdateMainPassCBScene3Camera2(const GameTimer& gt);
     void UpdateParticleEmitterCB(const GameTimer& gt);
 
     void ChangeTileObjectTiles();
@@ -102,6 +132,7 @@ private:
     virtual void BuildRootSignature() override;
     virtual void BuildShadersAndInputLayout() override;
     virtual void BuildShapeGeometry() override;
+    virtual void BuildScene3Geometry() override;
     virtual void BuildPSOs() override;
 
     virtual void LoadTextures() override;
@@ -113,6 +144,7 @@ private:
     virtual void UploadTextures2() override;
 
     virtual void InitGBuffer() override;
+    virtual void CreateScene3RTV() override;
     void ResizeGBuffer();
 
     virtual void InitInstanceBuffer() override;
@@ -122,6 +154,7 @@ private:
     void RenderUI();
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
@@ -136,6 +169,8 @@ private:
     int mCurrFrameResourceIndex = 0;
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDefaultForward = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDefaultForwardFrustumCulling = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureLight = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebug = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureBillboard = nullptr;
@@ -173,12 +208,20 @@ private:
     POINT mLastMousePos;
 
     Camera mCamera;
+    Camera mCamera2Scene3;
 
     float tilesCount = 1.0f;
+
+    std::string timeScene2 = "";
+    std::vector<InstanceData> instancesData;
+    std::vector<DirectX::XMMATRIX> instanceDataScene3;
+    DirectX::BoundingFrustum mCamFrustum;
 };
 
 // Imgui Variables
 bool opened = true;
+
+int activeSceneID = 1;
 
 bool isDebug = true;
 bool gridIsActive = false;
@@ -254,6 +297,11 @@ float light2SpotStrength = 0.5f;
 float light2SpotDistance = 3.0f;
 float spotLight2Power = 64.f;
 float colSpot2[3] = { 1.0f, 1.0f, 1.0f };
+
+bool isFrustumCullingScene3 = false;
+bool isDisplayingFrustumCullingInfoScene3 = false;
+bool isUsingInstancingScene3 = true;
+
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -344,6 +392,10 @@ void Engine::OnResize()
     D3D12Engine::OnResize();
 
     mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+
+    mCamera2Scene3.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    SetCamera2Scene3();
+    DirectX::BoundingFrustum::CreateFromMatrix(mCamFrustum, mCamera.GetProj());
 }
 
 void Engine::Update(const GameTimer& gt)
@@ -367,10 +419,15 @@ void Engine::Update(const GameTimer& gt)
     if (isAnimateMaterial)
         AnimateMaterials(gt);
 
+    if (activeSceneID == 3 && isUsingInstancingScene3 && isFrustumCullingScene3)
+        UpdateInstanceData(gt);
+
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
+    UpdateMainPassCBScene3Camera2(gt);
     UpdateParticleEmitterCB(gt);
+    timeScene2 = ParseTime(gt);
 }
 
 void Engine::Draw(const GameTimer& gt)
@@ -395,8 +452,10 @@ void Engine::Draw(const GameTimer& gt)
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 3, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 6, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
 
     mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+    mCommandList->ClearDepthStencilView(DepthStencilViewScene3(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtvs[] = {
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, mRtvDescriptorSize),
@@ -417,162 +476,372 @@ void Engine::Draw(const GameTimer& gt)
     ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvHeap.Get() };
     auto passCB = mCurrFrameResource->PassCB->Resource();
 
-    // Particles
-    if (particlesIsActive)
+    if (activeSceneID == 1)
     {
-        // Compute pass
+        // Particles
+        if (particlesIsActive)
         {
-            ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
-            mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
+            // Compute pass
+            {
+                ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
 
-            CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
-                particleBuffers[1 - currParticleReadBuffer].Get(),
-                D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            mCommandList->ResourceBarrier(1, &computeBarrier1);
+                CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particleBuffers[1 - currParticleReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                mCommandList->ResourceBarrier(1, &computeBarrier1);
 
-            auto emitterCB = mCurrFrameResource->EmitterCB->Resource();
+                auto emitterCB = mCurrFrameResource->EmitterCB->Resource();
 
-            mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
+                mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
 
-            mCommandList->SetComputeRootUnorderedAccessView(0, particleBuffers[1 - currParticleReadBuffer]->GetGPUVirtualAddress());
-            mCommandList->SetComputeRootShaderResourceView(1, particleBuffers[currParticleReadBuffer]->GetGPUVirtualAddress());
-            mCommandList->SetComputeRootConstantBufferView(2, emitterCB->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootUnorderedAccessView(0, particleBuffers[1 - currParticleReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootShaderResourceView(1, particleBuffers[currParticleReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootConstantBufferView(2, emitterCB->GetGPUVirtualAddress());
 
-            mCommandList->SetPipelineState(mPSOs["computeParticles"].Get());
+                mCommandList->SetPipelineState(mPSOs["computeParticles"].Get());
 
-            UINT threadGroupCount = 64;
-            mCommandList->Dispatch(threadGroupCount, 1, 1);
+                UINT threadGroupCount = 64;
+                mCommandList->Dispatch(threadGroupCount, 1, 1);
 
-            CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
-                particleBuffers[1 - currParticleReadBuffer].Get(),
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-            mCommandList->ResourceBarrier(1, &computeBarrier2);
+                CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particleBuffers[1 - currParticleReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+                mCommandList->ResourceBarrier(1, &computeBarrier2);
 
-            currParticleReadBuffer = 1 - currParticleReadBuffer;
+                currParticleReadBuffer = 1 - currParticleReadBuffer;
+            }
+
+            // Draw calls
+            // Draw particles
+            {
+                ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+                CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+                handle.Offset(currParticleReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
+                mCommandList->SetGraphicsRootDescriptorTable(1, handle);
+
+                mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetPipelineState(mPSOs["renderParticles"].Get());
+
+                DrawParticles(*mParticleSystem);
+            }
         }
 
-        // Draw calls
-        // Draw particles
+        // Draw Wireframe (debug)
+        if (isDebug)
         {
-            ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
-            mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatureDebug.Get());
 
-            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
-            CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
-            handle.Offset(currParticleReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
-            mCommandList->SetGraphicsRootDescriptorTable(1, handle);
+            mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+            // Indicate a state transition on the resource usage.
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
+            mCommandList->ResourceBarrier(6, barriers);
 
             mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
             mCommandList->RSSetViewports(1, &viewports[4]);
             mCommandList->RSSetScissorRects(1, &rects[4]);
 
-            mCommandList->SetPipelineState(mPSOs["renderParticles"].Get());
+            mCommandList->SetPipelineState(mPSOs["debug"].Get());
 
-            DrawParticles(*mParticleSystem);
+
+            DrawDebugRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueWireframe]);
+        }
+
+        // Draw billboards
+        {
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatureBillboard.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+            mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["billboardSprites"].Get());
+
+
+            DrawBillboardRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::BillboardSprites]);
+        }
+
+        // Draw Opaque
+        {
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+            mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            if (isSolid && !isPixelated) mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+            else if (isPixelated) mCommandList->SetPipelineState(mPSOs["opaquePixel"].Get());
+            else mCommandList->SetPipelineState(mPSOs["opaqueWireframe"].Get());
+
+
+            DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
+            mCommandList->ResourceBarrier(6, barriersClose);
         }
     }
 
-    // Draw Wireframe (debug)
-    if (isDebug)
+    else if (activeSceneID == 2)
     {
-        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+        // Draw calls
+        // Draw Opaque
+        {
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureDebug.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
-        mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
-        // Indicate a state transition on the resource usage.
-        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
-        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
-        mCommandList->ResourceBarrier(6, barriers);
+            // Indicate a state transition on the resource usage.
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
+            mCommandList->ResourceBarrier(6, barriers);
 
-        mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+            mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
-        mCommandList->RSSetViewports(1, &viewports[4]);
-        mCommandList->RSSetScissorRects(1, &rects[4]);
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+            
+            mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
 
-        mCommandList->SetPipelineState(mPSOs["debug"].Get());
+            DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene2Opaque]);
 
 
-        DrawDebugRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::OpaqueWireframe]);
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
+            mCommandList->ResourceBarrier(6, barriersClose);
+        }
     }
 
-    // Draw billboards
+    else if (activeSceneID == 3)
     {
-        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+        // Draw calls
+        // Camera 2 Call
+        if (isDisplayingFrustumCullingInfoScene3 && isUsingInstancingScene3 && !isFrustumCullingScene3)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = Scene3RenderTargetBufferView();
+            auto passCBCamera2 = mCurrFrameResource->PassCBScene3Camera2->Resource();
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureBillboard.Get());
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
 
-        mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCBCamera2->GetGPUVirtualAddress());
 
-        mCommandList->RSSetViewports(1, &viewports[4]);
-        mCommandList->RSSetScissorRects(1, &rects[4]);
+            auto rtvBuffer = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &rtvBuffer);
 
-        mCommandList->SetPipelineState(mPSOs["billboardSprites"].Get());
+            auto dsvCamera2 = DepthStencilViewScene3();
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsvCamera2);
 
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
 
-        DrawBillboardRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::BillboardSprites]);
+            mCommandList->SetPipelineState(mPSOs["forwardDefault"].Get());
+
+            DrawRenderItemsScene3(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene3]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
+        else if (isUsingInstancingScene3 && isFrustumCullingScene3 && isDisplayingFrustumCullingInfoScene3)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = Scene3RenderTargetBufferView();
+            auto passCBCamera2 = mCurrFrameResource->PassCBScene3Camera2->Resource();
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForwardFrustumCulling.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCBCamera2->GetGPUVirtualAddress());
+
+            auto rtvBuffer = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &rtvBuffer);
+
+            auto dsvCamera2 = DepthStencilViewScene3();
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsvCamera2);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["forwardDefaultFrustumCulling"].Get());
+
+            DrawRenderItemsScene3(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene3]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
+
+        // Main Camera Call
+        if (!isFrustumCullingScene3)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["forwardDefault"].Get());
+
+            DrawRenderItemsScene3(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene3]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
+        else if (isUsingInstancingScene3)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForwardFrustumCulling.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["forwardDefaultFrustumCulling"].Get());
+
+            DrawRenderItemsScene3(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene3]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
+        else
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["forwardDefault"].Get());
+
+            DrawRenderItemsScene3(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene3]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
     }
-
-    // Draw Opaque
-    {
-        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-        mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
-
-        mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
-
-        mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
-
-        mCommandList->RSSetViewports(1, &viewports[4]);
-        mCommandList->RSSetScissorRects(1, &rects[4]);
-
-        if (isSolid && !isPixelated) mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
-        else if (isPixelated) mCommandList->SetPipelineState(mPSOs["opaquePixel"].Get());
-        else mCommandList->SetPipelineState(mPSOs["opaqueWireframe"].Get());
-
-
-        DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
-
-
-        // Indicate a state transition on the resource usage.
-        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-        auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
-        mCommandList->ResourceBarrier(6, barriersClose);
-    }
-
     
 
     // Draw screen quad
+    if (activeSceneID <= 2)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
 
@@ -679,6 +948,12 @@ void Engine::UpdateCamera(const GameTimer& gt)
 
 }
 
+void Engine::SetCamera2Scene3()
+{
+    mCamera2Scene3.LookAt(DirectX::XMFLOAT3(-20.0f, 20.0f, -20.0f), DirectX::XMFLOAT3(30.0f, 0.0f, 30.0f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f));
+    mCamera2Scene3.UpdateViewMatrix();
+}
+
 void Engine::AnimateMaterials(const GameTimer& gt)
 {
     auto animateMat = mMaterials["metalAnimate"].get();
@@ -694,6 +969,56 @@ void Engine::AnimateMaterials(const GameTimer& gt)
 
     // Material has changed, so need to update cbuffer.
     animateMat->NumFramesDirty = gNumFrameResources;
+}
+
+void Engine::UpdateInstanceData(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    auto det = XMMatrixDeterminant(view);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&det, view);
+
+    auto currInstanceBuffer = mCurrFrameResource->InstancingCB.get();
+    {
+        int visibleInstanceCount = 0;
+
+        for (UINT i = 0; i < (UINT)instanceDataScene3.size(); ++i)
+        {
+            DirectX::XMMATRIX world = instanceDataScene3[i];
+            DirectX::XMFLOAT4 Color = instancesData[i].Color;
+
+            auto det2 = XMMatrixDeterminant(world);
+            DirectX::XMMATRIX invWorld = DirectX::XMMatrixInverse(&det2, world);
+
+            // View space to the object's local space.
+            DirectX::XMMATRIX viewToLocal = DirectX::XMMatrixMultiply(invView, invWorld);
+
+            // Transform the camera frustum from view space to the object's local space.
+            DirectX::BoundingFrustum localSpaceFrustum;
+            mCamFrustum.Transform(localSpaceFrustum, viewToLocal);
+
+            // Perform the box/frustum intersection test in local space.
+            if (localSpaceFrustum.Contains(mAllRitems[13]->Bounds) != DirectX::DISJOINT && isFrustumCullingScene3)
+            {
+                InstanceData data;
+                DirectX::XMStoreFloat4x4(&data.WorldMatrix, XMMatrixTranspose(world));
+                data.Color = Color;
+
+                // Write the instance data to structured buffer for the visible objects.
+                currInstanceBuffer->CopyData(visibleInstanceCount++, data);
+            }
+            else if (!isFrustumCullingScene3)
+            {
+                InstanceData data;
+                DirectX::XMStoreFloat4x4(&data.WorldMatrix, XMMatrixTranspose(world));
+                data.Color = Color;
+
+                // Write the instance data to structured buffer for the visible objects.
+                currInstanceBuffer->CopyData(visibleInstanceCount++, data);
+            }
+        }
+
+        mAllRitems[13]->InstanceCount = visibleInstanceCount;
+    }
 }
 
 void Engine::UpdateObjectCBs(const GameTimer& gt)
@@ -734,6 +1059,10 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, DirectX::XM_PI/2)
                 * DirectX::XMMatrixRotationRollPitchYaw(spotLight1Direction[0], spotLight1Direction[1], spotLight1Direction[2])
                 * DirectX::XMMatrixTranslation(lightPosSpot1[0], lightPosSpot1[1], lightPosSpot1[2]);
+            else if (i >= 14)
+            {
+                world = XMLoadFloat4x4(&worldM) * instanceDataScene3[i - 14];
+            }
 
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
@@ -891,6 +1220,51 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     currPassCB->CopyData(0, mMainPassCB);
 }
 
+void Engine::UpdateMainPassCBScene3Camera2(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCamera2Scene3.GetView();
+    DirectX::XMMATRIX proj = mCamera2Scene3.GetProj();
+
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
+
+    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mMainPassCB.EyePosW = mCamera2Scene3.GetPosition3f();
+    mMainPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+    mMainPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+    mMainPassCB.NearZ = 1.0f;
+    mMainPassCB.FarZ = 1000.0f;
+    mMainPassCB.TotalTime = gt.TotalTime();
+    mMainPassCB.DeltaTime = gt.DeltaTime();
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+
+    // Directional lights
+    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
+    mMainPassCB.Lights[0].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+    mMainPassCB.Lights[1].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+    mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+    mMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    auto currPassCB = mCurrFrameResource->PassCBScene3Camera2.get();
+    currPassCB->CopyData(0, mMainPassCB);
+}
+
 void Engine::UpdateParticleEmitterCB(const GameTimer& gt)
 {
     EmitterConstants emitterConstPass;
@@ -1028,6 +1402,14 @@ void Engine::LoadTextures()
         mCommandList.Get(), particleTex->Filename.c_str(),
         particleTex->Resource, particleTex->UploadHeap), true);
     mTextures[particleTex->Name] = std::move(particleTex);
+
+    auto skyboxTex = std::make_unique<Texture>();
+    skyboxTex->Name = "SkyboxTex";
+    skyboxTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\StoneTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), skyboxTex->Filename.c_str(),
+        skyboxTex->Resource, skyboxTex->UploadHeap), true);
+    mTextures[skyboxTex->Name] = std::move(skyboxTex);
 }
 
 void Engine::BuildDescriptorHeaps()
@@ -1036,7 +1418,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 21;
+    srvHeapDesc.NumDescriptors = 22;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -1047,7 +1429,7 @@ void Engine::BuildDescriptorHeaps()
     // Create particles SRV/UAV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvParticlesHeapDesc = {};
-    srvParticlesHeapDesc.NumDescriptors = 5;
+    srvParticlesHeapDesc.NumDescriptors = 6;
     srvParticlesHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvParticlesHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvParticlesHeapDesc, IID_PPV_ARGS(&mParticlesSrvUavHeap)));
@@ -1157,6 +1539,17 @@ void Engine::UploadTextures2()
 
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 
+    auto SkyboxTex = mTextures["SkyboxTex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = SkyboxTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(SkyboxTex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
     auto ParticleTex = mTextures["ParticleTex"]->Resource;
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptorParticles(mParticlesSrvUavHeap->GetCPUDescriptorHandleForHeapStart());
@@ -1180,6 +1573,11 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableSpace1;
     texTableSpace1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableDefaultForward;
+    texTableDefaultForward.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTableDefaultForwardSpace1;
+    texTableDefaultForwardSpace1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+
     CD3DX12_DESCRIPTOR_RANGE texTableParticles;
     texTableParticles.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
     CD3DX12_DESCRIPTOR_RANGE texTableParticlesSpace1;
@@ -1191,6 +1589,9 @@ void Engine::BuildRootSignature()
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterDefaultForward[5];
+    CD3DX12_ROOT_PARAMETER slotRootParameterDefaultForwardFrustumCulling[5];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterDebug[2];
 
@@ -1205,6 +1606,18 @@ void Engine::BuildRootSignature()
     slotRootParameter[2].InitAsConstantBufferView(0);
     slotRootParameter[3].InitAsConstantBufferView(1);
     slotRootParameter[4].InitAsConstantBufferView(2);
+
+    slotRootParameterDefaultForward[0].InitAsDescriptorTable(1, &texTableDefaultForward);
+    slotRootParameterDefaultForward[1].InitAsDescriptorTable(1, &texTableDefaultForwardSpace1);
+    slotRootParameterDefaultForward[2].InitAsConstantBufferView(0);
+    slotRootParameterDefaultForward[3].InitAsConstantBufferView(1);
+    slotRootParameterDefaultForward[4].InitAsConstantBufferView(2);
+
+    slotRootParameterDefaultForwardFrustumCulling[0].InitAsDescriptorTable(1, &texTableDefaultForward);
+    slotRootParameterDefaultForwardFrustumCulling[1].InitAsShaderResourceView(0, 1);
+    slotRootParameterDefaultForwardFrustumCulling[2].InitAsConstantBufferView(0);
+    slotRootParameterDefaultForwardFrustumCulling[3].InitAsConstantBufferView(1);
+    slotRootParameterDefaultForwardFrustumCulling[4].InitAsConstantBufferView(2);
 
     slotRootParameter2[0].InitAsDescriptorTable(1, &texTable2);
     slotRootParameter2[1].InitAsConstantBufferView(0);
@@ -1234,6 +1647,14 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc2(2, slotRootParameter2, 
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDefaultForward(5, slotRootParameterDefaultForward,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDefaultForwardFrustumCulling(5, slotRootParameterDefaultForwardFrustumCulling,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1287,6 +1708,40 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureLight.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescDefaultForward, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureDefaultForward.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescDefaultForwardFrustumCulling, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureDefaultForwardFrustumCulling.GetAddressOf())));
 
     errorBlob = nullptr;
     serializedRootSig = nullptr;
@@ -1360,16 +1815,14 @@ void Engine::BuildRootSignature()
 
 void Engine::BuildShadersAndInputLayout()
 {
+    mShaders["forwardVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefaultForward.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["forwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefaultForward.hlsl", nullptr, "PS", "ps_5_1");
+
     mShaders["tessVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["tessHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "HS", "hs_5_1");
     mShaders["tessDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "DS", "ds_5_1");
     mShaders["tessPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PS", "ps_5_1");
     mShaders["PSPixel"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Tessellation.hlsl", nullptr, "PSPixel", "ps_5_1");
-
-    mShaders["forwardVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "VS", "vs_5_1");
-    mShaders["forwardHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "HS", "hs_5_1");
-    mShaders["forwardDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "DS", "ds_5_1");
-    mShaders["forwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "PSForward", "ps_5_1");
 
     mShaders["DeferredVSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "VSMain", "vs_5_1");
     mShaders["DeferredPSLighting"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DeferredLighting.hlsl", nullptr, "PSMain", "ps_5_1");
@@ -1426,6 +1879,7 @@ void Engine::BuildShapeGeometry()
     GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.0f, 7, 7, 0.f, 0.f, 0.f);
     GeometryGenerator::MeshData grid = geoGen.CreateGrid(200.0f, 200.0f, 100, 100);
     GeometryGenerator::MeshData cone = geoGen.CreateCone(1.0f, 0.2f, 20);
+    GeometryGenerator::MeshData skyBox = geoGen.CreateBackSphere(1.f, 50.f, 50.f);
 
     UINT totalIndexCount = 0;
     UINT totalVertexCount = 0;
@@ -1499,6 +1953,13 @@ void Engine::BuildShapeGeometry()
     coneSubmesh.BaseVertexLocation = totalVertexCount;
     totalIndexCount += coneSubmesh.IndexCount;
     totalVertexCount += cone.Vertices.size();
+
+    SubmeshGeometry skyboxSubmesh;
+    skyboxSubmesh.IndexCount = (UINT)skyBox.Indices32.size();
+    skyboxSubmesh.StartIndexLocation = totalIndexCount;
+    skyboxSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += skyboxSubmesh.IndexCount;
+    totalVertexCount += skyBox.Vertices.size();
 
     std::vector<VertexLightStage> verticesLightStage = 
     {
@@ -1608,6 +2069,14 @@ void Engine::BuildShapeGeometry()
         vertices[i + totalVertexCount2].TangentU = cone.Vertices[i].TangentU;
     }
     totalVertexCount2 += cone.Vertices.size();
+    for (size_t i = 0; i < skyBox.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = skyBox.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = skyBox.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = skyBox.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = skyBox.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += skyBox.Vertices.size();
 
 
     std::vector<std::uint16_t> indices;
@@ -1621,6 +2090,7 @@ void Engine::BuildShapeGeometry()
     indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
     indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
     indices.insert(indices.end(), std::begin(cone.GetIndices16()), std::end(cone.GetIndices16()));
+    indices.insert(indices.end(), std::begin(skyBox.GetIndices16()), std::end(skyBox.GetIndices16()));
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -1655,13 +2125,130 @@ void Engine::BuildShapeGeometry()
     geo->DrawArgs["pointLight3"] = pointLight3Submesh;
     geo->DrawArgs["grid"] = gridSubmesh;
     geo->DrawArgs["cone"] = coneSubmesh;
+    geo->DrawArgs["skybox"] = skyboxSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
+}
+
+void Engine::BuildScene3Geometry()
+{
+    GeometryGenerator geoGen;
+   
+    GeometryGenerator::MeshData instancingBox = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry boxSubmesh;
+    boxSubmesh.IndexCount = (UINT)instancingBox.Indices32.size();
+    boxSubmesh.StartIndexLocation = totalIndexCount;
+    boxSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += boxSubmesh.IndexCount;
+    totalVertexCount += instancingBox.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < instancingBox.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = instancingBox.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = instancingBox.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = instancingBox.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = instancingBox.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += instancingBox.Vertices.size();
+
+    DirectX::BoundingBox bounds;
+    bounds.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    bounds.Extents = DirectX::XMFLOAT3(0.5f, 0.5f, 0.5f);
+
+    indices.insert(indices.end(), std::begin(instancingBox.GetIndices16()), std::end(instancingBox.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene3Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+    boxSubmesh.Bounds = bounds;
+
+    geo->DrawArgs["boxInstancing"] = boxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+
+    instanceDataScene3 = std::vector<DirectX::XMMATRIX>(729);
+    for (int i = 0; i < 729; ++i)
+    {
+        int x = i % 27;
+        int y = i / 27;
+        int index = 0;
+        if (y >= x)
+            index = y * y + x;
+        else index = (x + 1) * (x + 1) - y - 1;
+
+        instanceDataScene3[index] = DirectX::XMMatrixTranslation((float)x * 2, 0, (float)y * 2);
+    }
 }
 
 
 void Engine::BuildPSOs()
 {
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC defaultForwardPsoDesc;
+
+    //
+    // PSO for default forward rendering
+    //
+    ZeroMemory(&defaultForwardPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    defaultForwardPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    defaultForwardPsoDesc.pRootSignature = mRootSignatureDefaultForward.Get();
+    defaultForwardPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardVS"]->GetBufferPointer()),
+        mShaders["forwardVS"]->GetBufferSize()
+    };
+    defaultForwardPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardPS"]->GetBufferPointer()),
+        mShaders["forwardPS"]->GetBufferSize()
+    };
+    defaultForwardPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    defaultForwardPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    defaultForwardPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    defaultForwardPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    defaultForwardPsoDesc.SampleMask = UINT_MAX;
+    defaultForwardPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    defaultForwardPsoDesc.NumRenderTargets = 1;
+    defaultForwardPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    defaultForwardPsoDesc.SampleDesc.Count = 1;
+    defaultForwardPsoDesc.SampleDesc.Quality = 0;
+    defaultForwardPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defaultForwardPsoDesc, IID_PPV_ARGS(&mPSOs["forwardDefault"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC defaultForwardFrustumCullingPsoDesc;
+    //
+    // PSO for default forward rendering with frustum culling
+    //
+    defaultForwardFrustumCullingPsoDesc = defaultForwardPsoDesc;
+    defaultForwardFrustumCullingPsoDesc.pRootSignature = mRootSignatureDefaultForwardFrustumCulling.Get();
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defaultForwardFrustumCullingPsoDesc, IID_PPV_ARGS(&mPSOs["forwardDefaultFrustumCulling"])));
+
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
 
     //
@@ -1990,6 +2577,16 @@ void Engine::BuildMaterials()
     particleMat->Roughness = 0.125f;
 
     mMaterials["particleMaterial"] = std::move(particleMat);
+
+    auto skyboxMat = std::make_unique<Material>();
+    skyboxMat->Name = "skyboxMaterial";
+    skyboxMat->MatCBIndex = 5;
+    skyboxMat->DiffuseSrvHeapIndex = 18;
+    skyboxMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    skyboxMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
+    skyboxMat->Roughness = 0.125f;
+
+    mMaterials["skyboxMaterial"] = std::move(skyboxMat);
 }
 
 void Engine::BuildRenderItems()
@@ -2049,18 +2646,6 @@ void Engine::BuildRenderItems()
     boxFPSRitem->StartIndexLocation = boxFPSRitem->Geo->DrawArgs["boxFPS"].StartIndexLocation;
     boxFPSRitem->BaseVertexLocation = boxFPSRitem->Geo->DrawArgs["boxFPS"].BaseVertexLocation;
     mAllRitems.push_back(std::move(boxFPSRitem));
-
-    //auto objectModelRitem = std::make_unique<RenderItem>();
-    //objectModelRitem->ObjCBIndex = 3;
-    //XMStoreFloat4x4(&objectModelRitem->World, DirectX::XMMatrixScaling(0.01f, 0.01f, 0.01f) * DirectX::XMMatrixTranslation(-8.0f, 0.0f, 0.0f));
-    //objectModelRitem->TexTransform = MathHelper::Identity4x4();
-    //objectModelRitem->Mat = mMaterials["testMaterial"].get();
-    //objectModelRitem->Geo = mGeometries["boxGeo"].get();
-    //objectModelRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-    //objectModelRitem->IndexCount = objectModelRitem->Geo->DrawArgs["objectModel"].IndexCount;
-    //objectModelRitem->StartIndexLocation = objectModelRitem->Geo->DrawArgs["objectModel"].StartIndexLocation;
-    //objectModelRitem->BaseVertexLocation = objectModelRitem->Geo->DrawArgs["objectModel"].BaseVertexLocation;
-    //mAllRitems.push_back(std::move(objectModelRitem));
 
     auto pointLight1Ritem = std::make_unique<RenderItem>();
     pointLight1Ritem->ObjCBIndex = 5;
@@ -2147,6 +2732,49 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::Particles].push_back(particleRitem.get());
     mAllRitems.push_back(std::move(particleRitem));
+
+    auto skyboxRitem = std::make_unique<RenderItem>();
+    skyboxRitem->World = MathHelper::Identity4x4();
+    skyboxRitem->ObjCBIndex = 12;
+    skyboxRitem->Mat = mMaterials["skyboxMaterial"].get();
+    skyboxRitem->Geo = mGeometries["boxGeo"].get();
+    skyboxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    skyboxRitem->IndexCount = skyboxRitem->Geo->DrawArgs["skybox"].IndexCount;
+    skyboxRitem->StartIndexLocation = skyboxRitem->Geo->DrawArgs["skybox"].StartIndexLocation;
+    skyboxRitem->BaseVertexLocation = skyboxRitem->Geo->DrawArgs["skybox"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene2Opaque].push_back(skyboxRitem.get());
+    mAllRitems.push_back(std::move(skyboxRitem));
+
+    auto instancingRitemScene3 = std::make_unique<RenderItem>();
+    instancingRitemScene3->World = MathHelper::Identity4x4();
+    instancingRitemScene3->ObjCBIndex = 13;
+    instancingRitemScene3->Mat = mMaterials["stoneMaterial"].get();
+    instancingRitemScene3->Geo = mGeometries["scene3Geo"].get();
+    instancingRitemScene3->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    instancingRitemScene3->IndexCount = instancingRitemScene3->Geo->DrawArgs["boxInstancing"].IndexCount;
+    instancingRitemScene3->StartIndexLocation = instancingRitemScene3->Geo->DrawArgs["boxInstancing"].StartIndexLocation;
+    instancingRitemScene3->BaseVertexLocation = instancingRitemScene3->Geo->DrawArgs["boxInstancing"].BaseVertexLocation;
+    instancingRitemScene3->Bounds = instancingRitemScene3->Geo->DrawArgs["boxInstancing"].Bounds;
+
+    mRitemLayer[(int)RenderLayer::Scene3].push_back(instancingRitemScene3.get());
+    mAllRitems.push_back(std::move(instancingRitemScene3));
+
+    for (int i = 0; i < 729; ++i)
+    {
+        auto nonInstancingRitemScene3 = std::make_unique<RenderItem>();
+        nonInstancingRitemScene3->World = MathHelper::Identity4x4();
+        nonInstancingRitemScene3->ObjCBIndex = 14 + i;
+        nonInstancingRitemScene3->Mat = mMaterials["stoneMaterial"].get();
+        nonInstancingRitemScene3->Geo = mGeometries["scene3Geo"].get();
+        nonInstancingRitemScene3->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        nonInstancingRitemScene3->IndexCount = nonInstancingRitemScene3->Geo->DrawArgs["boxInstancing"].IndexCount;
+        nonInstancingRitemScene3->StartIndexLocation = nonInstancingRitemScene3->Geo->DrawArgs["boxInstancing"].StartIndexLocation;
+        nonInstancingRitemScene3->BaseVertexLocation = nonInstancingRitemScene3->Geo->DrawArgs["boxInstancing"].BaseVertexLocation;
+
+        mRitemLayer[(int)RenderLayer::Scene3].push_back(nonInstancingRitemScene3.get());
+        mAllRitems.push_back(std::move(nonInstancingRitemScene3));
+    }
 
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
@@ -2260,12 +2888,24 @@ void Engine::InitGBuffer()
         &optClear,
         IID_PPV_ARGS(mDepthStencilBuffer.GetAddressOf())));
 
+    auto tmp2 = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    ThrowIfFailed(md3dDevice->CreateCommittedResource(
+        &tmp2,
+        D3D12_HEAP_FLAG_NONE,
+        &depthStencilDesc,
+        D3D12_RESOURCE_STATE_COMMON,
+        &optClear,
+        IID_PPV_ARGS(mDepthStencilBufferScene3.GetAddressOf())));
+
+
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc;
     dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
     dsvDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
     dsvDesc.Format = mDepthStencilFormat;
     dsvDesc.Texture2D.MipSlice = 0;
     md3dDevice->CreateDepthStencilView(mDepthStencilBuffer.Get(), &dsvDesc, DepthStencilView());
+
+    md3dDevice->CreateDepthStencilView(mDepthStencilBufferScene3.Get(), &dsvDesc, DepthStencilViewScene3());
 
     gBuffer.gBufferDepth = mDepthStencilBuffer.Get();
 
@@ -2343,6 +2983,46 @@ void Engine::InitGBuffer()
     srvDRDesc.Format = DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
     md3dDevice->CreateShaderResourceView(gBuffer.gBufferDepth.Get(), &srvDRDesc, hDescriptor);
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+}
+
+void Engine::CreateScene3RTV()
+{
+    D3D12_RESOURCE_DESC texDesc = {};
+    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Alignment = 0;
+    texDesc.Width = mClientWidth;
+    texDesc.Height = mClientHeight;
+    texDesc.DepthOrArraySize = 1;
+    texDesc.MipLevels = 1;
+    texDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    auto heapType = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        nullptr,
+        IID_PPV_ARGS(&mRenderTargetBufferScene3));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+    rtvHandle.Offset(6, mRtvDescriptorSize);
+
+    md3dDevice->CreateRenderTargetView(Scene3RenderTargetBuffer(), nullptr, rtvHandle);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(19, mCbvSrvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDRDesc = {};
+    srvDRDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDRDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srvDRDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDRDesc.Texture2D.MostDetailedMip = 0;
+    srvDRDesc.Texture2D.MipLevels = 1;
+    md3dDevice->CreateShaderResourceView(Scene3RenderTargetBuffer(), &srvDRDesc, hDescriptor);
 }
 
 void Engine::ResizeGBuffer()
@@ -2426,12 +3106,12 @@ void Engine::ResizeGBuffer()
 
 void Engine::InitInstanceBuffer()
 {
-    int instanceCount = 100 * 100;
+    int instanceCount = 30 * 30;
     std::vector<InstanceData> instanceData(instanceCount);
     for (UINT i = 0; i < instanceCount; ++i)
     {
-        int x = i % 100;
-        int y = i / 100;
+        int x = i % 30;
+        int y = i / 30;
         int index = 0;
         if (y >= x)
             index = y * y + x;
@@ -2442,6 +3122,7 @@ void Engine::InitInstanceBuffer()
 
         instanceData[index].Color = DirectX::XMFLOAT4(1.0f - (float)i/ instanceCount, 1.0f - (float)i / instanceCount, 1.0f - (float)i / instanceCount, 1.0f);
     }
+    instancesData = instanceData;
 
     const UINT instanceBufferSize = instanceCount * sizeof(InstanceData);
 
@@ -2556,7 +3237,108 @@ void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vect
                 cmdList->DrawIndexedInstanced(ri->IndexCount, instancingLevel * instancingLevel, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
             else if (i == 4 && fpsObjectIsActive)
                 cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
-            else if (i != 4) cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+            else if (i != 4) cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);    
+        }
+    }
+}
+
+void Engine::DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    if (isUsingInstancingScene3)
+    {
+        if (!isFrustumCullingScene3)
+        {
+            auto ri = ritems[0];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            instanceTableHandle.Offset(16, mCbvSrvDescriptorSize);
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 100 * 100, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+        else
+        {
+            auto ri = ritems[0];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            // Set the instance buffer to use for this render-item.  For structured buffers, we can bypass 
+            // the heap and set as a root descriptor.
+            auto instanceBuffer = mCurrFrameResource->InstancingCB->Resource();
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootShaderResourceView(1, instanceBuffer->GetGPUVirtualAddress());
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, ri->InstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+    else
+    {
+        for (size_t i = 0; i < ritems.size(); ++i)
+        {
+            {
+                auto ri = ritems[i];
+
+                auto tmp1 = ri->Geo->VertexBufferView();
+                auto tmp2 = ri->Geo->IndexBufferView();
+                cmdList->IASetVertexBuffers(0, 1, &tmp1);
+                cmdList->IASetIndexBuffer(&tmp2);
+                cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+                CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+                D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+                D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+                CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                instanceTableHandle.Offset(16, mCbvSrvDescriptorSize);
+
+                cmdList->SetGraphicsRootDescriptorTable(0, tex);
+                cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+                cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+                cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+                if (i == 0 && isUsingInstancingScene3)
+                    cmdList->DrawIndexedInstanced(ri->IndexCount, 100 * 100, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+                else if (!isUsingInstancingScene3 && i != 0)
+                    cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+            }
         }
     }
 }
@@ -2715,9 +3497,52 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> Engine::GetStaticSamplers()
 
 void Engine::RenderUI()
 {
+    ImVec2 infoPanelSize = ImVec2(WINDOW_WIDTH / 4, WINDOW_HEIGHT / 4);
+    ImVec2 infoPanelPos = ImVec2(0, 0);
+    ImGui::SetNextWindowPos(infoPanelPos);
+    ImGui::SetNextWindowSize(infoPanelSize);
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    if (ImGui::Begin("Info Panel", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        ImGui::Text("Scene 1: Sandbox");
+        ImGui::Text("Scene 2: Day/night scene");
+        ImGui::Text("Scene 3: Instancing/frumstum culling scene");
+    } ImGui::End();
+
+    ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
+    ImVec2 scenePanelPos = ImVec2(WINDOW_WIDTH / 2 - scenePanelSize.x / 2, WINDOW_HEIGHT - scenePanelSize.y);
+    ImGui::SetNextWindowPos(scenePanelPos);
+    ImGui::SetNextWindowSize(scenePanelSize);
+    ImGui::SetNextWindowBgAlpha(0.5f);
+    if (ImGui::Begin("Scene Selector", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+    {
+        if (ImGui::BeginTable("Scenes", 6))
+        {
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (ImGui::Button("Scene 1", ImVec2(100, 40)))
+            {
+                activeSceneID = 1;
+            }
+
+            ImGui::TableSetColumnIndex(1);
+            if (ImGui::Button("Scene 2", ImVec2(100, 40)))
+            {
+                activeSceneID = 2;
+            }
+
+            ImGui::TableSetColumnIndex(2);
+            if (ImGui::Button("Scene 3", ImVec2(100, 40)))
+            {
+                activeSceneID = 3;
+            }
+
+            ImGui::EndTable();
+        }
+    } ImGui::End();
+
     ImVec2 size = ImVec2(WINDOW_WIDTH / 5, WINDOW_HEIGHT / 4 * 3);
     ImVec2 pos = ImVec2(WINDOW_WIDTH - size.x, 0);
-
     ImGui::SetNextWindowPos(pos);
     ImGui::SetNextWindowSize(size);
     ImGui::SetNextWindowBgAlpha(0.5f);
@@ -2725,200 +3550,94 @@ void Engine::RenderUI()
     {
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
-        ImGui::Checkbox("Debug Layer", &isDebug);
-        ImGui::Checkbox("Debug Grid", &gridIsActive);
-        ImGui::Text("");
 
-        ImGui::Checkbox("FPS Object", &fpsObjectIsActive);
-        ImGui::Text("");
-
-        ImGui::Text("Particles");
-        ImGui::Checkbox("Particles", &particlesIsActive);
-        ImGui::Text("");
-
-        ImGui::Text("Flashlight");
-        ImGui::Checkbox("Is Active", &flashlightIsActive);
-        ImGui::SliderFloat("Distance Flashlight", &light2SpotDistance, 0.0f, 20.0f);
-        ImGui::SliderFloat("Strength Flashlight", &light2SpotStrength, 0.0f, 5.0f);
-        ImGui::ColorPicker3("Color Flashlight", colSpot2, ImGuiColorEditFlags_NoAlpha);
-
-        ImGui::Text("");
-        ImGui::Text("Deferred Render");
-        ImGui::Checkbox("Deferred Render", &isDeferredRender);
-        ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
-
-        ImGui::Text("");
-        ImGui::Text("Parallax Mapping");
-        ImGui::Checkbox("Parallax Mapping", &isParallaxMapping);
-
-        ImGui::Text("");
-        ImGui::Text("Tesselation & Displacement");
-        ImGui::Checkbox("Solid Mode", &isSolid);
-        ImGui::SliderFloat("Tesselation Factor", &tessFactor, 1.f, 64.f);
-        ImGui::SliderFloat("Displacement Level", &displacementLevel, 0.f, 5.f);
-
-        ImGui::Text("");
-        ImGui::Text("Effects");
-        ImGui::Checkbox("Negative", &isNegative);
-        ImGui::Checkbox("Pixelation Shader", &isPixelated);
-        ImGui::SliderInt("Pixelated Factor", &pixelationFactor, 16.f, 128.f);
-
-        ImGui::Text("");
-        ImGui::Text("Instancing");
-        ImGui::SliderInt("Instancing Level", &instancingLevel, 1.f, 100.f);
-
-        ImGui::Text("");
-        if (ImGui::Button("Object 1", ImVec2(100, 40)))
+        if (activeSceneID <= 2)
         {
-            if (selectedObjectID == 1)
-                selectedObjectID = 0;
-            else selectedObjectID = 1;
-        }
-        if (ImGui::Button("Object 2", ImVec2(100, 40)))
-        {
-            if (selectedObjectID == 2)
-                selectedObjectID = 0;
-            else selectedObjectID = 2;
+            ImGui::Text("");
+            ImGui::Text("Deferred Render");
+            ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfo);
         }
 
-        mAllRitems[0]->NumFramesDirty = 1;
-        mAllRitems[1]->NumFramesDirty = 1;
-        mAllRitems[4]->NumFramesDirty = 1;
-        mAllRitems[5]->NumFramesDirty = 1;
-        mAllRitems[6]->NumFramesDirty = 1;
-        mAllRitems[8]->NumFramesDirty = 1;
+        if (activeSceneID == 1)
+        {
+            ImGui::Text("");
+            ImGui::Checkbox("Debug Layer", &isDebug);
+            ImGui::Checkbox("Debug Grid", &gridIsActive);
+            ImGui::Text("");
+
+            ImGui::Checkbox("FPS Object", &fpsObjectIsActive);
+            ImGui::Text("");
+
+            ImGui::Text("Particles");
+            ImGui::Checkbox("Particles", &particlesIsActive);
+            ImGui::Text("");
+
+            ImGui::Text("Flashlight");
+            ImGui::Checkbox("Is Active", &flashlightIsActive);
+            ImGui::SliderFloat("Distance Flashlight", &light2SpotDistance, 0.0f, 20.0f);
+            ImGui::SliderFloat("Strength Flashlight", &light2SpotStrength, 0.0f, 5.0f);
+            ImGui::ColorPicker3("Color Flashlight", colSpot2, ImGuiColorEditFlags_NoAlpha);
+
+            ImGui::Text("");
+            ImGui::Text("Parallax Mapping");
+            ImGui::Checkbox("Parallax Mapping", &isParallaxMapping);
+
+            ImGui::Text("");
+            ImGui::Text("Tesselation & Displacement");
+            ImGui::Checkbox("Solid Mode", &isSolid);
+            ImGui::SliderFloat("Tesselation Factor", &tessFactor, 1.f, 64.f);
+            ImGui::SliderFloat("Displacement Level", &displacementLevel, 0.f, 5.f);
+
+            ImGui::Text("");
+            ImGui::Text("Effects");
+            ImGui::Checkbox("Negative", &isNegative);
+            ImGui::Checkbox("Pixelation Shader", &isPixelated);
+            ImGui::SliderInt("Pixelated Factor", &pixelationFactor, 16.f, 128.f);
+
+            ImGui::Text("");
+            ImGui::Text("Instancing");
+            ImGui::SliderInt("Instancing Level", &instancingLevel, 1.f, 30.f);
+
+            ImGui::Text("");
+            if (ImGui::Button("Object 1", ImVec2(100, 40)))
+            {
+                if (selectedObjectID == 1)
+                    selectedObjectID = 0;
+                else selectedObjectID = 1;
+            }
+            if (ImGui::Button("Object 2", ImVec2(100, 40)))
+            {
+                if (selectedObjectID == 2)
+                    selectedObjectID = 0;
+                else selectedObjectID = 2;
+            }
+
+            mAllRitems[0]->NumFramesDirty = 1;
+            mAllRitems[1]->NumFramesDirty = 1;
+            mAllRitems[4]->NumFramesDirty = 1;
+            mAllRitems[5]->NumFramesDirty = 1;
+            mAllRitems[6]->NumFramesDirty = 1;
+            mAllRitems[9]->NumFramesDirty = 1;
+        }
+        else if (activeSceneID == 2)
+        {
+            ImGui::Text("");
+            ImGui::Text("Time: %s", timeScene2.c_str());
+        }
+        else if (activeSceneID == 3)
+        {
+            ImGui::Text("");
+            ImGui::Text("Frustum Culling");
+            ImGui::Checkbox("Frustum Culling Active", &isFrustumCullingScene3);
+            ImGui::Checkbox("Frustum Culling Info", &isDisplayingFrustumCullingInfoScene3);
+
+            ImGui::Text("");
+            ImGui::Text("Instancing");
+            ImGui::Checkbox("Instancing Active", &isUsingInstancingScene3);
+        }
     } ImGui::End();
 
-    ImVec2 lightPanelSize = ImVec2(350.f, 350.f);
-    ImGui::SetNextWindowSize(lightPanelSize);
-    if (ImGui::Begin("Point Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
-    {
-        ImGui::Text("Point Light 1");
-        if (ImGui::BeginTable("PointLight1", 3))
-        {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Pos X");
-
-            ImGui::TableSetColumnIndex(0);
-            ImGui::InputFloat("##PointLightPos1X", &lightPos1[0], 0.1f, 0.1f);
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::Text("Pos Y");
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::InputFloat("##PointLightPos1Y", &lightPos1[1], 0.1f, 0.1f);
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::Text("Pos Z");
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::InputFloat("##PointLightPos1Z", &lightPos1[2], 0.1f, 0.1f);
-            ImGui::EndTable();
-        }
-        ImGui::SliderFloat("Distance 1", &light1Distance, 0.0f, 2.0f);
-        ImGui::SliderFloat("Strength 1", &light1Strength, 0.0f, 1.0f);
-        ImGui::ColorPicker3("Color 1", col1, ImGuiColorEditFlags_NoAlpha);
-
-        ImGui::Text("");
-        ImGui::Text("Point Light 2");
-        if (ImGui::BeginTable("PointLight2", 3))
-        {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Pos X");
-
-            ImGui::TableSetColumnIndex(0);
-            ImGui::InputFloat("##PointLightPos2X", &lightPos2[0], 0.1f, 0.1f);
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::Text("Pos Y");
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::InputFloat("##PointLightPos2Y", &lightPos2[1], 0.1f, 0.1f);
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::Text("Pos Z");
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::InputFloat("##PointLightPos2Z", &lightPos2[2], 0.1f, 0.1f);
-            ImGui::EndTable();
-        }
-        ImGui::SliderFloat("Distance 2", &light2Distance, 0.0f, 2.0f);
-        ImGui::SliderFloat("Strength 2", &light2Strength, 0.0f, 1.0f);
-        ImGui::ColorPicker3("Color 2", col2, ImGuiColorEditFlags_NoAlpha);
-
-        ImGui::Text("");
-        ImGui::Text("Point Light 3");
-        if (ImGui::BeginTable("PointLight3", 3))
-        {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Pos X");
-
-            ImGui::TableSetColumnIndex(0);
-            ImGui::InputFloat("##PointLightPos3X", &lightPos3[0], 0.1f, 0.1f);
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::Text("Pos Y");
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::InputFloat("##PointLightPos3Y", &lightPos3[1], 0.1f, 0.1f);
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::Text("Pos Z");
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::InputFloat("##PointLightPos3Z", &lightPos3[2], 0.1f, 0.1f);
-            ImGui::EndTable();
-        }
-        ImGui::SliderFloat("Distance 3", &light3Distance, 0.0f, 2.0f);
-        ImGui::SliderFloat("Strength 3", &light3Strength, 0.0f, 1.0f);
-        ImGui::ColorPicker3("Color 3", col3, ImGuiColorEditFlags_NoAlpha);
-
-    } ImGui::End();
-
-    ImVec2 spotLightPanelSize = ImVec2(350.f, 350.f);
-    ImVec2 spotLightPanelPos = ImVec2(100.f, 200.f);
-    ImGui::SetNextWindowSize(spotLightPanelSize);
-    ImGui::SetNextWindowPos(spotLightPanelPos);
-    if (ImGui::Begin("Spot Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
-    {
-        ImGui::Text("Spot Light 1");
-        if (ImGui::BeginTable("SpotLight1", 3))
-        {
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Pos X");
-
-            ImGui::TableSetColumnIndex(0);
-            ImGui::InputFloat("##SpotLightPos1X", &lightPosSpot1[0], 0.1f, 0.1f);
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::Text("Pos Y");
-
-            ImGui::TableSetColumnIndex(1);
-            ImGui::InputFloat("##SpotLightPos1Y", &lightPosSpot1[1], 0.1f, 0.1f);
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::Text("Pos Z");
-
-            ImGui::TableSetColumnIndex(2);
-            ImGui::InputFloat("##SpotLightPos1Z", &lightPosSpot1[2], 0.1f, 0.1f);
-            ImGui::EndTable();
-        }
-        ImGui::SliderFloat("SpotLightDir1X", &spotLight1Direction[0], -DirectX::XM_PI, DirectX::XM_PI);
-        ImGui::SliderFloat("SpotLightDir1Y", &spotLight1Direction[1], -DirectX::XM_PI, DirectX::XM_PI);
-        ImGui::SliderFloat("SpotLightDir1Z", &spotLight1Direction[2], -DirectX::XM_PI, DirectX::XM_PI);
-
-        ImGui::SliderFloat("Spot Distance 1", &light1SpotDistance, 0.0f, 20.0f);
-        ImGui::SliderFloat("Spot Strength 1", &light1SpotStrength, 0.0f, 10.0f);
-        ImGui::ColorPicker3("Spot Color 1", colSpot1, ImGuiColorEditFlags_NoAlpha);
-
-    } ImGui::End();
-
-
-    if (deferredRenderDisplayInfo)
+    if (deferredRenderDisplayInfo && activeSceneID <= 2)
     {
         ImVec2 size2 = ImVec2(WINDOW_WIDTH / 5, 800);
         ImVec2 pos2 = ImVec2(0, 0);
@@ -2942,122 +3661,274 @@ void Engine::RenderUI()
         } ImGui::End();
     }
 
-    // Selected object info
+    if (activeSceneID == 1)
     {
-        ImVec2 size3 = ImVec2(WINDOW_WIDTH / 4, WINDOW_HEIGHT / 4);
-        ImVec2 pos3 = ImVec2(WINDOW_WIDTH / 4 * 3, WINDOW_HEIGHT / 4 * 3);
-
-        ImGui::SetNextWindowPos(pos3);
-        ImGui::SetNextWindowSize(size3);
-        ImGui::SetNextWindowBgAlpha(0.5f);
-        if (ImGui::Begin("Object Settings", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+        ImVec2 lightPanelSize = ImVec2(350.f, 350.f);
+        ImGui::SetNextWindowSize(lightPanelSize);
+        if (ImGui::Begin("Point Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
         {
-            switch (selectedObjectID)
+            ImGui::Text("Point Light 1");
+            if (ImGui::BeginTable("PointLight1", 3))
             {
-            case 1:
-                ImGui::Text("Object 1");
-                if (ImGui::BeginTable("Object1", 3))
-                {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("Pos X");
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
 
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::InputFloat("##PosXObj1", &Obj1posX, 0.1f, 0.1f);
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##PointLightPos1X", &lightPos1[0], 0.1f, 0.1f);
 
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("Pos Y");
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
 
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::InputFloat("##PosYObj1", &Obj1posY, 0.1f, 0.1f);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##PointLightPos1Y", &lightPos1[1], 0.1f, 0.1f);
 
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::Text("Pos Z");
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
 
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::InputFloat("##PosZObj1", &Obj1posZ, 0.1f, 0.1f);
-                    ImGui::EndTable();
-                }
-                if (ImGui::BeginTable("Object1_1", 3))
-                {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("Rot X");
-
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::InputFloat("##RotXObj1", &Obj1rotX, 0.1f, 0.1f);
-
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("Rot Y");
-
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::InputFloat("##RotYObj1", &Obj1rotY, 0.1f, 0.1f);
-
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::Text("Rot Z");
-
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::InputFloat("##RotZObj1", &Obj1rotZ, 0.1f, 0.1f);
-                    ImGui::EndTable();
-                }
-                ImGui::SliderFloat("Scale", &Obj1Scale, 0.1f, 5.0f);
-                ImGui::Checkbox("Animate Material", &isAnimateMaterial);
-                break;
-
-            case 2:
-                ImGui::Text("Object 2");
-                if (ImGui::BeginTable("Object2", 3))
-                {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("Pos X");
-
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::InputFloat("##PosXObj2", &Obj2posX, 0.1f, 0.1f);
-
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("Pos Y");
-
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::InputFloat("##PosYObj2", &Obj2posY, 0.1f, 0.1f);
-
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::Text("Pos Z");
-
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::InputFloat("##PosZObj2", &Obj2posZ, 0.1f, 0.1f);
-                    ImGui::EndTable();
-                }
-                if (ImGui::BeginTable("Object2_1", 3))
-                {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("Rot X");
-
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::InputFloat("##RotXObj2", &Obj2rotX, 1.f, 1.f);
-
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("Rot Y");
-
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::InputFloat("##RotYObj2", &Obj2rotY, 1.f, 1.f);
-
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::Text("Rot Z");
-
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::InputFloat("##RotZObj2", &Obj2rotZ, 1.f, 1.f);
-                    ImGui::EndTable();
-                }
-                ImGui::SliderInt("Tiles Count", &tilesCountInt, 1, 6);
-                break;
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##PointLightPos1Z", &lightPos1[2], 0.1f, 0.1f);
+                ImGui::EndTable();
             }
+            ImGui::SliderFloat("Distance 1", &light1Distance, 0.0f, 2.0f);
+            ImGui::SliderFloat("Strength 1", &light1Strength, 0.0f, 1.0f);
+            ImGui::ColorPicker3("Color 1", col1, ImGuiColorEditFlags_NoAlpha);
+
+            ImGui::Text("");
+            ImGui::Text("Point Light 2");
+            if (ImGui::BeginTable("PointLight2", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##PointLightPos2X", &lightPos2[0], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##PointLightPos2Y", &lightPos2[1], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##PointLightPos2Z", &lightPos2[2], 0.1f, 0.1f);
+                ImGui::EndTable();
+            }
+            ImGui::SliderFloat("Distance 2", &light2Distance, 0.0f, 2.0f);
+            ImGui::SliderFloat("Strength 2", &light2Strength, 0.0f, 1.0f);
+            ImGui::ColorPicker3("Color 2", col2, ImGuiColorEditFlags_NoAlpha);
+
+            ImGui::Text("");
+            ImGui::Text("Point Light 3");
+            if (ImGui::BeginTable("PointLight3", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##PointLightPos3X", &lightPos3[0], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##PointLightPos3Y", &lightPos3[1], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##PointLightPos3Z", &lightPos3[2], 0.1f, 0.1f);
+                ImGui::EndTable();
+            }
+            ImGui::SliderFloat("Distance 3", &light3Distance, 0.0f, 2.0f);
+            ImGui::SliderFloat("Strength 3", &light3Strength, 0.0f, 1.0f);
+            ImGui::ColorPicker3("Color 3", col3, ImGuiColorEditFlags_NoAlpha);
+
         } ImGui::End();
+
+        ImVec2 spotLightPanelSize = ImVec2(350.f, 350.f);
+        ImVec2 spotLightPanelPos = ImVec2(100.f, 200.f);
+        ImGui::SetNextWindowSize(spotLightPanelSize);
+        ImGui::SetNextWindowPos(spotLightPanelPos);
+        if (ImGui::Begin("Spot Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+        {
+            ImGui::Text("Spot Light 1");
+            if (ImGui::BeginTable("SpotLight1", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##SpotLightPos1X", &lightPosSpot1[0], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##SpotLightPos1Y", &lightPosSpot1[1], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##SpotLightPos1Z", &lightPosSpot1[2], 0.1f, 0.1f);
+                ImGui::EndTable();
+            }
+            ImGui::SliderFloat("SpotLightDir1X", &spotLight1Direction[0], -DirectX::XM_PI, DirectX::XM_PI);
+            ImGui::SliderFloat("SpotLightDir1Y", &spotLight1Direction[1], -DirectX::XM_PI, DirectX::XM_PI);
+            ImGui::SliderFloat("SpotLightDir1Z", &spotLight1Direction[2], -DirectX::XM_PI, DirectX::XM_PI);
+
+            ImGui::SliderFloat("Spot Distance 1", &light1SpotDistance, 0.0f, 20.0f);
+            ImGui::SliderFloat("Spot Strength 1", &light1SpotStrength, 0.0f, 10.0f);
+            ImGui::ColorPicker3("Spot Color 1", colSpot1, ImGuiColorEditFlags_NoAlpha);
+
+        } ImGui::End();
+
+        // Selected object info
+        {
+            ImVec2 size3 = ImVec2(WINDOW_WIDTH / 4, WINDOW_HEIGHT / 4);
+            ImVec2 pos3 = ImVec2(WINDOW_WIDTH / 4 * 3, WINDOW_HEIGHT / 4 * 3);
+
+            ImGui::SetNextWindowPos(pos3);
+            ImGui::SetNextWindowSize(size3);
+            ImGui::SetNextWindowBgAlpha(0.5f);
+            if (ImGui::Begin("Object Settings", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+            {
+                switch (selectedObjectID)
+                {
+                case 1:
+                    ImGui::Text("Object 1");
+                    if (ImGui::BeginTable("Object1", 3))
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("Pos X");
+
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::InputFloat("##PosXObj1", &Obj1posX, 0.1f, 0.1f);
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("Pos Y");
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::InputFloat("##PosYObj1", &Obj1posY, 0.1f, 0.1f);
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("Pos Z");
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::InputFloat("##PosZObj1", &Obj1posZ, 0.1f, 0.1f);
+                        ImGui::EndTable();
+                    }
+                    if (ImGui::BeginTable("Object1_1", 3))
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("Rot X");
+
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::InputFloat("##RotXObj1", &Obj1rotX, 0.1f, 0.1f);
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("Rot Y");
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::InputFloat("##RotYObj1", &Obj1rotY, 0.1f, 0.1f);
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("Rot Z");
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::InputFloat("##RotZObj1", &Obj1rotZ, 0.1f, 0.1f);
+                        ImGui::EndTable();
+                    }
+                    ImGui::SliderFloat("Scale", &Obj1Scale, 0.1f, 5.0f);
+                    ImGui::Checkbox("Animate Material", &isAnimateMaterial);
+                    break;
+
+                case 2:
+                    ImGui::Text("Object 2");
+                    if (ImGui::BeginTable("Object2", 3))
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("Pos X");
+
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::InputFloat("##PosXObj2", &Obj2posX, 0.1f, 0.1f);
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("Pos Y");
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::InputFloat("##PosYObj2", &Obj2posY, 0.1f, 0.1f);
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("Pos Z");
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::InputFloat("##PosZObj2", &Obj2posZ, 0.1f, 0.1f);
+                        ImGui::EndTable();
+                    }
+                    if (ImGui::BeginTable("Object2_1", 3))
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("Rot X");
+
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::InputFloat("##RotXObj2", &Obj2rotX, 1.f, 1.f);
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("Rot Y");
+
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::InputFloat("##RotYObj2", &Obj2rotY, 1.f, 1.f);
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("Rot Z");
+
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::InputFloat("##RotZObj2", &Obj2rotZ, 1.f, 1.f);
+                        ImGui::EndTable();
+                    }
+                    ImGui::SliderInt("Tiles Count", &tilesCountInt, 1, 6);
+                    break;
+                }
+            } ImGui::End();
+        }
+
+        ChangeTileObjectTiles();
     }
+    else if (activeSceneID == 2)
+    {
+        
+    }
+    else if (activeSceneID == 3)
+    {
+        if (isDisplayingFrustumCullingInfoScene3 && isUsingInstancingScene3)
+        {
+            ImVec2 size = ImVec2(WINDOW_WIDTH / 4, WINDOW_HEIGHT / 3);
+            ImVec2 pos = ImVec2(WINDOW_WIDTH / 2 - size.x / 2, 0);
 
-
-    ChangeTileObjectTiles();
+            ImGui::SetNextWindowPos(pos);
+            ImGui::SetNextWindowSize(size);
+            ImGui::SetNextWindowBgAlpha(0.5f);
+            if (ImGui::Begin("Frustum Culling Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+            {
+                CD3DX12_GPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                hDescriptor.Offset(19, mCbvSrvDescriptorSize);
+                ImGui::Image((ImTextureID)hDescriptor.ptr, ImVec2((float)304, (float)225));
+            } ImGui::End();
+        }
+    }
 
     ImGui::Render();
     ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());

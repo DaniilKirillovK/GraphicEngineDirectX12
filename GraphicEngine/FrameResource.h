@@ -3,6 +3,7 @@
 #include "d3dUtil.h"
 #include "MathHelper.h"
 #include "UploadBuffer.h"
+#include "Instancing.h"
 
 struct EmitterConstants
 {
@@ -99,9 +100,11 @@ public:
     // that reference it.  So each frame needs their own cbuffers.
    // std::unique_ptr<UploadBuffer<FrameConstants>> FrameCB = nullptr;
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
+    std::unique_ptr<UploadBuffer<PassConstants>> PassCBScene3Camera2 = nullptr;
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> EmitterCB = nullptr;
+    std::unique_ptr<UploadBuffer<InstanceData>> InstancingCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.
@@ -136,8 +139,12 @@ struct RenderItem
     // Primitive topology.
     D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
+    DirectX::BoundingBox Bounds;
+    std::vector<InstanceData> Instances;
+
     // DrawIndexedInstanced parameters.
     UINT IndexCount = 0;
+    UINT InstanceCount = 0;
     UINT StartIndexLocation = 0;
     int BaseVertexLocation = 0;
 

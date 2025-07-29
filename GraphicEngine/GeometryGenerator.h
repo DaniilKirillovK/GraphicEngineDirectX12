@@ -91,6 +91,12 @@ public:
 	MeshData CreateSphere(float radius, uint32 sliceCount, uint32 stackCount, float posX, float posY, float posZ);
 
 	///<summary>
+	/// Creates a back sphere centered at the origin with the given radius.  The
+	/// slices and stacks parameters control the degree of tessellation.
+	///</summary>
+	MeshData CreateBackSphere(float radius, uint32 sliceCount, uint32 stackCount);
+
+	///<summary>
 	/// Creates a geosphere centered at the origin with the given radius.  The
 	/// depth controls the level of tessellation.
 	///</summary>

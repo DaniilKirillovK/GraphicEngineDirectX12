@@ -103,7 +103,7 @@ bool D3D12Engine::Initialize()
 void D3D12Engine::CreateRtvAndDsvDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = 6;
+	rtvHeapDesc.NumDescriptors = 7;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -112,7 +112,7 @@ void D3D12Engine::CreateRtvAndDsvDescriptorHeaps()
 
 
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 1;
+	dsvHeapDesc.NumDescriptors = 2;
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	dsvHeapDesc.NodeMask = 0;
@@ -509,12 +509,14 @@ BuildDescriptorHeaps();
 UploadTextures();
 BuildShadersAndInputLayout();
 BuildShapeGeometry();
+BuildScene3Geometry();
 BuildBillboardSpritesGeometry();
 InitParticleSystem();
 BuildMaterials();
 BuildRenderItems();
 BuildFrameResources();
 InitGBuffer();
+CreateScene3RTV();
 BuildPSOs();
 InitInstanceBuffer();
 UploadTextures2();
@@ -656,6 +658,26 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::CurrentBackBufferView()const
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::DepthStencilView()const
 {
 	return mDsvHeap->GetCPUDescriptorHandleForHeapStart();
+}
+
+ID3D12Resource* D3D12Engine::Scene3RenderTargetBuffer() const
+{
+	return mRenderTargetBufferScene3.Get();
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::Scene3RenderTargetBufferView() const
+{
+	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	handle.Offset(6, mRtvDescriptorSize);
+
+	return handle;
+}
+
+CD3DX12_CPU_DESCRIPTOR_HANDLE D3D12Engine::DepthStencilViewScene3() const
+{
+	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mDsvHeap->GetCPUDescriptorHandleForHeapStart());
+	handle.Offset(1, mDsvDescriptorSize);
+	return handle;
 }
 
 void D3D12Engine::CalculateFrameStats()

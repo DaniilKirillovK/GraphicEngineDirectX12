@@ -106,8 +106,10 @@ protected:
     virtual void BuildRootSignature() {}
     virtual void BuildShadersAndInputLayout() {}
     virtual void BuildShapeGeometry() {}
+    virtual void BuildScene3Geometry() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
+    virtual void CreateScene3RTV() {}
     virtual void InitInstanceBuffer() {}
     virtual void InitParticleSystem() {}
 
@@ -132,6 +134,10 @@ protected:
     ID3D12Resource* CurrentBackBuffer()const;
     D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView()const;
     D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView()const;
+
+    ID3D12Resource* Scene3RenderTargetBuffer()const;
+    D3D12_CPU_DESCRIPTOR_HANDLE Scene3RenderTargetBufferView()const;
+    CD3DX12_CPU_DESCRIPTOR_HANDLE DepthStencilViewScene3()const;
 
     void CalculateFrameStats();
 
@@ -172,7 +178,9 @@ protected:
     static const int SwapChainBufferCount = 2;
     int mCurrBackBuffer = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> mSwapChainBuffer[SwapChainBufferCount];
+    Microsoft::WRL::ComPtr<ID3D12Resource> mRenderTargetBufferScene3;
     Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBuffer;
+    Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBufferScene3;
 
     GBuffer gBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceBuffer;

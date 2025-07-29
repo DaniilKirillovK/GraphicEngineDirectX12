@@ -10,7 +10,7 @@
 #endif
 
 #ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 3
+    #define NUM_POINT_LIGHTS 0
 #endif
 
 #ifndef NUM_SPOT_LIGHTS
@@ -20,9 +20,22 @@
 // Include structures and functions for lighting.
 #include "LightingUtil.hlsl"
 
-Texture2D    gDiffuseMap : register(t0);
-SamplerState gsamLinear  : register(s0);
+Texture2D    gDiffuseMap : register(t0, space0);
 
+SamplerState gsamPointWrap : register(s0);
+SamplerState gsamPointClamp : register(s1);
+SamplerState gsamLinearWrap : register(s2);
+SamplerState gsamLinearClamp : register(s3);
+SamplerState gsamAnisotropicWrap : register(s4);
+SamplerState gsamAnisotropicClamp : register(s5);
+
+struct InstanceData
+{
+    float4x4 WorldMatrix;
+    float4 Color;
+};
+
+StructuredBuffer<InstanceData> instanceBuffer : register(t0, space1);
 
 // Constant data that varies per frame.
 cbuffer cbPerObject : register(b0)
@@ -49,6 +62,19 @@ cbuffer cbPass : register(b1)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
+    
+    float4 gFogColor;
+    float gFogStart;
+    float gFogRange;
+    float2 cbPerObjectPad2;
+    
+    float tessFactor;
+    float pixelationFactor;
+    float isParallaxMapping;
+    float displacementLevel;
+    
+    float isNegative;
+    float3 cbPad;
 
 
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
@@ -72,6 +98,7 @@ struct VertexIn
 	float3 PosL    : POSITION;
     float3 NormalL : NORMAL;
 	float2 TexC    : TEXCOORD;
+    float3 TangentU : TANGENT;
 };
 
 struct VertexOut
@@ -80,32 +107,39 @@ struct VertexOut
     float3 PosW    : POSITION;
     float3 NormalW : NORMAL;
 	float2 TexC    : TEXCOORD;
+    float3 TangentW : TANGENT;
+    float4 Color : COLOR;
 };
 
-VertexOut VS(VertexIn vin)
+VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
-	VertexOut vout = (VertexOut)0.0f;
-	
+    VertexOut vout = (VertexOut) 0.0f;
+    
+    InstanceData instance = instanceBuffer[instanceID];
+   
     // Transform to world space.
-    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    float4 posW = mul(mul(float4(vin.PosL, 1.0f), gWorld), instance.WorldMatrix);
     vout.PosW = posW.xyz;
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
-    vout.NormalW = mul(vin.NormalL, (float3x3)gWorld);
+    vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
 
     // Transform to homogeneous clip space.
     vout.PosH = mul(posW, gViewProj);
+    
+    vout.TangentW = mul(vin.TangentU, (float3x3) gWorld);
 	
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC * tilesCount, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
+    vout.Color = instance.Color;
 
     return vout;
 }
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamLinear, pin.TexC) * gDiffuseAlbedo;
+    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo * pin.Color;
 
     // Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);
