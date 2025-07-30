@@ -107,6 +107,8 @@ protected:
     virtual void BuildShadersAndInputLayout() {}
     virtual void BuildShapeGeometry() {}
     virtual void BuildScene3Geometry() {}
+    virtual void BuildScene4Geometry() {}
+    virtual void BuildScene5Geometry() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
     virtual void CreateScene3RTV() {}
@@ -188,6 +190,8 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceUploadBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2];
     UINT currParticleReadBuffer = 0;
+    Microsoft::WRL::ComPtr<ID3D12Resource> particle2Buffers[2];
+    UINT currParticle2ReadBuffer = 0;
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRtvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;

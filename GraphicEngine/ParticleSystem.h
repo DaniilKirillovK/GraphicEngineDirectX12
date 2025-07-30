@@ -20,7 +20,8 @@ class ParticleSystem
 {
 public:
 	ParticleSystem(int maxParticles, 
-		DirectX::XMFLOAT3 position);
+		DirectX::XMFLOAT3 position,
+		int systemID);
 
 	ParticleSystem();
 	
@@ -35,7 +36,8 @@ public:
 	virtual void InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> device,
 		Microsoft::WRL::ComPtr<ID3D12Resource> particleSRVBuffers[2],
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvUavHeap,
-		UINT srvDescriptorSize);
+		UINT srvDescriptorSize,
+		UINT offset);
 
 	EmitterConstants emitterData;
 	Particle* particlesData;

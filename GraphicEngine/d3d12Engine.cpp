@@ -510,6 +510,8 @@ UploadTextures();
 BuildShadersAndInputLayout();
 BuildShapeGeometry();
 BuildScene3Geometry();
+BuildScene4Geometry();
+BuildScene5Geometry();
 BuildBillboardSpritesGeometry();
 InitParticleSystem();
 BuildMaterials();

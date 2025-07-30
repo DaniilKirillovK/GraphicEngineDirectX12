@@ -10,13 +10,14 @@ struct EmitterConstants
     DirectX::XMFLOAT3 Position;
     float DeltaTime;
     DirectX::XMFLOAT3 GravityForce;
-    float Pad1;
+    UINT SystemID;
     DirectX::XMFLOAT4 StartColor;
     DirectX::XMFLOAT4 EndColor;
     float StartSize;
     float EndSize;
     UINT MaxParticles;
     UINT EmitterIsActive;
+    float TotalTime;
 };
 
 struct ObjectConstants
@@ -104,6 +105,7 @@ public:
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> EmitterCB = nullptr;
+    std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter2CB = nullptr;
     std::unique_ptr<UploadBuffer<InstanceData>> InstancingCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us

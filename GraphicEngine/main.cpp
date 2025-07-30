@@ -53,9 +53,12 @@ enum class RenderLayer : int
     Opaque = 0,
     OpaqueWireframe = 1,
     BillboardSprites = 2,
-    Particles = 3,
+    Particles1 = 3,
     Scene2Opaque = 4,
     Scene3 = 5,
+    Scene4 = 6,
+    Scene5 = 7,
+    Particles2 = 8,
     Count
 };
 
@@ -125,6 +128,7 @@ private:
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateMainPassCBScene3Camera2(const GameTimer& gt);
     void UpdateParticleEmitterCB(const GameTimer& gt);
+    void UpdateParticleEmitter2CB(const GameTimer& gt);
 
     void ChangeTileObjectTiles();
 
@@ -133,6 +137,8 @@ private:
     virtual void BuildShadersAndInputLayout() override;
     virtual void BuildShapeGeometry() override;
     virtual void BuildScene3Geometry() override;
+    virtual void BuildScene4Geometry() override;
+    virtual void BuildScene5Geometry() override;
     virtual void BuildPSOs() override;
 
     virtual void LoadTextures() override;
@@ -155,10 +161,12 @@ private:
 
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene4(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
-    void DrawParticles(ParticleSystem particleSystem);
+    void DrawParticles(ParticleSystem particleSystem, RenderLayer layer);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
 
@@ -200,6 +208,7 @@ private:
     PassConstants mReflectedPassCB;
 
     ParticleSystem* mParticleSystem;
+    ParticleSystem* mParticleSystem2;
 
     float mTheta = 1.3f * DirectX::XM_PI;
     float mPhi = 0.4f * DirectX::XM_PI;
@@ -225,7 +234,6 @@ int activeSceneID = 1;
 
 bool isDebug = true;
 bool gridIsActive = false;
-bool particlesIsActive = true;
 
 bool flashlightIsActive = false;
 
@@ -301,6 +309,29 @@ float colSpot2[3] = { 1.0f, 1.0f, 1.0f };
 bool isFrustumCullingScene3 = false;
 bool isDisplayingFrustumCullingInfoScene3 = false;
 bool isUsingInstancingScene3 = true;
+
+bool isAnimateMaterialScene4 = false;
+int tilesCountScene4 = 1;
+
+float tessFactorScene5 = 1.f;
+bool isSolidScene5 = true;
+float displacementLevelScene5 = 1.0f;
+
+
+int activeParticleSystemScene6 = 1;
+
+bool particles1IsActive = true;
+float particleStartColorScene6[3] = { 1.0f, 1.0f, 1.0f };
+float particleEndColorScene6[3] = { 0.0f, 0.0f, 0.0f };
+float particleStartSizeScene6 = 1.0f;
+float particleEndSizeScene6 = 0.5f;
+
+bool particles2IsActive = false;
+float particle2StartColorScene6[3] = { 1.0f, 1.0f, 1.0f };
+float particle2EndColorScene6[3] = { 0.0f, 0.0f, 0.0f };
+float particle2StartSizeScene6 = 1.0f;
+float particle2EndSizeScene6 = 0.5f;
+
 
 
 
@@ -416,7 +447,7 @@ void Engine::Update(const GameTimer& gt)
         CloseHandle(eventHandle);
     }
 
-    if (isAnimateMaterial)
+    if (isAnimateMaterialScene4)
         AnimateMaterials(gt);
 
     if (activeSceneID == 3 && isUsingInstancingScene3 && isFrustumCullingScene3)
@@ -426,7 +457,13 @@ void Engine::Update(const GameTimer& gt)
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
     UpdateMainPassCBScene3Camera2(gt);
-    UpdateParticleEmitterCB(gt);
+    if (activeSceneID == 6)
+    {
+        if (activeParticleSystemScene6 == 1)
+            UpdateParticleEmitterCB(gt);
+        else if (activeParticleSystemScene6 == 2)
+            UpdateParticleEmitter2CB(gt);
+    }
     timeScene2 = ParseTime(gt);
 }
 
@@ -478,66 +515,6 @@ void Engine::Draw(const GameTimer& gt)
 
     if (activeSceneID == 1)
     {
-        // Particles
-        if (particlesIsActive)
-        {
-            // Compute pass
-            {
-                ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
-                mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
-
-                CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
-                    particleBuffers[1 - currParticleReadBuffer].Get(),
-                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-                mCommandList->ResourceBarrier(1, &computeBarrier1);
-
-                auto emitterCB = mCurrFrameResource->EmitterCB->Resource();
-
-                mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
-
-                mCommandList->SetComputeRootUnorderedAccessView(0, particleBuffers[1 - currParticleReadBuffer]->GetGPUVirtualAddress());
-                mCommandList->SetComputeRootShaderResourceView(1, particleBuffers[currParticleReadBuffer]->GetGPUVirtualAddress());
-                mCommandList->SetComputeRootConstantBufferView(2, emitterCB->GetGPUVirtualAddress());
-
-                mCommandList->SetPipelineState(mPSOs["computeParticles"].Get());
-
-                UINT threadGroupCount = 64;
-                mCommandList->Dispatch(threadGroupCount, 1, 1);
-
-                CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
-                    particleBuffers[1 - currParticleReadBuffer].Get(),
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-                mCommandList->ResourceBarrier(1, &computeBarrier2);
-
-                currParticleReadBuffer = 1 - currParticleReadBuffer;
-            }
-
-            // Draw calls
-            // Draw particles
-            {
-                ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
-                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
-
-                mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
-
-                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
-                CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
-                handle.Offset(currParticleReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
-                mCommandList->SetGraphicsRootDescriptorTable(1, handle);
-
-                mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
-
-                mCommandList->RSSetViewports(1, &viewports[4]);
-                mCommandList->RSSetScissorRects(1, &rects[4]);
-
-                mCommandList->SetPipelineState(mPSOs["renderParticles"].Get());
-
-                DrawParticles(*mParticleSystem);
-            }
-        }
-
         // Draw Wireframe (debug)
         if (isDebug)
         {
@@ -838,10 +815,222 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->ResourceBarrier(1, &barrier1);
         }
     }
+    else if (activeSceneID == 4)
+    {
+        // Draw calls
+        {
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+            // Indicate a state transition on the resource usage.
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
+            mCommandList->ResourceBarrier(6, barriers);
+
+            mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+
+            DrawRenderItemsScene4(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene4]);
+
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
+            mCommandList->ResourceBarrier(6, barriersClose);
+        }
+    }
+    else if (activeSceneID == 5)
+    {
+        //Draw calls
+        {
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+            mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            if (isSolidScene5) mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+            else mCommandList->SetPipelineState(mPSOs["opaqueWireframe"].Get());
+
+
+            DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene5]);
+
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
+            mCommandList->ResourceBarrier(6, barriersClose);
+        }
+    }
+    else if (activeSceneID == 6)
+    {
+        // Particles
+        if (particles1IsActive && activeParticleSystemScene6 == 1)
+        {
+            // Compute pass
+            {
+                ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
+
+                CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particleBuffers[1 - currParticleReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                mCommandList->ResourceBarrier(1, &computeBarrier1);
+
+                auto emitterCB = mCurrFrameResource->EmitterCB->Resource();
+
+                mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
+
+                mCommandList->SetComputeRootUnorderedAccessView(0, particleBuffers[1 - currParticleReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootShaderResourceView(1, particleBuffers[currParticleReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootConstantBufferView(2, emitterCB->GetGPUVirtualAddress());
+
+                mCommandList->SetPipelineState(mPSOs["computeParticles"].Get());
+
+                UINT threadGroupCount = 1;
+                mCommandList->Dispatch(threadGroupCount, 1, 1);
+
+                CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particleBuffers[1 - currParticleReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+                mCommandList->ResourceBarrier(1, &computeBarrier2);
+
+                currParticleReadBuffer = 1 - currParticleReadBuffer;
+            }
+
+            // Draw calls
+            // Draw particles
+            {
+                ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+                CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+                handle.Offset(currParticleReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
+                mCommandList->SetGraphicsRootDescriptorTable(1, handle);
+
+                mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetPipelineState(mPSOs["renderParticles"].Get());
+
+                DrawParticles(*mParticleSystem, RenderLayer::Particles1);
+            }
+        }
+        else if (particles2IsActive && activeParticleSystemScene6 == 2)
+        {
+            // Compute pass
+            {
+                ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
+
+                CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particle2Buffers[1 - currParticle2ReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                mCommandList->ResourceBarrier(1, &computeBarrier1);
+
+                auto emitterCB = mCurrFrameResource->Emitter2CB->Resource();
+
+                mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
+
+                mCommandList->SetComputeRootUnorderedAccessView(0, particle2Buffers[1 - currParticle2ReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootShaderResourceView(1, particle2Buffers[currParticle2ReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootConstantBufferView(2, emitterCB->GetGPUVirtualAddress());
+
+                mCommandList->SetPipelineState(mPSOs["computeParticles"].Get());
+
+                UINT threadGroupCount = 8;
+                mCommandList->Dispatch(threadGroupCount, 1, 1);
+
+                CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particle2Buffers[1 - currParticle2ReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+                mCommandList->ResourceBarrier(1, &computeBarrier2);
+
+                currParticle2ReadBuffer = 1 - currParticle2ReadBuffer;
+            }
+
+            // Draw calls
+            // Draw particles
+            {
+                ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+                CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+                handle.Offset(4 + currParticle2ReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
+                mCommandList->SetGraphicsRootDescriptorTable(1, handle);
+
+                mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetPipelineState(mPSOs["renderParticles"].Get());
+
+                DrawParticles(*mParticleSystem2, RenderLayer::Particles2);
+            }
+        }
+    }
     
 
     // Draw screen quad
-    if (activeSceneID <= 2)
+    if (activeSceneID <= 2 || activeSceneID >= 4)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
 
@@ -1059,9 +1248,19 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, DirectX::XM_PI/2)
                 * DirectX::XMMatrixRotationRollPitchYaw(spotLight1Direction[0], spotLight1Direction[1], spotLight1Direction[2])
                 * DirectX::XMMatrixTranslation(lightPosSpot1[0], lightPosSpot1[1], lightPosSpot1[2]);
-            else if (i >= 14)
+            else if (i >= 14 && i <= 742)
             {
                 world = XMLoadFloat4x4(&worldM) * instanceDataScene3[i - 14];
+            }
+            else if (i == 743)
+            {
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(-2.0f, 0.0f, 0.0f);
+            }
+            else if (i == 744)
+            {
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(2.0f, 0.0f, 0.0f);
+                mAllRitems[i]->Mat->TilesCount = tilesCountScene4;
+                mAllRitems[i]->Mat->NumFramesDirty = gNumFrameResources;
             }
 
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
@@ -1069,7 +1268,7 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
             ObjectConstants objConstants;
             XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
             XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
-            if (i <= 4)
+            if (i <= 4 || i == 745)
                 objConstants.isTesselationNeeded = 1.0f;
             else objConstants.isTesselationNeeded = 0.0f;
             if (i == 0)
@@ -1204,13 +1403,22 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     }
     else mMainPassCB.Lights[7].Strength = { 0.0f, 0.0f, 0.0f };
 
+    if (activeSceneID == 1)
+    {
+        mMainPassCB.TessFactor = tessFactor;
+        mMainPassCB.displacementLevel = displacementLevel;
+    }
+    else if (activeSceneID == 5)
+    {
+        mMainPassCB.TessFactor = tessFactorScene5;
+        mMainPassCB.displacementLevel = displacementLevelScene5;
+    }
 
-    mMainPassCB.TessFactor = tessFactor;
     mMainPassCB.PixelationFactor = pixelationFactor;
     if (isParallaxMapping)
         mMainPassCB.ParallaxMapping = 1.0f;
     else mMainPassCB.ParallaxMapping = 0.0f;
-    mMainPassCB.displacementLevel = displacementLevel;
+    
 
     if (isNegative)
         mMainPassCB.isNegative = 1.0f;
@@ -1272,15 +1480,36 @@ void Engine::UpdateParticleEmitterCB(const GameTimer& gt)
     emitterConstPass.Position = mParticleSystem->emitterData.Position;
     emitterConstPass.DeltaTime = gt.DeltaTime();
     emitterConstPass.GravityForce = mParticleSystem->emitterData.GravityForce;
-    emitterConstPass.Pad1 = mParticleSystem->emitterData.Pad1;
+    emitterConstPass.SystemID = mParticleSystem->emitterData.SystemID;
     emitterConstPass.StartColor = mParticleSystem->emitterData.StartColor;
     emitterConstPass.EndColor = mParticleSystem->emitterData.EndColor;
     emitterConstPass.StartSize = mParticleSystem->emitterData.StartSize;
     emitterConstPass.EndSize = mParticleSystem->emitterData.EndSize;
     emitterConstPass.MaxParticles = mParticleSystem->emitterData.MaxParticles;
     emitterConstPass.EmitterIsActive = mParticleSystem->emitterData.EmitterIsActive;
+    emitterConstPass.TotalTime = gt.TotalTime();
 
     auto currPassCB = mCurrFrameResource->EmitterCB.get();
+    currPassCB->CopyData(0, emitterConstPass);
+}
+
+void Engine::UpdateParticleEmitter2CB(const GameTimer& gt)
+{
+    EmitterConstants emitterConstPass;
+
+    emitterConstPass.Position = mParticleSystem2->emitterData.Position;
+    emitterConstPass.DeltaTime = gt.DeltaTime();
+    emitterConstPass.GravityForce = mParticleSystem2->emitterData.GravityForce;
+    emitterConstPass.SystemID = mParticleSystem2->emitterData.SystemID;
+    emitterConstPass.StartColor = mParticleSystem2->emitterData.StartColor;
+    emitterConstPass.EndColor = mParticleSystem2->emitterData.EndColor;
+    emitterConstPass.StartSize = mParticleSystem2->emitterData.StartSize;
+    emitterConstPass.EndSize = mParticleSystem2->emitterData.EndSize;
+    emitterConstPass.MaxParticles = mParticleSystem2->emitterData.MaxParticles;
+    emitterConstPass.EmitterIsActive = mParticleSystem2->emitterData.EmitterIsActive;
+    emitterConstPass.TotalTime = gt.TotalTime();
+
+    auto currPassCB = mCurrFrameResource->Emitter2CB.get();
     currPassCB->CopyData(0, emitterConstPass);
 }
 
@@ -1410,6 +1639,14 @@ void Engine::LoadTextures()
         mCommandList.Get(), skyboxTex->Filename.c_str(),
         skyboxTex->Resource, skyboxTex->UploadHeap), true);
     mTextures[skyboxTex->Name] = std::move(skyboxTex);
+
+    auto particle2Tex = std::make_unique<Texture>();
+    particle2Tex->Name = "Particle2Tex";
+    particle2Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\Particle2Tex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), particle2Tex->Filename.c_str(),
+        particle2Tex->Resource, particle2Tex->UploadHeap), true);
+    mTextures[particle2Tex->Name] = std::move(particle2Tex);
 }
 
 void Engine::BuildDescriptorHeaps()
@@ -1429,7 +1666,7 @@ void Engine::BuildDescriptorHeaps()
     // Create particles SRV/UAV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvParticlesHeapDesc = {};
-    srvParticlesHeapDesc.NumDescriptors = 6;
+    srvParticlesHeapDesc.NumDescriptors = 10;
     srvParticlesHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvParticlesHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvParticlesHeapDesc, IID_PPV_ARGS(&mParticlesSrvUavHeap)));
@@ -1553,7 +1790,7 @@ void Engine::UploadTextures2()
     auto ParticleTex = mTextures["ParticleTex"]->Resource;
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptorParticles(mParticlesSrvUavHeap->GetCPUDescriptorHandleForHeapStart());
-    hDescriptorParticles.Offset(4, mCbvSrvDescriptorSize);
+    hDescriptorParticles.Offset(8, mCbvSrvDescriptorSize);
 
     srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc1.Format = ParticleTex->GetDesc().Format;
@@ -1561,6 +1798,17 @@ void Engine::UploadTextures2()
     srvDesc1.Texture2D.MostDetailedMip = 0;
     srvDesc1.Texture2D.MipLevels = -1;
     md3dDevice->CreateShaderResourceView(ParticleTex.Get(), &srvDesc1, hDescriptorParticles);
+
+    hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
+
+    auto Particle2Tex = mTextures["Particle2Tex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = ParticleTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(Particle2Tex.Get(), &srvDesc1, hDescriptorParticles);
 
     hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
 }
@@ -2207,6 +2455,142 @@ void Engine::BuildScene3Geometry()
     }
 }
 
+void Engine::BuildScene4Geometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData animateBox = geoGen.CreateBox(2.0f, 2.0f, 2.0f, 0);
+    GeometryGenerator::MeshData tilingBox = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 0, 1);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry animateBoxSubmesh;
+    animateBoxSubmesh.IndexCount = (UINT)animateBox.Indices32.size();
+    animateBoxSubmesh.StartIndexLocation = totalIndexCount;
+    animateBoxSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += animateBoxSubmesh.IndexCount;
+    totalVertexCount += animateBox.Vertices.size();
+
+    SubmeshGeometry tilingBoxSubmesh;
+    tilingBoxSubmesh.IndexCount = (UINT)tilingBox.Indices32.size();
+    tilingBoxSubmesh.StartIndexLocation = totalIndexCount;
+    tilingBoxSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += tilingBoxSubmesh.IndexCount;
+    totalVertexCount += tilingBox.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < animateBox.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = animateBox.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = animateBox.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = animateBox.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = animateBox.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += animateBox.Vertices.size();
+    for (size_t i = 0; i < tilingBox.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = tilingBox.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = tilingBox.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = tilingBox.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = tilingBox.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += tilingBox.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(animateBox.GetIndices16()), std::end(animateBox.GetIndices16()));
+    indices.insert(indices.end(), std::begin(tilingBox.GetIndices16()), std::end(tilingBox.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene4Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["animateBox"] = animateBoxSubmesh;
+    geo->DrawArgs["tilingBox"] = tilingBoxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void Engine::BuildScene5Geometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData tesselationBox = geoGen.CreateBox(5.0f, 5.0f, 5.0f, 0);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry tesselationBoxSubmesh;
+    tesselationBoxSubmesh.IndexCount = (UINT)tesselationBox.Indices32.size();
+    tesselationBoxSubmesh.StartIndexLocation = totalIndexCount;
+    tesselationBoxSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += tesselationBoxSubmesh.IndexCount;
+    totalVertexCount += tesselationBox.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < tesselationBox.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = tesselationBox.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = tesselationBox.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = tesselationBox.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = tesselationBox.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += tesselationBox.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(tesselationBox.GetIndices16()), std::end(tesselationBox.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene5Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["tesselationBox"] = tesselationBoxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
 
 void Engine::BuildPSOs()
 {
@@ -2571,12 +2955,22 @@ void Engine::BuildMaterials()
     auto particleMat = std::make_unique<Material>();
     particleMat->Name = "particleMaterial";
     particleMat->MatCBIndex = 4;
-    particleMat->DiffuseSrvHeapIndex = 4;
+    particleMat->DiffuseSrvHeapIndex = 8;
     particleMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     particleMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
     particleMat->Roughness = 0.125f;
 
     mMaterials["particleMaterial"] = std::move(particleMat);
+
+    auto particle2Mat = std::make_unique<Material>();
+    particle2Mat->Name = "particle2Material";
+    particle2Mat->MatCBIndex = 4;
+    particle2Mat->DiffuseSrvHeapIndex = 9;
+    particle2Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    particle2Mat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
+    particle2Mat->Roughness = 0.125f;
+
+    mMaterials["particle2Material"] = std::move(particle2Mat);
 
     auto skyboxMat = std::make_unique<Material>();
     skyboxMat->Name = "skyboxMaterial";
@@ -2724,13 +3118,13 @@ void Engine::BuildRenderItems()
     particleRitem->World = MathHelper::Identity4x4();
     particleRitem->ObjCBIndex = 11;
     particleRitem->Mat = mMaterials["particleMaterial"].get();
-    particleRitem->Geo = mGeometries["particlesGeo"].get();
+    particleRitem->Geo = mGeometries["particlesGeo1"].get();
     particleRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
-    particleRitem->IndexCount = particleRitem->Geo->DrawArgs["points"].IndexCount;
-    particleRitem->StartIndexLocation = particleRitem->Geo->DrawArgs["points"].StartIndexLocation;
-    particleRitem->BaseVertexLocation = particleRitem->Geo->DrawArgs["points"].BaseVertexLocation;
+    particleRitem->IndexCount = particleRitem->Geo->DrawArgs["points1"].IndexCount;
+    particleRitem->StartIndexLocation = particleRitem->Geo->DrawArgs["points1"].StartIndexLocation;
+    particleRitem->BaseVertexLocation = particleRitem->Geo->DrawArgs["points1"].BaseVertexLocation;
 
-    mRitemLayer[(int)RenderLayer::Particles].push_back(particleRitem.get());
+    mRitemLayer[(int)RenderLayer::Particles1].push_back(particleRitem.get());
     mAllRitems.push_back(std::move(particleRitem));
 
     auto skyboxRitem = std::make_unique<RenderItem>();
@@ -2775,6 +3169,58 @@ void Engine::BuildRenderItems()
         mRitemLayer[(int)RenderLayer::Scene3].push_back(nonInstancingRitemScene3.get());
         mAllRitems.push_back(std::move(nonInstancingRitemScene3));
     }
+
+    auto animateRitemScene4 = std::make_unique<RenderItem>();
+    animateRitemScene4->World = MathHelper::Identity4x4();
+    animateRitemScene4->ObjCBIndex = 743;
+    animateRitemScene4->Mat = mMaterials["metalAnimate"].get();
+    animateRitemScene4->Geo = mGeometries["scene4Geo"].get();
+    animateRitemScene4->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    animateRitemScene4->IndexCount = animateRitemScene4->Geo->DrawArgs["animateBox"].IndexCount;
+    animateRitemScene4->StartIndexLocation = animateRitemScene4->Geo->DrawArgs["animateBox"].StartIndexLocation;
+    animateRitemScene4->BaseVertexLocation = animateRitemScene4->Geo->DrawArgs["animateBox"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene4].push_back(animateRitemScene4.get());
+    mAllRitems.push_back(std::move(animateRitemScene4));
+
+    auto tilingRitemScene4 = std::make_unique<RenderItem>();
+    tilingRitemScene4->World = MathHelper::Identity4x4();
+    tilingRitemScene4->ObjCBIndex = 744;
+    tilingRitemScene4->Mat = mMaterials["tileCrate"].get();
+    tilingRitemScene4->Geo = mGeometries["scene4Geo"].get();
+    tilingRitemScene4->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    tilingRitemScene4->IndexCount = tilingRitemScene4->Geo->DrawArgs["tilingBox"].IndexCount;
+    tilingRitemScene4->StartIndexLocation = tilingRitemScene4->Geo->DrawArgs["tilingBox"].StartIndexLocation;
+    tilingRitemScene4->BaseVertexLocation = tilingRitemScene4->Geo->DrawArgs["tilingBox"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene4].push_back(tilingRitemScene4.get());
+    mAllRitems.push_back(std::move(tilingRitemScene4));
+
+    auto tesselationRitemScene5 = std::make_unique<RenderItem>();
+    tesselationRitemScene5->World = MathHelper::Identity4x4();
+    tesselationRitemScene5->ObjCBIndex = 745;
+    tesselationRitemScene5->Mat = mMaterials["stoneMaterial"].get();
+    tesselationRitemScene5->Geo = mGeometries["scene5Geo"].get();
+    tesselationRitemScene5->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    tesselationRitemScene5->IndexCount = tesselationRitemScene5->Geo->DrawArgs["tesselationBox"].IndexCount;
+    tesselationRitemScene5->StartIndexLocation = tesselationRitemScene5->Geo->DrawArgs["tesselationBox"].StartIndexLocation;
+    tesselationRitemScene5->BaseVertexLocation = tesselationRitemScene5->Geo->DrawArgs["tesselationBox"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene5].push_back(tesselationRitemScene5.get());
+    mAllRitems.push_back(std::move(tesselationRitemScene5));
+
+    auto particle2Ritem = std::make_unique<RenderItem>();
+    particle2Ritem->World = MathHelper::Identity4x4();
+    particle2Ritem->ObjCBIndex = 746;
+    particle2Ritem->Mat = mMaterials["particle2Material"].get();
+    particle2Ritem->Geo = mGeometries["particlesGeo2"].get();
+    particle2Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+    particle2Ritem->IndexCount = particle2Ritem->Geo->DrawArgs["points2"].IndexCount;
+    particle2Ritem->StartIndexLocation = particle2Ritem->Geo->DrawArgs["points2"].StartIndexLocation;
+    particle2Ritem->BaseVertexLocation = particle2Ritem->Geo->DrawArgs["points2"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Particles2].push_back(particle2Ritem.get());
+    mAllRitems.push_back(std::move(particle2Ritem));
 
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
@@ -3187,14 +3633,28 @@ void Engine::InitInstanceBuffer()
 
 void Engine::InitParticleSystem()
 {
-    mParticleSystem = new ParticleSystem(64, DirectX::XMFLOAT3(-5.f, 0.f, 0.f));
+    mParticleSystem = new ParticleSystem(64, DirectX::XMFLOAT3(0.f, 0.f, 0.f), 1);
 
     mParticleSystem->InitializeSystem(md3dDevice,
         particleBuffers,
         mParticlesSrvUavHeap,
-        mCbvSrvUavDescriptorSize);
+        mCbvSrvUavDescriptorSize,
+        0);
 
     mParticleSystem->BuildSystemVertexBuffers(mGeometries,
+        md3dDevice,
+        mCommandList);
+
+
+    mParticleSystem2 = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 0.f, 0.f), 2);
+
+    mParticleSystem2->InitializeSystem(md3dDevice,
+        particle2Buffers,
+        mParticlesSrvUavHeap,
+        mCbvSrvUavDescriptorSize, 
+        1);
+
+    mParticleSystem2->BuildSystemVertexBuffers(mGeometries,
         md3dDevice,
         mCommandList);
 }
@@ -3343,6 +3803,84 @@ void Engine::DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std
     }
 }
 
+void Engine::DrawRenderItemsScene4(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            instanceTableHandle.Offset(16, mCbvSrvDescriptorSize);
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
+void Engine::DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            instanceTableHandle.Offset(16, mCbvSrvDescriptorSize);
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
 void Engine::DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -3428,10 +3966,10 @@ void Engine::DrawScreenQuad(ID3D12GraphicsCommandList* cmdList)
     cmdList->DrawInstanced(4, 1, 0, 0);
 }
 
-void Engine::DrawParticles(ParticleSystem particleSystem)
+void Engine::DrawParticles(ParticleSystem particleSystem, RenderLayer layer)
 {
     particleSystem.Render(mCommandList.Get(),
-        mRitemLayer[(int)RenderLayer::Particles],
+        mRitemLayer[(int)layer],
         mCbvSrvDescriptorSize,
         mCurrFrameResource,
         mParticlesSrvUavHeap);
@@ -3507,6 +4045,9 @@ void Engine::RenderUI()
         ImGui::Text("Scene 1: Sandbox");
         ImGui::Text("Scene 2: Day/night scene");
         ImGui::Text("Scene 3: Instancing/frumstum culling scene");
+        ImGui::Text("Scene 4: Texture animation & Tiling scene");
+        ImGui::Text("Scene 5: Tesselation scene");
+        ImGui::Text("Scene 6: Particles scene");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -3537,6 +4078,24 @@ void Engine::RenderUI()
                 activeSceneID = 3;
             }
 
+            ImGui::TableSetColumnIndex(3);
+            if (ImGui::Button("Scene 4", ImVec2(100, 40)))
+            {
+                activeSceneID = 4;
+            }
+
+            ImGui::TableSetColumnIndex(4);
+            if (ImGui::Button("Scene 5", ImVec2(100, 40)))
+            {
+                activeSceneID = 5;
+            }
+
+            ImGui::TableSetColumnIndex(5);
+            if (ImGui::Button("Scene 6", ImVec2(100, 40)))
+            {
+                activeSceneID = 6;
+            }
+
             ImGui::EndTable();
         }
     } ImGui::End();
@@ -3551,7 +4110,7 @@ void Engine::RenderUI()
         ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
         ImGui::Text("Frame Time: %.3f ms", 1000.0f / ImGui::GetIO().Framerate);
 
-        if (activeSceneID <= 2)
+        if (activeSceneID == 1)
         {
             ImGui::Text("");
             ImGui::Text("Deferred Render");
@@ -3566,10 +4125,6 @@ void Engine::RenderUI()
             ImGui::Text("");
 
             ImGui::Checkbox("FPS Object", &fpsObjectIsActive);
-            ImGui::Text("");
-
-            ImGui::Text("Particles");
-            ImGui::Checkbox("Particles", &particlesIsActive);
             ImGui::Text("");
 
             ImGui::Text("Flashlight");
@@ -3634,6 +4189,75 @@ void Engine::RenderUI()
             ImGui::Text("");
             ImGui::Text("Instancing");
             ImGui::Checkbox("Instancing Active", &isUsingInstancingScene3);
+        }
+        else if (activeSceneID == 4)
+        {
+            ImGui::Checkbox("Animate Material", &isAnimateMaterialScene4);
+            ImGui::SliderInt("Tiles Count", &tilesCountScene4, 1, 6);
+            mAllRitems[743]->NumFramesDirty = 1;
+            mAllRitems[744]->NumFramesDirty = 1;
+        }
+        else if (activeSceneID == 5)
+        {
+            ImGui::Text("");
+            ImGui::Text("Tesselation & Displacement");
+            ImGui::Checkbox("Solid Mode", &isSolidScene5);
+            ImGui::SliderFloat("Tesselation Factor", &tessFactorScene5, 1.f, 64.f);
+            ImGui::SliderFloat("Displacement Level", &displacementLevelScene5, 0.f, 5.f);
+            mAllRitems[745]->NumFramesDirty = 1;
+        }
+        else if (activeSceneID == 6)
+        {
+            ImGui::Text("");
+            ImGui::Text("Particles");
+            if (ImGui::BeginTable("Systems", 2))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                if (ImGui::Button("System 1", ImVec2(100, 40)))
+                {
+                    activeParticleSystemScene6 = 1;
+                }
+
+                ImGui::TableSetColumnIndex(1);
+                if (ImGui::Button("System 2", ImVec2(100, 40)))
+                {
+                    activeParticleSystemScene6 = 2;
+                }
+
+                ImGui::EndTable();
+            }
+
+            if (activeParticleSystemScene6 == 1)
+            {
+                ImGui::Text("");
+                ImGui::Checkbox("Particles", &particles1IsActive);
+                ImGui::Text("Particle System Settings");
+                ImGui::SliderFloat("Particle Start Size", &particleStartSizeScene6, 0.5f, 8.f);
+                ImGui::SliderFloat("Particle End Size", &particleEndSizeScene6, 0.0f, 0.5f);
+                ImGui::ColorPicker3("Particle Start Color", particleStartColorScene6, ImGuiColorEditFlags_NoAlpha);
+                ImGui::ColorPicker3("Particle End Color", particleEndColorScene6, ImGuiColorEditFlags_NoAlpha);
+
+                mParticleSystem->emitterData.StartColor = DirectX::XMFLOAT4(particleStartColorScene6[0], particleStartColorScene6[1], particleStartColorScene6[2], 1.0f);
+                mParticleSystem->emitterData.EndColor = DirectX::XMFLOAT4(particleEndColorScene6[0], particleEndColorScene6[1], particleEndColorScene6[2], 1.0f);
+                mParticleSystem->emitterData.StartSize = particleStartSizeScene6;
+                mParticleSystem->emitterData.EndSize = particleEndSizeScene6;
+            }
+            else if (activeParticleSystemScene6 == 2)
+            {
+                ImGui::Text("");
+                ImGui::Checkbox("Particles", &particles2IsActive);
+                ImGui::Text("Particle System Settings");
+                ImGui::SliderFloat("Particle Start Size", &particle2StartSizeScene6, 0.5f, 8.f);
+                ImGui::SliderFloat("Particle End Size", &particle2EndSizeScene6, 0.0f, 0.5f);
+                ImGui::ColorPicker3("Particle Start Color", particle2StartColorScene6, ImGuiColorEditFlags_NoAlpha);
+                ImGui::ColorPicker3("Particle End Color", particle2EndColorScene6, ImGuiColorEditFlags_NoAlpha);
+
+                mParticleSystem2->emitterData.StartColor = DirectX::XMFLOAT4(particle2StartColorScene6[0], particle2StartColorScene6[1], particle2StartColorScene6[2], 1.0f);
+                mParticleSystem2->emitterData.EndColor = DirectX::XMFLOAT4(particle2EndColorScene6[0], particle2EndColorScene6[1], particle2EndColorScene6[2], 1.0f);
+                mParticleSystem2->emitterData.StartSize = particle2StartSizeScene6;
+                mParticleSystem2->emitterData.EndSize = particle2EndSizeScene6;
+            }
         }
     } ImGui::End();
 

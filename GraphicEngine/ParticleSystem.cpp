@@ -1,16 +1,31 @@
 #include "ParticleSystem.h"
 
-ParticleSystem::ParticleSystem(int maxParticles, DirectX::XMFLOAT3 position)
+ParticleSystem::ParticleSystem(int maxParticles, DirectX::XMFLOAT3 position, int systemID)
 {
-	this->emitterData.MaxParticles = maxParticles;
-	this->emitterData.Position = position;
-    this->emitterData.StartColor = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    this->emitterData.EndColor = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
-    this->emitterData.EmitterIsActive = true;
-    this->emitterData.StartSize = 1.0f;
-    this->emitterData.EndSize = 0.5f;
-    this->emitterData.GravityForce = DirectX::XMFLOAT3(0.0f, 0.1f, 0.0f);
-
+    if (systemID == 1)
+    {
+        this->emitterData.MaxParticles = maxParticles;
+        this->emitterData.Position = position;
+        this->emitterData.StartColor = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        this->emitterData.EndColor = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+        this->emitterData.EmitterIsActive = true;
+        this->emitterData.StartSize = 1.0f;
+        this->emitterData.EndSize = 0.5f;
+        this->emitterData.GravityForce = DirectX::XMFLOAT3(0.0f, 0.1f, 0.0f);
+    }
+    else if (systemID == 2)
+    {
+        this->emitterData.MaxParticles = maxParticles;
+        this->emitterData.Position = position;
+        this->emitterData.StartColor = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        this->emitterData.EndColor = DirectX::XMFLOAT4(0.2f, 0.2f, 0.2f, 1.0f);
+        this->emitterData.EmitterIsActive = true;
+        this->emitterData.StartSize = 1.0f;
+        this->emitterData.EndSize = 0.5f;
+        this->emitterData.GravityForce = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    }
+    this->emitterData.SystemID = systemID;
+    this->emitterData.TotalTime = 0.0f;
     particlesData = new Particle[maxParticles];
 }
 
@@ -63,7 +78,8 @@ void ParticleSystem::Render(ID3D12GraphicsCommandList* cmdList,
 void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> device,
     Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2],
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvUavHeap,
-    UINT srvDescriptorSize)
+    UINT srvDescriptorSize, 
+    UINT offset)
 {
     D3D12_RESOURCE_DESC particleBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(
         sizeof(Particle) * emitterData.MaxParticles,
@@ -97,7 +113,7 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE handle(
             srvUavHeap->GetCPUDescriptorHandleForHeapStart(),
-            i * 2,
+            offset * 4 + i * 2,
             srvDescriptorSize);
 
         device->CreateUnorderedAccessView(
@@ -113,7 +129,7 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
             srvUavHeap->GetCPUDescriptorHandleForHeapStart(),
-            i * 2 + 1,
+            offset * 4 + i * 2 + 1,
             srvDescriptorSize);
 
         device->CreateShaderResourceView(
@@ -132,19 +148,22 @@ void ParticleSystem::BuildSystemVertexBuffers(
         DirectX::XMFLOAT2 Size;
     };
 
-    static const int planetCount = 64;
-    std::array<ParticleVertex, 64> vertices;
-    for (UINT i = 0; i < 64; ++i)
+    const int particleCount = this->emitterData.MaxParticles;
+    std::vector<ParticleVertex> vertices;
+    for (UINT i = 0; i < particleCount; ++i)
     {
+        ParticleVertex vertex;
+        vertex.Pos = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+        vertex.Size = DirectX::XMFLOAT2(1.0f, 1.0f);
 
-        vertices[i].Pos = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-        vertices[i].Size = DirectX::XMFLOAT2(1.0f, 1.0f);
+        vertices.push_back(vertex);
     }
 
-    std::array<std::uint16_t, 64> indices;
-    for (int i = 0; i < 64; ++i)
+    std::vector<std::uint16_t> indices;
+    for (int i = 0; i < particleCount; ++i)
     {
-        indices[i] = i + 1;
+        int index = i + 1;
+        indices.push_back(index);
     }
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(ParticleVertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -174,7 +193,7 @@ void ParticleSystem::BuildSystemVertexBuffers(
     submesh.StartIndexLocation = 0;
     submesh.BaseVertexLocation = 0;
 
-    geo->DrawArgs["points"] = submesh;
+    geo->DrawArgs["points" + std::to_string(emitterData.SystemID)] = submesh;
 
-    geometries["particlesGeo"] = std::move(geo);
+    geometries["particlesGeo" + std::to_string(emitterData.SystemID)] = std::move(geo);
 }
