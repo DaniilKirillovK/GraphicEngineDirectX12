@@ -20,6 +20,21 @@ struct EmitterConstants
     float TotalTime;
 };
 
+struct PostProcessingConstants
+{
+    float gGammaRatio;
+    float gTextureSize;
+    DirectX::XMFLOAT2 CADistortion;
+    DirectX::XMFLOAT2 CADirection;
+    bool GBIsHorizontal;
+    float CAIntensity;
+    float CAPadding;
+    DirectX::XMFLOAT2 VCenter;
+    float VIntensity;
+    float VSmoothness;
+    float VRoundness;
+};
+
 struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
@@ -107,6 +122,7 @@ public:
     std::unique_ptr<UploadBuffer<EmitterConstants>> EmitterCB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter2CB = nullptr;
     std::unique_ptr<UploadBuffer<InstanceData>> InstancingCB = nullptr;
+    std::unique_ptr<UploadBuffer<PostProcessingConstants>> PostProcessingCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.

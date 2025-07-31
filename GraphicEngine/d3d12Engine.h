@@ -114,6 +114,7 @@ protected:
     virtual void CreateScene3RTV() {}
     virtual void InitInstanceBuffer() {}
     virtual void InitParticleSystem() {}
+    virtual void BuildPostProcessingResources() {}
 
     virtual void LoadTextures() {}
     virtual void UploadTextures() {}
@@ -135,6 +136,7 @@ protected:
 
     ID3D12Resource* CurrentBackBuffer()const;
     D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView()const;
+    D3D12_CPU_DESCRIPTOR_HANDLE OtherBackBufferView()const;
     D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView()const;
 
     ID3D12Resource* Scene3RenderTargetBuffer()const;
@@ -192,6 +194,8 @@ protected:
     UINT currParticleReadBuffer = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> particle2Buffers[2];
     UINT currParticle2ReadBuffer = 0;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> postProcessingBuffer;
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRtvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;

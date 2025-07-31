@@ -103,7 +103,7 @@ bool D3D12Engine::Initialize()
 void D3D12Engine::CreateRtvAndDsvDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = 7;
+	rtvHeapDesc.NumDescriptors = 8;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -522,6 +522,7 @@ CreateScene3RTV();
 BuildPSOs();
 InitInstanceBuffer();
 UploadTextures2();
+BuildPostProcessingResources();
 
 // Execute the initialization commands.
 ThrowIfFailed(mCommandList->Close());
@@ -654,6 +655,14 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::CurrentBackBufferView()const
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
 		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
 		mCurrBackBuffer,
+		mRtvDescriptorSize);
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::OtherBackBufferView() const
+{
+	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
+		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
+		1 - mCurrBackBuffer,
 		mRtvDescriptorSize);
 }
 

@@ -129,6 +129,7 @@ private:
     void UpdateMainPassCBScene3Camera2(const GameTimer& gt);
     void UpdateParticleEmitterCB(const GameTimer& gt);
     void UpdateParticleEmitter2CB(const GameTimer& gt);
+    void UpdatePostProcessingCB(const GameTimer& gt);
 
     void ChangeTileObjectTiles();
 
@@ -140,6 +141,7 @@ private:
     virtual void BuildScene4Geometry() override;
     virtual void BuildScene5Geometry() override;
     virtual void BuildPSOs() override;
+    virtual void BuildPostProcessingResources() override;
 
     virtual void LoadTextures() override;
     virtual void BuildFrameResources() override;
@@ -166,6 +168,7 @@ private:
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
+    void DrawScreenQuadPostProcessing(ID3D12GraphicsCommandList* cmdList);
     void DrawParticles(ParticleSystem particleSystem, RenderLayer layer);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
@@ -184,6 +187,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureBillboard = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesCompute = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesRender = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignaturePostProcessing = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -195,6 +199,7 @@ private:
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayoutLight;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mBillboardSpriteInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mParticlesInputLayout;
+    std::vector<D3D12_INPUT_ELEMENT_DESC> mPostProcessingInputLayout;
 
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
@@ -332,6 +337,23 @@ float particle2EndColorScene6[3] = { 0.0f, 0.0f, 0.0f };
 float particle2StartSizeScene6 = 1.0f;
 float particle2EndSizeScene6 = 0.5f;
 
+int selectedEffectScene8 = 0;
+bool isActiveNormalScene8 = true;
+bool isActiveGCScene8 = false;
+bool isActiveGBScene8 = false;
+bool isActiveCAScene8 = false;
+bool isActiveVigScene8 = false;
+float gammaRatioScene8 = 2.2f;
+float textureSizeScene8 = 1000.f;
+DirectX::XMFLOAT2 caDistortionScene8(0.05f, 0.05f);
+DirectX::XMFLOAT2 caDirectionScene8(1.0f, 0.0f);
+bool gbIsHorizontalScene8 = true;
+float caIntensityScene8 = 1.0f;
+float caPaddingScene8 = 1.0f;
+DirectX::XMFLOAT2 vCenterScene8(0.5f, 0.5f);
+float vIntensityScene8 = 1.0f;
+float vSmoothnessScene8 = 1.0f;
+float vRoundnessScene8 = 1.0f;
 
 
 
@@ -464,6 +486,10 @@ void Engine::Update(const GameTimer& gt)
         else if (activeParticleSystemScene6 == 2)
             UpdateParticleEmitter2CB(gt);
     }
+    if (activeSceneID == 8)
+    {
+        UpdatePostProcessingCB(gt);
+    }
     timeScene2 = ParseTime(gt);
 }
 
@@ -490,6 +516,7 @@ void Engine::Draw(const GameTimer& gt)
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
     mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 6, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+    mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 7, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
 
     mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     mCommandList->ClearDepthStencilView(DepthStencilViewScene3(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
@@ -500,6 +527,9 @@ void Engine::Draw(const GameTimer& gt)
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, mRtvDescriptorSize),
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize),
     };
+
+    D3D12_CPU_DESCRIPTOR_HANDLE postProcessingRTV = CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 7, mRtvDescriptorSize);
+
     D3D12_CPU_DESCRIPTOR_HANDLE rtvsForward[] = {
         CurrentBackBufferView(),
         CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, mRtvDescriptorSize),
@@ -1027,12 +1057,69 @@ void Engine::Draw(const GameTimer& gt)
             }
         }
     }
+    else if (activeSceneID == 8)
+    {
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+        mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+        // Indicate a state transition on the resource usage.
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
+        mCommandList->ResourceBarrier(6, barriers);
+
+        mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+
+        DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
+        mCommandList->ResourceBarrier(6, barriersClose);
+    }
     
 
     // Draw screen quad
     if (activeSceneID <= 2 || activeSceneID >= 4)
     {
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
+        if (activeSceneID == 8)
+        {
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(postProcessingBuffer.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &barrier1);
+            rtvs2 = postProcessingRTV;
+        }
+        else rtvs2 = CurrentBackBufferView();
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
@@ -1048,6 +1135,44 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->SetPipelineState(mPSOs["deferredLighting"].Get());
 
         DrawScreenQuad(mCommandList.Get());
+
+        if (activeSceneID == 8)
+        {
+            auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(postProcessingBuffer.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            mCommandList->ResourceBarrier(1, &barrier2);
+        }
+    }
+
+    if (activeSceneID == 8)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignaturePostProcessing.Get());
+
+        auto postProcessingPassCB = mCurrFrameResource->PostProcessingCB->Resource();
+
+        mCommandList->SetGraphicsRootConstantBufferView(1, postProcessingPassCB->GetGPUVirtualAddress());
+
+        mCommandList->OMSetRenderTargets(1, &rtvs2, FALSE, nullptr);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        if (isActiveNormalScene8)
+            mCommandList->SetPipelineState(mPSOs["postProcessing_Default"].Get());
+        else if (isActiveGCScene8)
+            mCommandList->SetPipelineState(mPSOs["postProcessing_GC"].Get());
+        else if (isActiveGBScene8)
+            mCommandList->SetPipelineState(mPSOs["postProcessing_GB"].Get());
+        else if (isActiveCAScene8)
+            mCommandList->SetPipelineState(mPSOs["postProcessing_CA"].Get());
+        else if (isActiveVigScene8)
+            mCommandList->SetPipelineState(mPSOs["postProcessing_Vig"].Get());
+
+        DrawScreenQuadPostProcessing(mCommandList.Get());
     }
 
 
@@ -1513,6 +1638,26 @@ void Engine::UpdateParticleEmitter2CB(const GameTimer& gt)
     currPassCB->CopyData(0, emitterConstPass);
 }
 
+void Engine::UpdatePostProcessingCB(const GameTimer& gt)
+{
+    PostProcessingConstants constPass;
+
+    constPass.gGammaRatio = gammaRatioScene8;
+    constPass.gTextureSize = textureSizeScene8;
+    constPass.CADistortion = caDistortionScene8;
+    constPass.CADirection = caDirectionScene8;
+    constPass.GBIsHorizontal = gbIsHorizontalScene8;
+    constPass.CAIntensity = caIntensityScene8;
+    constPass.CAPadding = caPaddingScene8;
+    constPass.VCenter = vCenterScene8;
+    constPass.VIntensity = vIntensityScene8;
+    constPass.VSmoothness = vSmoothnessScene8;
+    constPass.VRoundness = vRoundnessScene8;
+
+    auto currPassCB = mCurrFrameResource->PostProcessingCB.get();
+    currPassCB->CopyData(0, constPass);
+}
+
 void Engine::ChangeTileObjectTiles()
 {
     if ((int)tilesCount != tilesCountInt)
@@ -1834,6 +1979,9 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTable2;
     texTable2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
 
+    CD3DX12_DESCRIPTOR_RANGE texTablePostProcessing;
+    texTablePostProcessing.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -1847,6 +1995,8 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_PARAMETER slotRootParameterParticlesCompute[3];
     CD3DX12_ROOT_PARAMETER slotRootParameterParticlesRender[4];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterPostProcessing[2];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -1887,6 +2037,9 @@ void Engine::BuildRootSignature()
     slotRootParameterParticlesRender[2].InitAsConstantBufferView(0);
     slotRootParameterParticlesRender[3].InitAsConstantBufferView(1);
 
+    slotRootParameterPostProcessing[0].InitAsDescriptorTable(1, &texTablePostProcessing);
+    slotRootParameterPostProcessing[1].InitAsConstantBufferView(0);
+
     auto staticSamplers = GetStaticSamplers();
 
     // A root signature is an array of root parameters.
@@ -1919,6 +2072,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescParticlesCompute(3, slotRootParameterParticlesCompute,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescPostProcessing(2, slotRootParameterPostProcessing,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -2058,6 +2215,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureParticlesCompute.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescPostProcessing, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignaturePostProcessing.GetAddressOf())));
 }
 
 
@@ -2088,6 +2262,13 @@ void Engine::BuildShadersAndInputLayout()
 
     mShaders["particlesCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeParticles.hlsl", nullptr, "CS_UpdateParticles", "cs_5_1");
 
+    mShaders["PostProcessingVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["PostProcessingPS_GC"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "PSGammaCorrection", "ps_5_1");
+    mShaders["PostProcessingPS_GB"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "PSGaussianBlur", "ps_5_1");
+    mShaders["PostProcessingPS_CA"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "PSChromaticAberration", "ps_5_1");
+    mShaders["PostProcessingPS_Vig"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "PSVignette", "ps_5_1");
+    mShaders["PostProcessingPS_Default"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "DefaultPS", "ps_5_1");
+
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -2113,6 +2294,12 @@ void Engine::BuildShadersAndInputLayout()
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    mPostProcessingInputLayout =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
 }
 
@@ -2899,6 +3086,108 @@ void Engine::BuildPSOs()
     particlesPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
 
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticles"])));
+
+    // Post Processing PSOs
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingGCPsoDesc;
+    ZeroMemory(&postProcessingGCPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    postProcessingGCPsoDesc.InputLayout = { mPostProcessingInputLayout.data(), (UINT)mPostProcessingInputLayout.size() };
+    postProcessingGCPsoDesc.pRootSignature = mRootSignaturePostProcessing.Get();
+    postProcessingGCPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PostProcessingVS"]->GetBufferPointer()),
+        mShaders["PostProcessingVS"]->GetBufferSize()
+    };
+    postProcessingGCPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PostProcessingPS_GC"]->GetBufferPointer()),
+        mShaders["PostProcessingPS_GC"]->GetBufferSize()
+    };
+    postProcessingGCPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    postProcessingGCPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    postProcessingGCPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    postProcessingGCPsoDesc.DepthStencilState.DepthEnable = FALSE;
+    postProcessingGCPsoDesc.DepthStencilState.StencilEnable = FALSE;
+    postProcessingGCPsoDesc.SampleMask = UINT_MAX;
+    postProcessingGCPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    postProcessingGCPsoDesc.NumRenderTargets = 1;
+    postProcessingGCPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    postProcessingGCPsoDesc.SampleDesc.Count = 1;
+    postProcessingGCPsoDesc.SampleDesc.Quality = 0;
+    postProcessingGCPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingGCPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_GC"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingGBPsoDesc = postProcessingGCPsoDesc;
+    postProcessingGBPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PostProcessingPS_GB"]->GetBufferPointer()),
+        mShaders["PostProcessingPS_GB"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingGBPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_GB"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingCAPsoDesc = postProcessingGCPsoDesc;
+    postProcessingCAPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PostProcessingPS_CA"]->GetBufferPointer()),
+        mShaders["PostProcessingPS_CA"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingCAPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_CA"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingVigPsoDesc = postProcessingGCPsoDesc;
+    postProcessingVigPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PostProcessingPS_Vig"]->GetBufferPointer()),
+        mShaders["PostProcessingPS_Vig"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingVigPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_Vig"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingDefaultPsoDesc = postProcessingGCPsoDesc;
+    postProcessingDefaultPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PostProcessingPS_Default"]->GetBufferPointer()),
+        mShaders["PostProcessingPS_Default"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingDefaultPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_Default"])));
+}
+
+void Engine::BuildPostProcessingResources()
+{
+    D3D12_RESOURCE_DESC texDesc = {};
+    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Alignment = 0;
+    texDesc.Width = mClientWidth;
+    texDesc.Height = mClientHeight;
+    texDesc.DepthOrArraySize = 1;
+    texDesc.MipLevels = 1;
+    texDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    auto heapType = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        nullptr,
+        IID_PPV_ARGS(&postProcessingBuffer));
+
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+    rtvHandle.Offset(7, mRtvDescriptorSize);
+
+    md3dDevice->CreateRenderTargetView(postProcessingBuffer.Get(), nullptr, rtvHandle);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(20, mCbvSrvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDRDesc = {};
+    srvDRDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDRDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srvDRDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDRDesc.Texture2D.MostDetailedMip = 0;
+    srvDRDesc.Texture2D.MipLevels = 1;
+    md3dDevice->CreateShaderResourceView(postProcessingBuffer.Get(), &srvDRDesc, hDescriptor);
 }
 
 void Engine::BuildFrameResources()
@@ -3305,7 +3594,7 @@ void Engine::InitGBuffer()
 	texDesc.SampleDesc.Count = 1;
 	texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
 	texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-
+    
     mDepthStencilBuffer.Reset();
 
     D3D12_RESOURCE_DESC depthStencilDesc;
@@ -3966,6 +4255,21 @@ void Engine::DrawScreenQuad(ID3D12GraphicsCommandList* cmdList)
     cmdList->DrawInstanced(4, 1, 0, 0);
 }
 
+void Engine::DrawScreenQuadPostProcessing(ID3D12GraphicsCommandList* cmdList)
+{
+    auto geo = mGeometries["screenQuad"].get();
+    auto tmp1 = geo->VertexBufferView();
+    cmdList->IASetVertexBuffers(0, 1, &tmp1);
+    cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+    srv.Offset(20, mCbvSrvDescriptorSize);
+
+    cmdList->SetGraphicsRootDescriptorTable(0, srv);
+
+    cmdList->DrawInstanced(4, 1, 0, 0);
+}
+
 void Engine::DrawParticles(ParticleSystem particleSystem, RenderLayer layer)
 {
     particleSystem.Render(mCommandList.Get(),
@@ -4048,6 +4352,9 @@ void Engine::RenderUI()
         ImGui::Text("Scene 4: Texture animation & Tiling scene");
         ImGui::Text("Scene 5: Tesselation scene");
         ImGui::Text("Scene 6: Particles scene");
+        ImGui::Text("Scene 7: Shadows scene");
+        ImGui::Text("Scene 8: Post-processing scene");
+        ImGui::Text("Scene 9: PBR scene");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -4057,43 +4364,55 @@ void Engine::RenderUI()
     ImGui::SetNextWindowBgAlpha(0.5f);
     if (ImGui::Begin("Scene Selector", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
     {
-        if (ImGui::BeginTable("Scenes", 6))
+        if (ImGui::BeginTable("Scenes", 8))
         {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            if (ImGui::Button("Scene 1", ImVec2(100, 40)))
+            if (ImGui::Button("Scene 1", ImVec2(80, 40)))
             {
                 activeSceneID = 1;
             }
 
             ImGui::TableSetColumnIndex(1);
-            if (ImGui::Button("Scene 2", ImVec2(100, 40)))
+            if (ImGui::Button("Scene 2", ImVec2(80, 40)))
             {
                 activeSceneID = 2;
             }
 
             ImGui::TableSetColumnIndex(2);
-            if (ImGui::Button("Scene 3", ImVec2(100, 40)))
+            if (ImGui::Button("Scene 3", ImVec2(80, 40)))
             {
                 activeSceneID = 3;
             }
 
             ImGui::TableSetColumnIndex(3);
-            if (ImGui::Button("Scene 4", ImVec2(100, 40)))
+            if (ImGui::Button("Scene 4", ImVec2(80, 40)))
             {
                 activeSceneID = 4;
             }
 
             ImGui::TableSetColumnIndex(4);
-            if (ImGui::Button("Scene 5", ImVec2(100, 40)))
+            if (ImGui::Button("Scene 5", ImVec2(80, 40)))
             {
                 activeSceneID = 5;
             }
 
             ImGui::TableSetColumnIndex(5);
-            if (ImGui::Button("Scene 6", ImVec2(100, 40)))
+            if (ImGui::Button("Scene 6", ImVec2(80, 40)))
             {
                 activeSceneID = 6;
+            }
+
+            ImGui::TableSetColumnIndex(6);
+            if (ImGui::Button("Scene 7", ImVec2(80, 40)))
+            {
+                activeSceneID = 7;
+            }
+
+            ImGui::TableSetColumnIndex(7);
+            if (ImGui::Button("Scene 8", ImVec2(80, 40)))
+            {
+                activeSceneID = 8;
             }
 
             ImGui::EndTable();
@@ -4258,6 +4577,68 @@ void Engine::RenderUI()
                 mParticleSystem2->emitterData.StartSize = particle2StartSizeScene6;
                 mParticleSystem2->emitterData.EndSize = particle2EndSizeScene6;
             }
+        }
+        else if (activeSceneID == 7)
+        {
+
+        }
+        else if (activeSceneID == 8)
+        {
+            ImGui::Text("");
+            ImGui::Text("Post Processing Effects");
+            ImGui::RadioButton("Default", &selectedEffectScene8, 0);
+            ImGui::RadioButton("Gamma Correction", &selectedEffectScene8, 1);
+            ImGui::RadioButton("Gaussian Blur", &selectedEffectScene8, 2);
+            ImGui::RadioButton("Chromatic Aberration", &selectedEffectScene8, 3);
+            ImGui::RadioButton("Vignette", &selectedEffectScene8, 4);
+
+            isActiveNormalScene8 = false;
+            isActiveGCScene8 = false;
+            isActiveGBScene8 = false;
+            isActiveCAScene8 = false;
+            isActiveVigScene8 = false;
+            if (selectedEffectScene8 == 0)
+            {
+                isActiveNormalScene8 = true;
+            }
+            else if (selectedEffectScene8 == 1)
+            {
+                isActiveGCScene8 = true;
+                ImGui::Text("");
+                ImGui::Text("Effect Settings");
+                ImGui::SliderFloat("Gamma Ratio", &gammaRatioScene8, 0.2f, 5.0f);
+            }
+            else if (selectedEffectScene8 == 2)
+            {
+                isActiveGBScene8 = true;
+                ImGui::Text("");
+                ImGui::Text("Effect Settings");
+                ImGui::Checkbox("Horizontal/Vertical", &gbIsHorizontalScene8);
+            }
+            else if (selectedEffectScene8 == 3)
+            {
+                isActiveCAScene8 = true;
+                ImGui::Text("");
+                ImGui::Text("Effect Settings");
+                ImGui::SliderFloat("DistortionX", &caDistortionScene8.x, 0.0f, 0.1f);
+                ImGui::SliderFloat("DistortionY", &caDistortionScene8.y, 0.0f, 0.1f);
+                ImGui::SliderFloat("Direction", &caDirectionScene8.x, 0.0f, 1.0f);
+                caDirectionScene8.y = sqrt(1.f - caDirectionScene8.x * caDirectionScene8.x);
+                ImGui::SliderFloat("Intensity", &caIntensityScene8, 0.0f, 2.0f);
+            }
+            else if (selectedEffectScene8 == 4)
+            {
+                isActiveVigScene8 = true;
+                ImGui::Text("");
+                ImGui::Text("Effect Settings");
+                ImGui::SliderFloat("Intensity", &vIntensityScene8, 0.5f, 1.5f);
+                ImGui::SliderFloat("Smoothness", &vSmoothnessScene8, 0.3f, 1.0f);
+                ImGui::SliderFloat("Roundness", &vRoundnessScene8, 0.5f, 1.0f);
+            }
+        }
+        else if (activeSceneID == 9)
+        {
+
         }
     } ImGui::End();
 

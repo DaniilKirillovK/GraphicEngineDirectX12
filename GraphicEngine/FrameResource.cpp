@@ -14,6 +14,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     EmitterCB = std::make_unique<UploadBuffer<EmitterConstants>>(device, 1, true);
     Emitter2CB = std::make_unique<UploadBuffer<EmitterConstants>>(device, 1, true);
     InstancingCB = std::make_unique<UploadBuffer<InstanceData>>(device, 900, false);
+    PostProcessingCB = std::make_unique<UploadBuffer<PostProcessingConstants>>(device, 1, true);
 }
 
 FrameResource::~FrameResource()
