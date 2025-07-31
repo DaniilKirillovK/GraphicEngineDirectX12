@@ -115,6 +115,7 @@ protected:
     virtual void InitInstanceBuffer() {}
     virtual void InitParticleSystem() {}
     virtual void BuildPostProcessingResources() {}
+    virtual void CreateNoiseTexture() {}
 
     virtual void LoadTextures() {}
     virtual void UploadTextures() {}
@@ -196,6 +197,7 @@ protected:
     UINT currParticle2ReadBuffer = 0;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> postProcessingBuffer;
+    Microsoft::WRL::ComPtr<ID3D12Resource> noiseTexture;
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRtvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;

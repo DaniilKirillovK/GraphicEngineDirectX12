@@ -130,6 +130,7 @@ private:
     void UpdateParticleEmitterCB(const GameTimer& gt);
     void UpdateParticleEmitter2CB(const GameTimer& gt);
     void UpdatePostProcessingCB(const GameTimer& gt);
+    void UpdateNoiseCB(const GameTimer& gt);
 
     void ChangeTileObjectTiles();
 
@@ -142,6 +143,7 @@ private:
     virtual void BuildScene5Geometry() override;
     virtual void BuildPSOs() override;
     virtual void BuildPostProcessingResources() override;
+    virtual void CreateNoiseTexture() override;
 
     virtual void LoadTextures() override;
     virtual void BuildFrameResources() override;
@@ -188,6 +190,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesCompute = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesRender = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignaturePostProcessing = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureComputeNoise = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -343,6 +346,7 @@ bool isActiveGCScene8 = false;
 bool isActiveGBScene8 = false;
 bool isActiveCAScene8 = false;
 bool isActiveVigScene8 = false;
+bool isActiveNoiseScene8 = false;
 float gammaRatioScene8 = 2.2f;
 float textureSizeScene8 = 1000.f;
 DirectX::XMFLOAT2 caDistortionScene8(0.05f, 0.05f);
@@ -354,6 +358,8 @@ DirectX::XMFLOAT2 vCenterScene8(0.5f, 0.5f);
 float vIntensityScene8 = 1.0f;
 float vSmoothnessScene8 = 1.0f;
 float vRoundnessScene8 = 1.0f;
+float nIntensityScene8 = 0.5f;
+float nSizeScene8 = 2.f;
 
 
 
@@ -489,6 +495,10 @@ void Engine::Update(const GameTimer& gt)
     if (activeSceneID == 8)
     {
         UpdatePostProcessingCB(gt);
+        if (isActiveNoiseScene8)
+        {
+            UpdateNoiseCB(gt);
+        }
     }
     timeScene2 = ParseTime(gt);
 }
@@ -1146,6 +1156,27 @@ void Engine::Draw(const GameTimer& gt)
 
     if (activeSceneID == 8)
     {
+        // Noise compute
+        if (isActiveNoiseScene8)
+        {
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetComputeRootSignature(mRootSignatureComputeNoise.Get());
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE uav(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            uav.Offset(21, mCbvSrvDescriptorSize);
+            auto noiseCB = mCurrFrameResource->NoiseCB->Resource();
+
+            mCommandList->SetComputeRootDescriptorTable(0, uav);
+            mCommandList->SetComputeRootConstantBufferView(1, noiseCB->GetGPUVirtualAddress());
+
+            mCommandList->SetPipelineState(mPSOs["computeNoise"].Get());
+
+            UINT threadGroupCountX = WINDOW_WIDTH / 8.0f;
+            UINT threadGroupCountY = WINDOW_HEIGHT / 8.0f;
+            mCommandList->Dispatch(WINDOW_WIDTH, WINDOW_HEIGHT, 1);
+        }
+
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
@@ -1155,6 +1186,11 @@ void Engine::Draw(const GameTimer& gt)
         auto postProcessingPassCB = mCurrFrameResource->PostProcessingCB->Resource();
 
         mCommandList->SetGraphicsRootConstantBufferView(1, postProcessingPassCB->GetGPUVirtualAddress());
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE srv(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        srv.Offset(22, mCbvSrvDescriptorSize);
+
+        mCommandList->SetGraphicsRootDescriptorTable(2, srv);
 
         mCommandList->OMSetRenderTargets(1, &rtvs2, FALSE, nullptr);
 
@@ -1171,6 +1207,8 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->SetPipelineState(mPSOs["postProcessing_CA"].Get());
         else if (isActiveVigScene8)
             mCommandList->SetPipelineState(mPSOs["postProcessing_Vig"].Get());
+        else if (isActiveNoiseScene8)
+            mCommandList->SetPipelineState(mPSOs["postProcessing_Noise"].Get());
 
         DrawScreenQuadPostProcessing(mCommandList.Get());
     }
@@ -1653,9 +1691,21 @@ void Engine::UpdatePostProcessingCB(const GameTimer& gt)
     constPass.VIntensity = vIntensityScene8;
     constPass.VSmoothness = vSmoothnessScene8;
     constPass.VRoundness = vRoundnessScene8;
+    constPass.NIntensity = nIntensityScene8;
+    constPass.NSize = nSizeScene8;
 
     auto currPassCB = mCurrFrameResource->PostProcessingCB.get();
     currPassCB->CopyData(0, constPass);
+}
+
+void Engine::UpdateNoiseCB(const GameTimer& gt)
+{
+    NoiseComputeConstants noiseConst;
+
+    noiseConst.TotalTime = gt.TotalTime();
+
+    auto currPassCB = mCurrFrameResource->NoiseCB.get();
+    currPassCB->CopyData(0, noiseConst);
 }
 
 void Engine::ChangeTileObjectTiles()
@@ -1800,7 +1850,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 22;
+    srvHeapDesc.NumDescriptors = 23;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -1980,7 +2030,11 @@ void Engine::BuildRootSignature()
     texTable2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
 
     CD3DX12_DESCRIPTOR_RANGE texTablePostProcessing;
-    texTablePostProcessing.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+    texTablePostProcessing.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTable2PostProcessing;
+    texTable2PostProcessing.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+    CD3DX12_DESCRIPTOR_RANGE texTableNoiseCompute;
+    texTableNoiseCompute.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
@@ -1996,7 +2050,8 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterParticlesCompute[3];
     CD3DX12_ROOT_PARAMETER slotRootParameterParticlesRender[4];
 
-    CD3DX12_ROOT_PARAMETER slotRootParameterPostProcessing[2];
+    CD3DX12_ROOT_PARAMETER slotRootParameterPostProcessing[3];
+    CD3DX12_ROOT_PARAMETER slotRootParameterComputeNoise[2];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -2039,6 +2094,10 @@ void Engine::BuildRootSignature()
 
     slotRootParameterPostProcessing[0].InitAsDescriptorTable(1, &texTablePostProcessing);
     slotRootParameterPostProcessing[1].InitAsConstantBufferView(0);
+    slotRootParameterPostProcessing[2].InitAsDescriptorTable(1, &texTable2PostProcessing);
+
+    slotRootParameterComputeNoise[0].InitAsDescriptorTable(1, &texTableNoiseCompute);
+    slotRootParameterComputeNoise[1].InitAsConstantBufferView(0);
 
     auto staticSamplers = GetStaticSamplers();
 
@@ -2075,7 +2134,11 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescPostProcessing(2, slotRootParameterPostProcessing,
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescPostProcessing(3, slotRootParameterPostProcessing,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescComputeNoise(2, slotRootParameterComputeNoise,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -2232,6 +2295,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignaturePostProcessing.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescComputeNoise, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureComputeNoise.GetAddressOf())));
 }
 
 
@@ -2267,7 +2347,10 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["PostProcessingPS_GB"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "PSGaussianBlur", "ps_5_1");
     mShaders["PostProcessingPS_CA"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "PSChromaticAberration", "ps_5_1");
     mShaders["PostProcessingPS_Vig"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "PSVignette", "ps_5_1");
+    mShaders["PostProcessingPS_Noise"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "PSNoise", "ps_5_1");
     mShaders["PostProcessingPS_Default"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "DefaultPS", "ps_5_1");
+
+    mShaders["noiseCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeNoise.hlsl", nullptr, "CSMain", "cs_5_1");
 
     mInputLayout =
     {
@@ -3140,6 +3223,14 @@ void Engine::BuildPSOs()
     };
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingVigPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_Vig"])));
 
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingNoisePsoDesc = postProcessingGCPsoDesc;
+    postProcessingNoisePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PostProcessingPS_Noise"]->GetBufferPointer()),
+        mShaders["PostProcessingPS_Noise"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingNoisePsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_Noise"])));
+
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingDefaultPsoDesc = postProcessingGCPsoDesc;
     postProcessingDefaultPsoDesc.PS =
     {
@@ -3147,6 +3238,23 @@ void Engine::BuildPSOs()
         mShaders["PostProcessingPS_Default"]->GetBufferSize()
     };
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingDefaultPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_Default"])));
+
+    //
+   // PSO for noise compute
+   //
+    D3D12_COMPUTE_PIPELINE_STATE_DESC noiseComputePsoDesc;
+    ZeroMemory(&noiseComputePsoDesc, sizeof(D3D12_COMPUTE_PIPELINE_STATE_DESC));
+
+    noiseComputePsoDesc.pRootSignature = mRootSignatureComputeNoise.Get();
+    noiseComputePsoDesc.CS = {
+        reinterpret_cast<BYTE*>(mShaders["noiseCS"]->GetBufferPointer()),
+        mShaders["noiseCS"]->GetBufferSize()
+    };
+    noiseComputePsoDesc.NodeMask = 0;
+    noiseComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+
+
+    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&noiseComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeNoise"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -3188,6 +3296,51 @@ void Engine::BuildPostProcessingResources()
     srvDRDesc.Texture2D.MostDetailedMip = 0;
     srvDRDesc.Texture2D.MipLevels = 1;
     md3dDevice->CreateShaderResourceView(postProcessingBuffer.Get(), &srvDRDesc, hDescriptor);
+}
+
+void Engine::CreateNoiseTexture()
+{
+    D3D12_RESOURCE_DESC textureDesc = {};
+    textureDesc.MipLevels = 1;
+    textureDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    textureDesc.Width = WINDOW_WIDTH;
+    textureDesc.Height = WINDOW_HEIGHT;
+    textureDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    textureDesc.DepthOrArraySize = 1;
+    textureDesc.SampleDesc.Count = 1;
+    textureDesc.SampleDesc.Quality = 0;
+    textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+
+    auto heapProp = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    ThrowIfFailed(md3dDevice->CreateCommittedResource(
+        &heapProp,
+        D3D12_HEAP_FLAG_NONE,
+        &textureDesc,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        nullptr,
+        IID_PPV_ARGS(&noiseTexture)));
+
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+    uavDesc.Format = textureDesc.Format;
+    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    uavDesc.Texture2D.MipSlice = 0;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE handle(
+        mSrvHeap->GetCPUDescriptorHandleForHeapStart(),
+        21,
+        mCbvSrvDescriptorSize);
+
+    md3dDevice->CreateUnorderedAccessView(noiseTexture.Get(), nullptr, &uavDesc, handle);
+
+    handle.Offset(1, mCbvSrvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Format = noiseTexture->GetDesc().Format;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Texture2D.MipLevels = 1;
+
+    md3dDevice->CreateShaderResourceView(noiseTexture.Get(), &srvDesc, handle);
 }
 
 void Engine::BuildFrameResources()
@@ -4591,12 +4744,14 @@ void Engine::RenderUI()
             ImGui::RadioButton("Gaussian Blur", &selectedEffectScene8, 2);
             ImGui::RadioButton("Chromatic Aberration", &selectedEffectScene8, 3);
             ImGui::RadioButton("Vignette", &selectedEffectScene8, 4);
+            ImGui::RadioButton("Noise", &selectedEffectScene8, 5);
 
             isActiveNormalScene8 = false;
             isActiveGCScene8 = false;
             isActiveGBScene8 = false;
             isActiveCAScene8 = false;
             isActiveVigScene8 = false;
+            isActiveNoiseScene8 = false;
             if (selectedEffectScene8 == 0)
             {
                 isActiveNormalScene8 = true;
@@ -4634,6 +4789,14 @@ void Engine::RenderUI()
                 ImGui::SliderFloat("Intensity", &vIntensityScene8, 0.5f, 1.5f);
                 ImGui::SliderFloat("Smoothness", &vSmoothnessScene8, 0.3f, 1.0f);
                 ImGui::SliderFloat("Roundness", &vRoundnessScene8, 0.5f, 1.0f);
+            }
+            else if (selectedEffectScene8 == 5)
+            {
+                isActiveNoiseScene8 = true;
+                ImGui::Text("");
+                ImGui::Text("Effect Settings");
+                ImGui::SliderFloat("Intensity", &nIntensityScene8, 0.0f, 3.f);
+                ImGui::SliderFloat("Size", &nSizeScene8, 0.5f, 5.f);
             }
         }
         else if (activeSceneID == 9)

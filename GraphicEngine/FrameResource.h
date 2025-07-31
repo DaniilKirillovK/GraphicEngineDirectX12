@@ -33,6 +33,13 @@ struct PostProcessingConstants
     float VIntensity;
     float VSmoothness;
     float VRoundness;
+    float NIntensity;
+    float NSize;
+};
+
+struct NoiseComputeConstants
+{
+    float TotalTime;
 };
 
 struct ObjectConstants
@@ -123,6 +130,7 @@ public:
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter2CB = nullptr;
     std::unique_ptr<UploadBuffer<InstanceData>> InstancingCB = nullptr;
     std::unique_ptr<UploadBuffer<PostProcessingConstants>> PostProcessingCB = nullptr;
+    std::unique_ptr<UploadBuffer<NoiseComputeConstants>> NoiseCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.

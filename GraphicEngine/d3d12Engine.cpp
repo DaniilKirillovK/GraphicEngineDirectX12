@@ -523,6 +523,7 @@ BuildPSOs();
 InitInstanceBuffer();
 UploadTextures2();
 BuildPostProcessingResources();
+CreateNoiseTexture();
 
 // Execute the initialization commands.
 ThrowIfFailed(mCommandList->Close());

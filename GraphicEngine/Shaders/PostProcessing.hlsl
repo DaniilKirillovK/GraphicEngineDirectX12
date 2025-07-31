@@ -1,4 +1,5 @@
-Texture2D<float4> sceneTexture : register(t0);
+Texture2D<float4> sceneTexture : register(t0, space0);
+Texture2D<float4> noiseTexture : register(t0, space1);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -19,7 +20,9 @@ cbuffer cbPostProcessing : register(b0)
     float2 vCenter;
     float vIntensity; 
     float vSmoothness; 
-    float vRoundness; 
+    float vRoundness;
+    float nIntensity;
+    float nSize;
 };
 
 struct VSInput
@@ -124,6 +127,20 @@ float4 PSVignette(VertexOut input) : SV_TARGET
     float vignette = 1.0 - smoothstep(vSmoothness, 1.0, distanceFromCenter * vIntensity);
     
     color.rgb *= vignette;
+    
+    return color;
+}
+
+float4 PSNoise(VertexOut input) : SV_TARGET
+{    
+    float4 color = sceneTexture.Sample(gsamPointWrap, input.TexC);
+    
+    float2 noiseUV = input.TexC / nSize;
+    float3 noise = noiseTexture.Sample(gsamPointWrap, noiseUV).xyz;
+    
+    noise = (noise - 0.5) * 2.0 * nIntensity;
+    
+    color.rgb += noise;
     
     return color;
 }
