@@ -1,29 +1,39 @@
 #include "LightingUtil.hlsl"
 #include "Common.hlsl"
 
-Texture2D<float4> gTextures[5] : register(t0);
-Texture2D<float4> decalTexture : register(t15);
+Texture2D<float4> gTextures[5] : register(t0, space0);
 
 SamplerState gsamPointWrap : register(s0);
-SamplerState gsamPointClamp : register(s1);
-SamplerState gsamLinearWrap : register(s2);
-SamplerState gsamLinearClamp : register(s3);
-SamplerState gsamAnisotropicWrap : register(s4);
-SamplerState gsamAnisotropicClamp : register(s5);
+SamplerState gsamLinearWrap : register(s1);
+SamplerState gsamAnisotropicWrap : register(s2);
+SamplerState gsamPointClamp : register(s3);
+SamplerState gsamPointBorder : register(s4);
+SamplerState gsamPointMirror : register(s5);
+SamplerState gsamPointMirrorOnce : register(s6);
 
 struct GBuffer
 {
-    float4 Color : SV_TARGET0;
-    float4 Albedo : SV_TARGET1;
-    float4 Position : SV_TARGET2;
-    float4 Normal : SV_TARGET3;
-    float4 Specular : SV_TARGET4;
+    float4 Albedo : SV_TARGET0;
+    float4 Position : SV_TARGET1;
+    float4 Normal : SV_TARGET2;
+    float4 Specular : SV_TARGET3;
 };
+
+struct InstanceData
+{
+    float4x4 WorldMatrix;
+    float4 Color;
+};
+
+StructuredBuffer<InstanceData> instanceBuffer : register(t0, space1);
+
 
 cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
+    float isTesselationNeeded;
+    float scale;
 };
 
 // Constant data that varies per frame.
@@ -53,7 +63,7 @@ cbuffer cbPass : register(b1)
     float tessFactor;
     float pixelationFactor;
     float isParallaxMapping;
-    float cbPerObjectPad3;
+    float displacementLevel;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -72,6 +82,12 @@ cbuffer cbMaterial : register(b2)
     float tilesCount;
 };
 
+cbuffer cbTextureSample : register(b3)
+{
+    uint gFiltering;
+    uint gAddressMode;
+}
+
 struct VertexIn
 {
     float3 PosL : POSITION;
@@ -87,14 +103,17 @@ struct VertexOut
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
     float3 TangentW : TANGENT;
+    float4 Color : COLOR;
 };
 
-VertexOut VS(VertexIn vin)
+VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
     VertexOut vout = (VertexOut) 0.0f;
-	
+    
+    InstanceData instance = instanceBuffer[instanceID];
+   
     // Transform to world space.
-    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    float4 posW = mul(mul(float4(vin.PosL * scale, 1.0f), gWorld), instance.WorldMatrix);
     vout.PosW = posW.xyz;
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
@@ -108,6 +127,7 @@ VertexOut VS(VertexIn vin)
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC * tilesCount, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
+    vout.Color = instance.Color;
 
     return vout;
 }
@@ -136,11 +156,16 @@ PatchTess ConstantHS(InputPatch<VertexOut, 3> patch, uint patchID : SV_Primitive
     float tess = tessFactor * saturate((d1 - d) / (d1 - d0)) * saturate((d1 - d) / (d1 - d0));
 
 	// Uniformly tessellate the patch.
-    if (tess < 1.f)  
-        tess = 1.f;
+    if (isTesselationNeeded == 1.f)
+    {
+        if (tess < 1.f)  
+            tess = 1.f;
     
-    if (tess > tessFactor)
-        tess = tessFactor;
+        if (tess > tessFactor)
+            tess = tessFactor;
+    }
+    else
+        tess = 1.f;
 
     pt.EdgeTess[0] = tess;
     pt.EdgeTess[1] = tess;
@@ -157,6 +182,7 @@ struct HullOut
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
     float3 TangentW : TANGENT;
+    float4 Color : COLOR;
 };
 
 [domain("tri")]
@@ -175,6 +201,7 @@ HullOut HS(InputPatch<VertexOut, 3> p,
     hout.NormalW = p[i].NormalW;
     hout.TexC = p[i].TexC;
     hout.TangentW = p[i].TangentW;
+    hout.Color = p[i].Color;
 	
     return hout;
 }
@@ -186,6 +213,7 @@ struct DomainOut
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
     float3 TangentW : TANGENT;
+    float4 Color : COLOR;
 };
 
 
@@ -219,62 +247,77 @@ DomainOut DS(PatchTess patchTess,
         barycentric.x * tri[0].TangentW +
         barycentric.y * tri[1].TangentW +
         barycentric.z * tri[2].TangentW;
+    
+    float4 color =
+        barycentric.x * tri[0].Color +
+        barycentric.y * tri[1].Color +
+        barycentric.z * tri[2].Color;
 
     float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
-    float displacementScale = 0.1f;
+    float displacementScale = 0.1f * displacementLevel;
+    if (isTesselationNeeded == 0.f)
+        displacementScale = 0.0f;
     displacement = (2.f * displacement - 1.0f) * displacementScale;
 
     position += normal * displacement;
-    
     
     output.PosH = mul(float4(position, 1.0), gViewProj);
     output.PosW = position;
     output.NormalW = normal;
     output.TexC = texCoord;
     output.TangentW = tangent;
+    output.Color = color;
     
     return output;
 }
 
-GBuffer PSForward(DomainOut pin) : SV_Target
+
+GBuffer PS(DomainOut pin)
 {
     GBuffer gBuffer;
+    gBuffer.Position = float4(pin.PosW, 1.0f);
     
-    float4 diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
-    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pin.TexC);
+    float2 texCoord = pin.TexC;
+    if (gFiltering == 0)
+    {
+        if (gAddressMode == 0)
+        {
+            gBuffer.Albedo = gTextures[0].Sample(gsamPointWrap, texCoord) * gDiffuseAlbedo * pin.Color;
+        }
+        else if (gAddressMode == 1)
+        {
+            gBuffer.Albedo = gTextures[0].Sample(gsamPointClamp, texCoord) * gDiffuseAlbedo * pin.Color;
+        }
+        else if (gAddressMode == 2)
+        {
+            gBuffer.Albedo = gTextures[0].Sample(gsamPointBorder, texCoord) * gDiffuseAlbedo * pin.Color;
+        }
+        else if (gAddressMode == 3)
+        {
+            gBuffer.Albedo = gTextures[0].Sample(gsamPointMirror, texCoord) * gDiffuseAlbedo * pin.Color;
+        }
+        else if (gAddressMode == 4)
+        {
+            gBuffer.Albedo = gTextures[0].Sample(gsamPointMirrorOnce, texCoord) * gDiffuseAlbedo * pin.Color;
+        }
+    }
+    else if (gFiltering == 1)
+    {
+        gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, texCoord) * gDiffuseAlbedo * pin.Color;
+    }
+    else if (gFiltering == 2)
+    {
+        gBuffer.Albedo = gTextures[0].Sample(gsamAnisotropicWrap, texCoord) * gDiffuseAlbedo * pin.Color;
+    }
+    
+    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, texCoord);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
-
-    // Interpolating normal can unnormalize it, so renormalize it.
-    //pin.NormalW = normalize(normalMap.xyz);
-    pin.NormalW = normalMap.xyz;
-
-    // Vector from point being lit to eye. 
-    float3 toEyeW = normalize(gEyePosW - pin.PosW);
-
-    // Light terms.
-    float4 ambient = gAmbientLight * diffuseAlbedo;
-
-    const float shininess = 1.0f - gRoughness;
-    Material mat = { diffuseAlbedo, gFresnelR0, shininess };
-    float3 shadowFactor = 1.0f;
-    float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
-        bumpedNormalW, toEyeW, shadowFactor);
     
-    Material matDeferred = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
+    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
     
-    float4 directLightDeferred = ComputeLighting(gLights, matDeferred, pin.PosW,
-        bumpedNormalW, toEyeW, shadowFactor);
-
-    float4 litColor = ambient + directLight;
-
-    // Common convention to take alpha from diffuse material.
-    litColor.a = diffuseAlbedo.a;
-    
-    gBuffer.Color = litColor;
-    gBuffer.Albedo = float4(1.0f, 1.0f, 1.0f, 1.0f);
-    gBuffer.Normal = float4(1.0f, 1.0f, 1.0f, 1.0f);
-    gBuffer.Position = float4(1.0f, 1.0f, 1.0f, 1.0f);
-    gBuffer.Specular = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, texCoord);
+    float3 AO = gTextures[4].Sample(gsamLinearWrap, texCoord);
+    gBuffer.Specular = float4(Roughness.xyz, AO.x);
 
     return gBuffer;
 }

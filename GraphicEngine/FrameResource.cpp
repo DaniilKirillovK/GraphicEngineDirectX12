@@ -16,6 +16,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     InstancingCB = std::make_unique<UploadBuffer<InstanceData>>(device, 900, false);
     PostProcessingCB = std::make_unique<UploadBuffer<PostProcessingConstants>>(device, 1, true);
     NoiseCB = std::make_unique<UploadBuffer<NoiseComputeConstants>>(device, 1, true);
+    SamplersCB = std::make_unique<UploadBuffer<MoreSamplersConstants>>(device, 1, true);
 }
 
 FrameResource::~FrameResource()

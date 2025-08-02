@@ -131,6 +131,7 @@ private:
     void UpdateParticleEmitter2CB(const GameTimer& gt);
     void UpdatePostProcessingCB(const GameTimer& gt);
     void UpdateNoiseCB(const GameTimer& gt);
+    void UpdateSamplersCB(const GameTimer& gt);
 
     void ChangeTileObjectTiles();
 
@@ -174,6 +175,7 @@ private:
     void DrawParticles(ParticleSystem particleSystem, RenderLayer layer);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetMoreStaticSamplers();
 
 private:
 
@@ -191,6 +193,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesRender = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignaturePostProcessing = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureComputeNoise = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureMoreSamplers = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -320,6 +323,8 @@ bool isUsingInstancingScene3 = true;
 
 bool isAnimateMaterialScene4 = false;
 int tilesCountScene4 = 1;
+int filteringModeScene4 = 0;
+int addressModeScene4 = 0;
 
 float tessFactorScene5 = 1.f;
 bool isSolidScene5 = true;
@@ -485,6 +490,10 @@ void Engine::Update(const GameTimer& gt)
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
     UpdateMainPassCBScene3Camera2(gt);
+    if (activeSceneID == 4)
+    {
+        UpdateSamplersCB(gt);
+    }
     if (activeSceneID == 6)
     {
         if (activeParticleSystemScene6 == 1)
@@ -861,9 +870,11 @@ void Engine::Draw(const GameTimer& gt)
         {
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatureMoreSamplers.Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+            auto samplersCB = mCurrFrameResource->SamplersCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(5, samplersCB->GetGPUVirtualAddress());
 
             // Indicate a state transition on the resource usage.
             auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -886,7 +897,7 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->RSSetViewports(1, &viewports[4]);
             mCommandList->RSSetScissorRects(1, &rects[4]);
 
-            mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+            mCommandList->SetPipelineState(mPSOs["moreSamplers"].Get());
 
             DrawRenderItemsScene4(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene4]);
 
@@ -1708,6 +1719,17 @@ void Engine::UpdateNoiseCB(const GameTimer& gt)
     currPassCB->CopyData(0, noiseConst);
 }
 
+void Engine::UpdateSamplersCB(const GameTimer& gt)
+{
+    MoreSamplersConstants samplersConst;
+
+    samplersConst.Flitering = filteringModeScene4;
+    samplersConst.AddressMode = addressModeScene4;
+
+    auto currPassCB = mCurrFrameResource->SamplersCB.get();
+    currPassCB->CopyData(0, samplersConst);
+}
+
 void Engine::ChangeTileObjectTiles()
 {
     if ((int)tilesCount != tilesCountInt)
@@ -2039,6 +2061,7 @@ void Engine::BuildRootSignature()
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
+    CD3DX12_ROOT_PARAMETER slotRootParameterMoreSamplers[6];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterDefaultForward[5];
     CD3DX12_ROOT_PARAMETER slotRootParameterDefaultForwardFrustumCulling[5];
@@ -2059,6 +2082,13 @@ void Engine::BuildRootSignature()
     slotRootParameter[2].InitAsConstantBufferView(0);
     slotRootParameter[3].InitAsConstantBufferView(1);
     slotRootParameter[4].InitAsConstantBufferView(2);
+
+    slotRootParameterMoreSamplers[0].InitAsDescriptorTable(1, &texTable);
+    slotRootParameterMoreSamplers[1].InitAsDescriptorTable(1, &texTableSpace1);
+    slotRootParameterMoreSamplers[2].InitAsConstantBufferView(0);
+    slotRootParameterMoreSamplers[3].InitAsConstantBufferView(1);
+    slotRootParameterMoreSamplers[4].InitAsConstantBufferView(2);
+    slotRootParameterMoreSamplers[5].InitAsConstantBufferView(3);
 
     slotRootParameterDefaultForward[0].InitAsDescriptorTable(1, &texTableDefaultForward);
     slotRootParameterDefaultForward[1].InitAsDescriptorTable(1, &texTableDefaultForwardSpace1);
@@ -2100,6 +2130,7 @@ void Engine::BuildRootSignature()
     slotRootParameterComputeNoise[1].InitAsConstantBufferView(0);
 
     auto staticSamplers = GetStaticSamplers();
+    auto moreSamplers = GetMoreStaticSamplers();
 
     // A root signature is an array of root parameters.
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter,
@@ -2108,6 +2139,10 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc2(2, slotRootParameter2, 
         (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescMoreSamplers(6, slotRootParameterMoreSamplers,
+        (UINT)moreSamplers.size(), moreSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDefaultForward(5, slotRootParameterDefaultForward,
@@ -2176,6 +2211,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureLight.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescMoreSamplers, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureMoreSamplers.GetAddressOf())));
 
     errorBlob = nullptr;
     serializedRootSig = nullptr;
@@ -2351,6 +2403,11 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["PostProcessingPS_Default"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "DefaultPS", "ps_5_1");
 
     mShaders["noiseCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeNoise.hlsl", nullptr, "CSMain", "cs_5_1");
+
+    mShaders["moreSamplersVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\MoreTextureSamples.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["moreSamplersHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\MoreTextureSamples.hlsl", nullptr, "HS", "hs_5_1");
+    mShaders["moreSamplersDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\MoreTextureSamples.hlsl", nullptr, "DS", "ds_5_1");
+    mShaders["moreSamplersPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\MoreTextureSamples.hlsl", nullptr, "PS", "ps_5_1");
 
     mInputLayout =
     {
@@ -2947,6 +3004,29 @@ void Engine::BuildPSOs()
     opaquePsoDesc.DSVFormat = mDepthStencilFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueSolid"])));
 
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC moreSamplersPsoDesc = opaquePsoDesc;
+    moreSamplersPsoDesc.pRootSignature = mRootSignatureMoreSamplers.Get();
+    moreSamplersPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["moreSamplersVS"]->GetBufferPointer()),
+        mShaders["moreSamplersVS"]->GetBufferSize()
+    };
+    moreSamplersPsoDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["moreSamplersHS"]->GetBufferPointer()),
+        mShaders["moreSamplersHS"]->GetBufferSize()
+    };
+    moreSamplersPsoDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["moreSamplersDS"]->GetBufferPointer()),
+        mShaders["moreSamplersDS"]->GetBufferSize()
+    };
+    moreSamplersPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["moreSamplersPS"]->GetBufferPointer()),
+        mShaders["moreSamplersPS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&moreSamplersPsoDesc, IID_PPV_ARGS(&mPSOs["moreSamplers"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaqueWireframePsoDesc;
 
@@ -4490,6 +4570,62 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> Engine::GetStaticSamplers()
         anisotropicWrap, anisotropicClamp };
 }
 
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> Engine::GetMoreStaticSamplers()
+{
+    const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
+        0, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC linearWrap(
+        1, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC anisotropicWrap(
+        2, // shaderRegister
+        D3D12_FILTER_ANISOTROPIC, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressW
+        0.0f,                             // mipLODBias
+        8);                               // maxAnisotropy
+
+    const CD3DX12_STATIC_SAMPLER_DESC pointClamp(
+        3, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_CLAMP); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC pointBorder(
+        4, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC pointMirror(
+        5, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_MIRROR,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_MIRROR,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_MIRROR); // addressW
+
+    const CD3DX12_STATIC_SAMPLER_DESC pointMirrorOnce(
+        6, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE); // addressW
+
+    return { pointWrap, linearWrap, anisotropicWrap, pointClamp, pointBorder, pointMirror, pointMirrorOnce };
+}
+
 void Engine::RenderUI()
 {
     ImVec2 infoPanelSize = ImVec2(WINDOW_WIDTH / 4, WINDOW_HEIGHT / 4);
@@ -4666,6 +4802,19 @@ void Engine::RenderUI()
         {
             ImGui::Checkbox("Animate Material", &isAnimateMaterialScene4);
             ImGui::SliderInt("Tiles Count", &tilesCountScene4, 1, 6);
+            ImGui::Text("Filtering Mode");
+            ImGui::RadioButton("Point", &filteringModeScene4, 0);
+            ImGui::RadioButton("Linear", &filteringModeScene4, 1);
+            ImGui::RadioButton("Anisotrophic", &filteringModeScene4, 2);
+            if (filteringModeScene4 == 0)
+            {
+                ImGui::Text("Address Mode");
+                ImGui::RadioButton("Wrap", &addressModeScene4, 0);
+                ImGui::RadioButton("Clamp", &addressModeScene4, 1);
+                ImGui::RadioButton("Border", &addressModeScene4, 2);
+                ImGui::RadioButton("Mirror", &addressModeScene4, 3);
+                ImGui::RadioButton("Mirror Once", &addressModeScene4, 4);
+            }
             mAllRitems[743]->NumFramesDirty = 1;
             mAllRitems[744]->NumFramesDirty = 1;
         }
