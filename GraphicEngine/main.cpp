@@ -132,6 +132,7 @@ private:
     void UpdatePostProcessingCB(const GameTimer& gt);
     void UpdateNoiseCB(const GameTimer& gt);
     void UpdateSamplersCB(const GameTimer& gt);
+    void UpdateLODCB(const GameTimer& gt);
 
     void ChangeTileObjectTiles();
 
@@ -176,6 +177,7 @@ private:
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetMoreStaticSamplers();
+    std::array<CD3DX12_STATIC_SAMPLER_DESC, 4> GetLODStaticSamplers();
 
 private:
 
@@ -320,6 +322,7 @@ float colSpot2[3] = { 1.0f, 1.0f, 1.0f };
 bool isFrustumCullingScene3 = false;
 bool isDisplayingFrustumCullingInfoScene3 = false;
 bool isUsingInstancingScene3 = true;
+int levelOfDetailsScene3 = 2;
 
 bool isAnimateMaterialScene4 = false;
 int tilesCountScene4 = 1;
@@ -489,7 +492,11 @@ void Engine::Update(const GameTimer& gt)
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
     UpdateMainPassCB(gt);
-    UpdateMainPassCBScene3Camera2(gt);
+    if (activeSceneID == 3)
+    {
+        UpdateMainPassCBScene3Camera2(gt);
+        UpdateLODCB(gt);
+    }
     if (activeSceneID == 4)
     {
         UpdateSamplersCB(gt);
@@ -727,6 +734,8 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCBCamera2->GetGPUVirtualAddress());
+            auto LODCB = mCurrFrameResource->LODCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(5, LODCB->GetGPUVirtualAddress());
 
             auto rtvBuffer = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -757,6 +766,8 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForwardFrustumCulling.Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCBCamera2->GetGPUVirtualAddress());
+            auto LODCB = mCurrFrameResource->LODCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(5, LODCB->GetGPUVirtualAddress());
 
             auto rtvBuffer = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -788,6 +799,8 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+            auto LODCB = mCurrFrameResource->LODCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(5, LODCB->GetGPUVirtualAddress());
 
             auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                 D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -816,6 +829,8 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForwardFrustumCulling.Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+            auto LODCB = mCurrFrameResource->LODCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(5, LODCB->GetGPUVirtualAddress());
 
             auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                 D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -844,6 +859,8 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+            auto LODCB = mCurrFrameResource->LODCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(5, LODCB->GetGPUVirtualAddress());
 
             auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                 D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1730,6 +1747,16 @@ void Engine::UpdateSamplersCB(const GameTimer& gt)
     currPassCB->CopyData(0, samplersConst);
 }
 
+void Engine::UpdateLODCB(const GameTimer& gt)
+{
+    LODConstants LODConst;
+
+    LODConst.LevelOfDetail = levelOfDetailsScene3;
+
+    auto currPassCB = mCurrFrameResource->LODCB.get();
+    currPassCB->CopyData(0, LODConst);
+}
+
 void Engine::ChangeTileObjectTiles()
 {
     if ((int)tilesCount != tilesCountInt)
@@ -2063,8 +2090,8 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
     CD3DX12_ROOT_PARAMETER slotRootParameterMoreSamplers[6];
 
-    CD3DX12_ROOT_PARAMETER slotRootParameterDefaultForward[5];
-    CD3DX12_ROOT_PARAMETER slotRootParameterDefaultForwardFrustumCulling[5];
+    CD3DX12_ROOT_PARAMETER slotRootParameterDefaultForward[6];
+    CD3DX12_ROOT_PARAMETER slotRootParameterDefaultForwardFrustumCulling[6];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterDebug[2];
 
@@ -2095,12 +2122,14 @@ void Engine::BuildRootSignature()
     slotRootParameterDefaultForward[2].InitAsConstantBufferView(0);
     slotRootParameterDefaultForward[3].InitAsConstantBufferView(1);
     slotRootParameterDefaultForward[4].InitAsConstantBufferView(2);
+    slotRootParameterDefaultForward[5].InitAsConstantBufferView(3);
 
     slotRootParameterDefaultForwardFrustumCulling[0].InitAsDescriptorTable(1, &texTableDefaultForward);
     slotRootParameterDefaultForwardFrustumCulling[1].InitAsShaderResourceView(0, 1);
     slotRootParameterDefaultForwardFrustumCulling[2].InitAsConstantBufferView(0);
     slotRootParameterDefaultForwardFrustumCulling[3].InitAsConstantBufferView(1);
     slotRootParameterDefaultForwardFrustumCulling[4].InitAsConstantBufferView(2);
+    slotRootParameterDefaultForwardFrustumCulling[5].InitAsConstantBufferView(3);
 
     slotRootParameter2[0].InitAsDescriptorTable(1, &texTable2);
     slotRootParameter2[1].InitAsConstantBufferView(0);
@@ -2131,6 +2160,7 @@ void Engine::BuildRootSignature()
 
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
+    auto lodSamplers = GetLODStaticSamplers();
 
     // A root signature is an array of root parameters.
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter,
@@ -2145,12 +2175,12 @@ void Engine::BuildRootSignature()
         (UINT)moreSamplers.size(), moreSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDefaultForward(5, slotRootParameterDefaultForward,
-        (UINT)staticSamplers.size(), staticSamplers.data(),
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDefaultForward(6, slotRootParameterDefaultForward,
+        (UINT)lodSamplers.size(), lodSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDefaultForwardFrustumCulling(5, slotRootParameterDefaultForwardFrustumCulling,
-        (UINT)staticSamplers.size(), staticSamplers.data(),
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDefaultForwardFrustumCulling(6, slotRootParameterDefaultForwardFrustumCulling,
+        (UINT)lodSamplers.size(), lodSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDebug(2, slotRootParameterDebug,
@@ -4626,6 +4656,43 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> Engine::GetMoreStaticSamplers()
     return { pointWrap, linearWrap, anisotropicWrap, pointClamp, pointBorder, pointMirror, pointMirrorOnce };
 }
 
+std::array<CD3DX12_STATIC_SAMPLER_DESC, 4> Engine::GetLODStaticSamplers()
+{
+    CD3DX12_STATIC_SAMPLER_DESC linearWrap0(
+        0, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+    linearWrap0.MinLOD = 3;
+
+    CD3DX12_STATIC_SAMPLER_DESC linearWrap1(
+        1, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+    linearWrap1.MinLOD = 2;
+
+    CD3DX12_STATIC_SAMPLER_DESC linearWrap2(
+        2, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+    linearWrap2.MinLOD = 1;
+
+    CD3DX12_STATIC_SAMPLER_DESC linearWrap3(
+        3, // shaderRegister
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP); // addressW
+    linearWrap3.MinLOD = 0;
+
+    return { linearWrap0, linearWrap1, linearWrap2, linearWrap3 };
+}
+
 void Engine::RenderUI()
 {
     ImVec2 infoPanelSize = ImVec2(WINDOW_WIDTH / 4, WINDOW_HEIGHT / 4);
@@ -4797,6 +4864,9 @@ void Engine::RenderUI()
             ImGui::Text("");
             ImGui::Text("Instancing");
             ImGui::Checkbox("Instancing Active", &isUsingInstancingScene3);
+
+            ImGui::Text("");
+            ImGui::SliderInt("Level Of Details", &levelOfDetailsScene3, 0, 3);
         }
         else if (activeSceneID == 4)
         {

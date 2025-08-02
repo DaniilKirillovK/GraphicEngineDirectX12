@@ -22,12 +22,10 @@
 
 Texture2D    gDiffuseMap : register(t0, space0);
 
-SamplerState gsamPointWrap : register(s0);
-SamplerState gsamPointClamp : register(s1);
-SamplerState gsamLinearWrap : register(s2);
-SamplerState gsamLinearClamp : register(s3);
-SamplerState gsamAnisotropicWrap : register(s4);
-SamplerState gsamAnisotropicClamp : register(s5);
+SamplerState gsamLevel0 : register(s0);
+SamplerState gsamLevel1 : register(s1);
+SamplerState gsamLevel2 : register(s2);
+SamplerState gsamLevel3 : register(s3);
 
 struct InstanceData
 {
@@ -93,6 +91,11 @@ cbuffer cbMaterial : register(b2)
     float tilesCount;
 };
 
+cbuffer cbLOD : register(b3)
+{
+    uint gLevelOfDetail;
+}
+
 struct VertexIn
 {
 	float3 PosL    : POSITION;
@@ -139,7 +142,16 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 
 float4 PS(VertexOut pin) : SV_Target
 {
-    float4 diffuseAlbedo = gDiffuseMap.Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo * pin.Color;
+    float4 diffuseAlbedo;
+    SamplerState selectedSampler;
+    if (gLevelOfDetail == 0)
+        diffuseAlbedo = gDiffuseMap.Sample(gsamLevel0, pin.TexC) * gDiffuseAlbedo * pin.Color;
+    else if (gLevelOfDetail == 1)
+        diffuseAlbedo = gDiffuseMap.Sample(gsamLevel1, pin.TexC) * gDiffuseAlbedo * pin.Color;
+    else if (gLevelOfDetail == 2)
+        diffuseAlbedo = gDiffuseMap.Sample(gsamLevel2, pin.TexC) * gDiffuseAlbedo * pin.Color;
+    else if (gLevelOfDetail == 3)
+        diffuseAlbedo = gDiffuseMap.Sample(gsamLevel3, pin.TexC) * gDiffuseAlbedo * pin.Color;
 
     // Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);

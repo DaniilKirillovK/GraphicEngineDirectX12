@@ -48,6 +48,11 @@ struct MoreSamplersConstants
     UINT AddressMode;
 };
 
+struct LODConstants
+{
+    UINT LevelOfDetail;
+};
+
 struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
@@ -138,6 +143,7 @@ public:
     std::unique_ptr<UploadBuffer<PostProcessingConstants>> PostProcessingCB = nullptr;
     std::unique_ptr<UploadBuffer<NoiseComputeConstants>> NoiseCB = nullptr;
     std::unique_ptr<UploadBuffer<MoreSamplersConstants>> SamplersCB = nullptr;
+    std::unique_ptr<UploadBuffer<LODConstants>> LODCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.
