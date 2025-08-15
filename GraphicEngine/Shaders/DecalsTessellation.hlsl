@@ -149,18 +149,11 @@ PatchTess ConstantHS(InputPatch<VertexOut, 3> patch, uint patchID : SV_Primitive
 	
     const float d0 = 5.0f;
     const float d1 = 30.0f;
-    float tess = tessFactor * saturate((d1 - d) / (d1 - d0)) * saturate((d1 - d) / (d1 - d0));
+    float tess = 32 * saturate((d1 - d) / (d1 - d0)) * saturate((d1 - d) / (d1 - d0));
 
 	// Uniformly tessellate the patch.
-    if (isTesselationNeeded == 1.f)
-    {
-        if (tess < 1.f)  
-            tess = 1.f;
-    
-        if (tess > tessFactor)
-            tess = tessFactor;
-    }
-    else tess = 1.f;
+    if (tess < 1.f)  
+        tess = 1.f;
 
     pt.EdgeTess[0] = tess;
     pt.EdgeTess[1] = tess;
@@ -238,7 +231,7 @@ DomainOut DS(PatchTess patchTess,
         barycentric.y * tri[1].TexC +
         barycentric.z * tri[2].TexC;
     
-    float3 tangent = 
+    float3 tangent =
         barycentric.x * tri[0].TangentW +
         barycentric.y * tri[1].TangentW +
         barycentric.z * tri[2].TangentW;
@@ -250,8 +243,8 @@ DomainOut DS(PatchTess patchTess,
 
     float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
     float displacementScale = 0.1f * displacementLevel;
-    if (isTesselationNeeded == 0.f)
-        displacementScale = 0.0f;
+    
+    displacementScale = 0.0f;
     displacement = (2.f * displacement - 1.0f) * displacementScale;
 
     position += normal * displacement;
@@ -273,10 +266,6 @@ GBuffer PS(DomainOut pin)
     gBuffer.Position = float4(pin.PosW, 1.0f);
     
     float2 texCoord = pin.TexC;
-    if (isParallaxMapping == 1.0f)
-    {
-        texCoord = ParallaxMapping(pin.TexC, gEyePosW - pin.PosW, gsamLinearWrap, gTextures[2], 0.05f);
-    }
     gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, texCoord) * gDiffuseAlbedo * pin.Color;
     
     float4 normalMap = gTextures[1].Sample(gsamLinearWrap, texCoord);
@@ -286,27 +275,6 @@ GBuffer PS(DomainOut pin)
     
     float3 Roughness = gTextures[3].Sample(gsamLinearWrap, texCoord);
     float3 AO = gTextures[4].Sample(gsamLinearWrap, texCoord);
-    gBuffer.Specular = float4(Roughness.xyz, AO.x);
-
-    return gBuffer;
-}
-
-
-GBuffer PSPixel(DomainOut pin)
-{  
-    GBuffer gBuffer;
-    float2 pixelatedUV = floor(pin.TexC * pixelationFactor) / pixelationFactor;
-    
-    gBuffer.Position = float4(pin.PosW, 1.0f);
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
-    
-    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
-    float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
-    
-    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
-    
-    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, pixelatedUV);
-    float3 AO = gTextures[4].Sample(gsamLinearWrap, pixelatedUV);
     gBuffer.Specular = float4(Roughness.xyz, AO.x);
 
     return gBuffer;

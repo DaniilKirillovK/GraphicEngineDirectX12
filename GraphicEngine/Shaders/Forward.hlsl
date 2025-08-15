@@ -1,3 +1,15 @@
+#ifndef NUM_DIR_LIGHTS
+    #define NUM_DIR_LIGHTS 3
+#endif
+
+#ifndef NUM_POINT_LIGHTS
+    #define NUM_POINT_LIGHTS 3
+#endif
+
+#ifndef NUM_SPOT_LIGHTS
+    #define NUM_SPOT_LIGHTS 2
+#endif
+
 #include "LightingUtil.hlsl"
 #include "Common.hlsl"
 
@@ -9,14 +21,6 @@ SamplerState gsamLinearWrap : register(s2);
 SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
-
-struct GBuffer
-{
-    float4 Albedo : SV_TARGET0;
-    float4 Position : SV_TARGET1;
-    float4 Normal : SV_TARGET2;
-    float4 Specular : SV_TARGET3;
-};
 
 struct InstanceData
 {
@@ -160,7 +164,8 @@ PatchTess ConstantHS(InputPatch<VertexOut, 3> patch, uint patchID : SV_Primitive
         if (tess > tessFactor)
             tess = tessFactor;
     }
-    else tess = 1.f;
+    else
+        tess = 1.f;
 
     pt.EdgeTess[0] = tess;
     pt.EdgeTess[1] = tess;
@@ -238,7 +243,7 @@ DomainOut DS(PatchTess patchTess,
         barycentric.y * tri[1].TexC +
         barycentric.z * tri[2].TexC;
     
-    float3 tangent = 
+    float3 tangent =
         barycentric.x * tri[0].TangentW +
         barycentric.y * tri[1].TangentW +
         barycentric.z * tri[2].TangentW;
@@ -267,47 +272,35 @@ DomainOut DS(PatchTess patchTess,
 }
 
 
-GBuffer PS(DomainOut pin)
+float4 PS(DomainOut pin) : SV_Target
 {
-    GBuffer gBuffer;
-    gBuffer.Position = float4(pin.PosW, 1.0f);
+    float4 Position = float4(pin.PosW, 1.0f);
     
-    float2 texCoord = pin.TexC;
-    if (isParallaxMapping == 1.0f)
-    {
-        texCoord = ParallaxMapping(pin.TexC, gEyePosW - pin.PosW, gsamLinearWrap, gTextures[2], 0.05f);
-    }
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, texCoord) * gDiffuseAlbedo * pin.Color;
+    float2 TexCoord = pin.TexC;
+    float4 Albedo = gTextures[0].Sample(gsamLinearWrap, TexCoord) * gDiffuseAlbedo * pin.Color;
     
-    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, texCoord);
+    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, TexCoord);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
     
-    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
+    float4 Normal = float4(bumpedNormalW, 1.0f);
     
-    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, texCoord);
-    float3 AO = gTextures[4].Sample(gsamLinearWrap, texCoord);
-    gBuffer.Specular = float4(Roughness.xyz, AO.x);
+    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, TexCoord);
+    float3 AO = gTextures[4].Sample(gsamLinearWrap, TexCoord);
+    
+    float3 toEyeW = normalize(gEyePosW - Position.xyz);
 
-    return gBuffer;
-}
+    // Light terms.
+    float4 ambient = gAmbientLight * Albedo;
 
+    float3 gFresnelR0 = float3(0.01f, 0.01f, 0.01f);
+    
+    const float shininess = 1.0f - Roughness.x;
+    Material mat = { Albedo, gFresnelR0, shininess };
+    float3 shadowFactor = float3(AO.x, AO.x, AO.x);
+    float4 directLight = ComputeLighting(gLights, mat, Position.xyz,
+        Normal.xyz, toEyeW, shadowFactor);
+    
+    float4 litColor = ambient + directLight;
 
-GBuffer PSPixel(DomainOut pin)
-{  
-    GBuffer gBuffer;
-    float2 pixelatedUV = floor(pin.TexC * pixelationFactor) / pixelationFactor;
-    
-    gBuffer.Position = float4(pin.PosW, 1.0f);
-    gBuffer.Albedo = gTextures[0].Sample(gsamLinearWrap, pixelatedUV) * gDiffuseAlbedo;
-    
-    float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
-    float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
-    
-    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
-    
-    float3 Roughness = gTextures[3].Sample(gsamLinearWrap, pixelatedUV);
-    float3 AO = gTextures[4].Sample(gsamLinearWrap, pixelatedUV);
-    gBuffer.Specular = float4(Roughness.xyz, AO.x);
-
-    return gBuffer;
+    return litColor;
 }

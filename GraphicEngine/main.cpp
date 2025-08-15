@@ -59,6 +59,8 @@ enum class RenderLayer : int
     Scene4 = 6,
     Scene5 = 7,
     Particles2 = 8,
+    Scene10 = 9,
+    Scene11 = 10,
     Count
 };
 
@@ -169,6 +171,8 @@ private:
     void DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene4(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
@@ -368,6 +372,10 @@ float vSmoothnessScene8 = 1.0f;
 float vRoundnessScene8 = 1.0f;
 float nIntensityScene8 = 0.5f;
 float nSizeScene8 = 2.f;
+
+int selectedRenderTechScene10 = 0;
+bool deferredRenderDisplayInfoScene10 = false;
+bool isWireframeScene10 = false;
 
 
 
@@ -1144,10 +1152,137 @@ void Engine::Draw(const GameTimer& gt)
         CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
         mCommandList->ResourceBarrier(6, barriersClose);
     }
+
+    else if (activeSceneID == 10)
+    {
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+        mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        if (selectedRenderTechScene10 != 0)
+        {
+            // Indicate a state transition on the resource usage.
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
+            mCommandList->ResourceBarrier(6, barriers);
+
+            mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+            mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+
+            DrawRenderItemsScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
+            mCommandList->ResourceBarrier(6, barriersClose);
+        }
+        else
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["forwardRT"].Get());
+
+            DrawRenderItemsScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
+    }
+
+    else if (activeSceneID == 11)
+    {
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+
+        mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        // Indicate a state transition on the resource usage.
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto position = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto albedo = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto normal = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
+        mCommandList->ResourceBarrier(6, barriers);
+
+        mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
+
+        if (!isWireframeScene10)
+            mCommandList->SetPipelineState(mPSOs["decalsTess"].Get());
+        else mCommandList->SetPipelineState(mPSOs["decalsTessWireframe"].Get());
+
+        DrawRenderItemsScene11(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene11]);
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier4 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier5 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
+        mCommandList->ResourceBarrier(6, barriersClose);
+    }
     
 
     // Draw screen quad
-    if (activeSceneID <= 2 || activeSceneID >= 4)
+    if (activeSceneID <= 2 || activeSceneID >= 4 && !(activeSceneID == 10 && selectedRenderTechScene10 == 0))
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -2439,6 +2574,16 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["moreSamplersDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\MoreTextureSamples.hlsl", nullptr, "DS", "ds_5_1");
     mShaders["moreSamplersPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\MoreTextureSamples.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["forwardRT_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["forwardRT_HS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "HS", "hs_5_1");
+    mShaders["forwardRT_DS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "DS", "ds_5_1");
+    mShaders["forwardRT_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["decalsTessVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DecalsTessellation.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["decalsTessHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DecalsTessellation.hlsl", nullptr, "HS", "hs_5_1");
+    mShaders["decalsTessDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DecalsTessellation.hlsl", nullptr, "DS", "ds_5_1");
+    mShaders["decalsTessPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DecalsTessellation.hlsl", nullptr, "PS", "ps_5_1");
+
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -3365,6 +3510,90 @@ void Engine::BuildPSOs()
 
 
     ThrowIfFailed(md3dDevice->CreateComputePipelineState(&noiseComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeNoise"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC forwardRTPsoDesc;
+    ZeroMemory(&forwardRTPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    forwardRTPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    forwardRTPsoDesc.pRootSignature = mRootSignature.Get();
+    forwardRTPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardRT_VS"]->GetBufferPointer()),
+        mShaders["forwardRT_VS"]->GetBufferSize()
+    };
+    forwardRTPsoDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardRT_HS"]->GetBufferPointer()),
+        mShaders["forwardRT_HS"]->GetBufferSize()
+    };
+    forwardRTPsoDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardRT_DS"]->GetBufferPointer()),
+        mShaders["forwardRT_DS"]->GetBufferSize()
+    };
+    forwardRTPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["forwardRT_PS"]->GetBufferPointer()),
+        mShaders["forwardRT_PS"]->GetBufferSize()
+    };
+    forwardRTPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    forwardRTPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    forwardRTPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    forwardRTPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    forwardRTPsoDesc.SampleMask = UINT_MAX;
+    forwardRTPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    forwardRTPsoDesc.NumRenderTargets = 1;
+    forwardRTPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    forwardRTPsoDesc.SampleDesc.Count = 1;
+    forwardRTPsoDesc.SampleDesc.Quality = 0;
+    forwardRTPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&forwardRTPsoDesc, IID_PPV_ARGS(&mPSOs["forwardRT"])));
+
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC decalsTessPsoDesc;
+    ZeroMemory(&decalsTessPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    decalsTessPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    decalsTessPsoDesc.pRootSignature = mRootSignature.Get();
+    decalsTessPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["decalsTessVS"]->GetBufferPointer()),
+        mShaders["decalsTessVS"]->GetBufferSize()
+    };
+    decalsTessPsoDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["decalsTessHS"]->GetBufferPointer()),
+        mShaders["decalsTessHS"]->GetBufferSize()
+    };
+    decalsTessPsoDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["decalsTessDS"]->GetBufferPointer()),
+        mShaders["decalsTessDS"]->GetBufferSize()
+    };
+    decalsTessPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["decalsTessPS"]->GetBufferPointer()),
+        mShaders["decalsTessPS"]->GetBufferSize()
+    };
+    decalsTessPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    decalsTessPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    decalsTessPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    decalsTessPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    decalsTessPsoDesc.SampleMask = UINT_MAX;
+    decalsTessPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    decalsTessPsoDesc.NumRenderTargets = 4;
+    decalsTessPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    decalsTessPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    decalsTessPsoDesc.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    decalsTessPsoDesc.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    decalsTessPsoDesc.SampleDesc.Count = 1;
+    decalsTessPsoDesc.SampleDesc.Quality = 0;
+    decalsTessPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&decalsTessPsoDesc, IID_PPV_ARGS(&mPSOs["decalsTess"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC decalsTessWireframePsoDesc;
+    ZeroMemory(&decalsTessWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    decalsTessWireframePsoDesc = decalsTessPsoDesc;
+    decalsTessWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&decalsTessWireframePsoDesc, IID_PPV_ARGS(&mPSOs["decalsTessWireframe"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -3546,6 +3775,7 @@ void Engine::BuildRenderItems()
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
     boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
     boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
+    mRitemLayer[(int)RenderLayer::Scene10].push_back(boxRitem.get());
     mAllRitems.push_back(std::move(boxRitem));
 
     auto boxTileRitem = std::make_unique<RenderItem>();
@@ -3557,7 +3787,9 @@ void Engine::BuildRenderItems()
     boxTileRitem->IndexCount = boxTileRitem->Geo->DrawArgs["box2"].IndexCount;
     boxTileRitem->StartIndexLocation = boxTileRitem->Geo->DrawArgs["box2"].StartIndexLocation;
     boxTileRitem->BaseVertexLocation = boxTileRitem->Geo->DrawArgs["box2"].BaseVertexLocation;
+    mRitemLayer[(int)RenderLayer::Scene10].push_back(boxTileRitem.get());
     mAllRitems.push_back(std::move(boxTileRitem));
+
 
     auto stoneTesselationRitem = std::make_unique<RenderItem>();
     stoneTesselationRitem->ObjCBIndex = 2;
@@ -3569,7 +3801,10 @@ void Engine::BuildRenderItems()
     stoneTesselationRitem->IndexCount = stoneTesselationRitem->Geo->DrawArgs["box3"].IndexCount;
     stoneTesselationRitem->StartIndexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].StartIndexLocation;
     stoneTesselationRitem->BaseVertexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
+    mRitemLayer[(int)RenderLayer::Scene10].push_back(stoneTesselationRitem.get());
+    mRitemLayer[(int)RenderLayer::Scene11].push_back(stoneTesselationRitem.get());
     mAllRitems.push_back(std::move(stoneTesselationRitem));
+
 
     auto boxInstancingRitem = std::make_unique<RenderItem>();
     boxInstancingRitem->ObjCBIndex = 3;
@@ -4433,6 +4668,84 @@ void Engine::DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std
     }
 }
 
+void Engine::DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            instanceTableHandle.Offset(16, mCbvSrvDescriptorSize);
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
+void Engine::DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            instanceTableHandle.Offset(16, mCbvSrvDescriptorSize);
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
 void Engine::DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -4711,6 +5024,8 @@ void Engine::RenderUI()
         ImGui::Text("Scene 7: Shadows scene");
         ImGui::Text("Scene 8: Post-processing scene");
         ImGui::Text("Scene 9: PBR scene");
+        ImGui::Text("Scene 10: Rendering Techniques");
+        ImGui::Text("Scene 11: Decals Tesselation");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -4769,6 +5084,25 @@ void Engine::RenderUI()
             if (ImGui::Button("Scene 8", ImVec2(80, 40)))
             {
                 activeSceneID = 8;
+            }
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (ImGui::Button("Scene 9", ImVec2(80, 40)))
+            {
+                activeSceneID = 9;
+            }
+
+            ImGui::TableSetColumnIndex(1);
+            if (ImGui::Button("Scene 10", ImVec2(80, 40)))
+            {
+                activeSceneID = 10;
+            }
+            ImGui::TableSetColumnIndex(2);
+
+            if (ImGui::Button("Scene 11", ImVec2(80, 40)))
+            {
+                activeSceneID = 11;
             }
 
             ImGui::EndTable();
@@ -5022,9 +5356,56 @@ void Engine::RenderUI()
         {
 
         }
+        else if (activeSceneID == 10)
+        {
+            ImGui::Text("");
+            ImGui::Text("Rendering Techniques");
+            ImGui::RadioButton("Forward", &selectedRenderTechScene10, 0);
+            ImGui::RadioButton("Deferred", &selectedRenderTechScene10, 1);
+            ImGui::RadioButton("Deferred+", &selectedRenderTechScene10, 2);
+            ImGui::RadioButton("Forward+", &selectedRenderTechScene10, 3);
+
+            if (selectedRenderTechScene10 == 1 || selectedRenderTechScene10 == 2)
+            {
+                ImGui::Text("");
+                ImGui::Text("Other settings");
+                ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfoScene10);
+            }
+        }
+        else if (activeSceneID == 11)
+        {
+            ImGui::Text("");
+            ImGui::Checkbox("Wireframe", &isWireframeScene10);
+            ImGui::Text("");
+            ImGui::Text("Decals settings");
+        }
     } ImGui::End();
 
     if (deferredRenderDisplayInfo && activeSceneID <= 2)
+    {
+        ImVec2 size2 = ImVec2(WINDOW_WIDTH / 5, 800);
+        ImVec2 pos2 = ImVec2(0, 0);
+
+        ImGui::SetNextWindowPos(pos2);
+        ImGui::SetNextWindowSize(size2);
+        ImGui::SetNextWindowBgAlpha(0.5f);
+        if (ImGui::Begin("Deferred Render Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+        {
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(11, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+            tex.Offset(1, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+            tex.Offset(1, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+            tex.Offset(1, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+            tex.Offset(1, mCbvSrvDescriptorSize);
+            ImGui::Image((ImTextureID)tex.ptr, ImVec2((float)240, (float)150));
+        } ImGui::End();
+    }
+
+    if (deferredRenderDisplayInfoScene10 && activeSceneID == 10 && selectedRenderTechScene10 != 0)
     {
         ImVec2 size2 = ImVec2(WINDOW_WIDTH / 5, 800);
         ImVec2 pos2 = ImVec2(0, 0);
