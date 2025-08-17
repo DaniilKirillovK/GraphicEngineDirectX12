@@ -10,6 +10,17 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
+#define MaxDecals 3
+
+struct Decal
+{
+    float3 Position;
+    float DisplacementScale;
+    int IsActive;
+    float Scale;
+    float2 pad0;
+};
+
 struct GBuffer
 {
     float4 Albedo : SV_TARGET0;
@@ -84,6 +95,16 @@ cbuffer cbMaterial : register(b2)
     float tilesCount;
 };
 
+cbuffer cbTess : register(b3)
+{
+    float gTessFactor;
+    int bIsBackCulling;
+    int bIsDisplacementAdaptiveTess;
+    float pad0;
+    
+    Decal gDecals[MaxDecals];
+}
+
 struct VertexIn
 {
     float3 PosL : POSITION;
@@ -137,31 +158,90 @@ struct PatchTess
 PatchTess ConstantHS(InputPatch<VertexOut, 3> patch, uint patchID : SV_PrimitiveID)
 {
     PatchTess pt;
+    
+    float3 vPos0 = patch[0].PosW;
+    float3 vPos1 = patch[1].PosW;
+    float3 vPos2 = patch[2].PosW;
+    
+    // find two triangle patch edges
+    float3 vEdge0 = vPos1 - vPos0;
+    float3 vEdge2 = vPos2 - vPos0;
+    
+    // Create the normal and view vector
+    float3 vFaceNormal = normalize(cross(vEdge2, vEdge0));
+    float3 vView = normalize(vPos0 - gEyePosW);
+    
+    // A negative dot product means facing away from view direction.
+    // Use a small epsilon to avoid popping, since displaced vertices
+    // may still be visible with dot product = 0
+    if (dot(vView, vFaceNormal) < -0.25 && bIsBackCulling == 1)
+    {
+        // Cull the triangle by setting the tessellation factors to 0
+        pt.EdgeTess[0] = 0;
+        pt.EdgeTess[1] = 0;
+        pt.EdgeTess[2] = 0;
+        pt.InsideTess = 0;
+        return pt; // early exit
+    }
+	else
+    {
+        float3 centerL = 0.25f * (patch[0].PosW + patch[1].PosW + patch[2].PosW);
+        float3 centerW = mul(float4(centerL, 1.0f), gWorld).xyz;
 	
-    float3 centerL = 0.25f * (patch[0].PosW + patch[1].PosW + patch[2].PosW);
-    float3 centerW = mul(float4(centerL, 1.0f), gWorld).xyz;
-	
-    float d = distance(centerW, gEyePosW);
+        float d = distance(centerW, gEyePosW);
 
-	// Tessellate the patch based on distance from the eye such that
-	// the tessellation is 0 if d >= d1 and 64 if d <= d0.  The interval
-	// [d0, d1] defines the range we tessellate in.
+	    // Tessellate the patch based on distance from the eye such that
+	    // the tessellation is 0 if d >= d1 and 64 if d <= d0.  The interval
+	    // [d0, d1] defines the range we tessellate in.
 	
-    const float d0 = 5.0f;
-    const float d1 = 30.0f;
-    float tess = 32 * saturate((d1 - d) / (d1 - d0)) * saturate((d1 - d) / (d1 - d0));
+        const float d0 = 5.0f;
+        const float d1 = 30.0f;
+        float tess = gTessFactor * saturate((d1 - d) / (d1 - d0)) * saturate((d1 - d) / (d1 - d0));
 
-	// Uniformly tessellate the patch.
-    if (tess < 1.f)  
-        tess = 1.f;
+	    // Uniformly tessellate the patch.
+        if (tess > gTessFactor)
+            tess = gTessFactor;
+        if (tess < 1.f)  
+            tess = 1.f;
 
-    pt.EdgeTess[0] = tess;
-    pt.EdgeTess[1] = tess;
-    pt.EdgeTess[2] = tess;
+        // Distance Adaptive Tess
+        if (bIsDisplacementAdaptiveTess)
+        {
+            pt.InsideTess = 1.f;
+            bool isEdgeTesselated = false;
+            for (int i = 0; i < 3; ++i) // Edges
+            {
+                pt.EdgeTess[i] = 1.f;
+                for (int j = 0; j < MaxDecals; ++j)
+                {
+                    if (gDecals[j].IsActive == 1)
+                    {
+                        if (distance(gDecals[j].Position, patch[i].PosW) < gDecals[j].Scale ||
+                            distance(gDecals[j].Position, patch[(i + 1) % 3].PosW) < gDecals[j].Scale)
+                        {
+                            isEdgeTesselated = true;
+                            pt.EdgeTess[i] = tess;
+                        }
+                    }
+                }
+            }
+            
+            if (isEdgeTesselated)
+            {
+                pt.InsideTess = tess;
+            }
+        }
+        else
+        {
+            pt.EdgeTess[0] = tess;
+            pt.EdgeTess[1] = tess;
+            pt.EdgeTess[2] = tess;
 	
-    pt.InsideTess = tess;
+            pt.InsideTess = tess;
+        }
 	
-    return pt;
+        return pt;
+    }
 }
 
 struct HullOut
@@ -240,14 +320,22 @@ DomainOut DS(PatchTess patchTess,
         barycentric.x * tri[0].Color +
         barycentric.y * tri[1].Color +
         barycentric.z * tri[2].Color;
-
-    float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
-    float displacementScale = 0.1f * displacementLevel;
     
-    displacementScale = 0.0f;
-    displacement = (2.f * displacement - 1.0f) * displacementScale;
+    float resultDisplacement = 0.0f;
 
-    position += normal * displacement;
+    for (int i = 0; i < MaxDecals; ++i)
+    {
+        if (gDecals[i].IsActive == 1 
+            && distance(gDecals[i].Position, position) < gDecals[i].Scale)
+        {
+            float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
+            float displacementScale = 0.1f * gDecals[i].DisplacementScale;
+            displacement = (2.f * displacement - 1.0f) * displacementScale;
+            resultDisplacement += displacement;
+        }
+    }
+
+    position += normal * resultDisplacement;
     
     output.PosH = mul(float4(position, 1.0), gViewProj);
     output.PosW = position;

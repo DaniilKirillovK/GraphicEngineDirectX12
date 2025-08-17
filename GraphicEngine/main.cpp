@@ -135,6 +135,7 @@ private:
     void UpdateNoiseCB(const GameTimer& gt);
     void UpdateSamplersCB(const GameTimer& gt);
     void UpdateLODCB(const GameTimer& gt);
+    void UpdateTessCB();
 
     void ChangeTileObjectTiles();
 
@@ -200,6 +201,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignaturePostProcessing = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureComputeNoise = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureMoreSamplers = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureTess = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -375,7 +377,20 @@ float nSizeScene8 = 2.f;
 
 int selectedRenderTechScene10 = 0;
 bool deferredRenderDisplayInfoScene10 = false;
-bool isWireframeScene10 = false;
+
+bool isWireframeScene11 = false;
+float tessFactorScene11 = 1.0f;
+bool bIsBackCullingScene11 = false;
+bool bIsDisplacementAdaptiveTessScene11 = false;
+DirectX::XMFLOAT3 decalsPositionScene11[3] = 
+{
+    DirectX::XMFLOAT3(0.f, 1.0f, -2.5f),
+    DirectX::XMFLOAT3(-2.5f, 1.0f, 0.0f),
+    DirectX::XMFLOAT3(0.f, -1.0f, -2.5f)
+};
+float decalsDisplacementScaleScene11[3] = { 1.0f, 1.0f, 1.0f };
+bool decalsIsActiveScene11[3] = { false, false, false };
+float decalsScaleScene11[3] = { 1.0f, 1.0f, 1.0f };
 
 
 
@@ -523,6 +538,10 @@ void Engine::Update(const GameTimer& gt)
         {
             UpdateNoiseCB(gt);
         }
+    }
+    if (activeSceneID == 11)
+    {
+        UpdateTessCB();
     }
     timeScene2 = ParseTime(gt);
 }
@@ -1232,9 +1251,11 @@ void Engine::Draw(const GameTimer& gt)
     {
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatureTess.Get());
 
         mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+        auto tessCB = mCurrFrameResource->TessCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(5, tessCB->GetGPUVirtualAddress());
 
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -1257,7 +1278,7 @@ void Engine::Draw(const GameTimer& gt)
 
         mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
-        if (!isWireframeScene10)
+        if (!isWireframeScene11)
             mCommandList->SetPipelineState(mPSOs["decalsTess"].Get());
         else mCommandList->SetPipelineState(mPSOs["decalsTessWireframe"].Get());
 
@@ -1557,8 +1578,10 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, Obj2rotY)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 0.0f, 1.0f }, Obj2rotZ)
                 * DirectX::XMMatrixTranslation(Obj2posX, Obj2posY, Obj2posZ);
-            else if (i == 2)
+            else if (i == 2 && activeSceneID != 11)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(10.0f, 0.0f, 0.0f);
+            else if (i == 2)
+                world = XMLoadFloat4x4(&worldM);
             else if (i == 3)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, 5.0f);
             else if (i == 4)
@@ -1595,8 +1618,8 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
             XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
             XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
             if (i <= 4 || i == 745)
-                objConstants.isTesselationNeeded = 1.0f;
-            else objConstants.isTesselationNeeded = 0.0f;
+                objConstants.isTessellationNeeded = 1.0f;
+            else objConstants.isTessellationNeeded = 0.0f;
             if (i == 0)
                 objConstants.scale = Obj1Scale;
             else if (i == 5)
@@ -1890,6 +1913,37 @@ void Engine::UpdateLODCB(const GameTimer& gt)
 
     auto currPassCB = mCurrFrameResource->LODCB.get();
     currPassCB->CopyData(0, LODConst);
+}
+
+void Engine::UpdateTessCB()
+{
+    TessConstants tessConst;
+
+    if (bIsBackCullingScene11)
+        tessConst.bIsBackCulling = 1;
+    else tessConst.bIsBackCulling = 0;
+    if (bIsDisplacementAdaptiveTessScene11)
+        tessConst.DisplacementAdaptiveTess = 1;
+    else tessConst.DisplacementAdaptiveTess = 0;
+    tessConst.TessFactor = tessFactorScene11;
+
+    tessConst.Decals[0].Position = decalsPositionScene11[0];
+    tessConst.Decals[0].DisplacementScale = decalsDisplacementScaleScene11[0];
+    tessConst.Decals[0].IsActive = (UINT)decalsIsActiveScene11[0];
+    tessConst.Decals[0].Scale = decalsScaleScene11[0];
+
+    tessConst.Decals[1].Position = decalsPositionScene11[1];
+    tessConst.Decals[1].DisplacementScale = decalsDisplacementScaleScene11[1];
+    tessConst.Decals[1].IsActive = (UINT)decalsIsActiveScene11[1];
+    tessConst.Decals[1].Scale = decalsScaleScene11[1];
+
+    tessConst.Decals[2].Position = decalsPositionScene11[2];
+    tessConst.Decals[2].DisplacementScale = decalsDisplacementScaleScene11[2];
+    tessConst.Decals[2].IsActive = (UINT)decalsIsActiveScene11[2];
+    tessConst.Decals[2].Scale = decalsScaleScene11[2];
+
+    auto currPassCB = mCurrFrameResource->TessCB.get();
+    currPassCB->CopyData(0, tessConst);
 }
 
 void Engine::ChangeTileObjectTiles()
@@ -2238,6 +2292,8 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterPostProcessing[3];
     CD3DX12_ROOT_PARAMETER slotRootParameterComputeNoise[2];
 
+    CD3DX12_ROOT_PARAMETER slotRootParameterTessellation[6];
+
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
     slotRootParameter[1].InitAsDescriptorTable(1, &texTableSpace1);
@@ -2293,6 +2349,13 @@ void Engine::BuildRootSignature()
     slotRootParameterComputeNoise[0].InitAsDescriptorTable(1, &texTableNoiseCompute);
     slotRootParameterComputeNoise[1].InitAsConstantBufferView(0);
 
+    slotRootParameterTessellation[0].InitAsDescriptorTable(1, &texTable);
+    slotRootParameterTessellation[1].InitAsDescriptorTable(1, &texTableSpace1);
+    slotRootParameterTessellation[2].InitAsConstantBufferView(0);
+    slotRootParameterTessellation[3].InitAsConstantBufferView(1);
+    slotRootParameterTessellation[4].InitAsConstantBufferView(2);
+    slotRootParameterTessellation[5].InitAsConstantBufferView(3);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -2339,6 +2402,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescComputeNoise(2, slotRootParameterComputeNoise,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescTess(6, slotRootParameterTessellation,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -2529,6 +2596,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureComputeNoise.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescTess, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureTess.GetAddressOf())));
 }
 
 
@@ -2623,7 +2707,7 @@ void Engine::BuildShapeGeometry()
     GeometryGenerator geoGen;
     GeometryGenerator::MeshData box = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
     GeometryGenerator::MeshData box2 = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
-    GeometryGenerator::MeshData box3 = geoGen.CreateBoxTiling(5.f, 5.f, 5.f, 1, 1);
+    GeometryGenerator::MeshData box3 = geoGen.CreateBoxTiling(5.f, 5.f, 5.f, 5, 1);
     GeometryGenerator::MeshData box4 = geoGen.CreateBoxTiling(1.f, 1.f, 1.f, 1, 1);
     GeometryGenerator::MeshData boxFPS = geoGen.CreateBoxTiling(2.f, 2.f, 2.f, 5, 1);
     GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.0f, 7, 7, 0.f, 0.f, 0.f);
@@ -3038,32 +3122,32 @@ void Engine::BuildScene5Geometry()
 {
     GeometryGenerator geoGen;
 
-    GeometryGenerator::MeshData tesselationBox = geoGen.CreateBox(5.0f, 5.0f, 5.0f, 0);
+    GeometryGenerator::MeshData tessellationBox = geoGen.CreateBox(5.0f, 5.0f, 5.0f, 0);
 
     UINT totalIndexCount = 0;
     UINT totalVertexCount = 0;
 
-    SubmeshGeometry tesselationBoxSubmesh;
-    tesselationBoxSubmesh.IndexCount = (UINT)tesselationBox.Indices32.size();
-    tesselationBoxSubmesh.StartIndexLocation = totalIndexCount;
-    tesselationBoxSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += tesselationBoxSubmesh.IndexCount;
-    totalVertexCount += tesselationBox.Vertices.size();
+    SubmeshGeometry tessellationBoxSubmesh;
+    tessellationBoxSubmesh.IndexCount = (UINT)tessellationBox.Indices32.size();
+    tessellationBoxSubmesh.StartIndexLocation = totalIndexCount;
+    tessellationBoxSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += tessellationBoxSubmesh.IndexCount;
+    totalVertexCount += tessellationBox.Vertices.size();
 
     std::vector<Vertex> vertices(totalVertexCount);
     std::vector<std::uint16_t> indices;
 
     UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < tesselationBox.Vertices.size(); ++i)
+    for (size_t i = 0; i < tessellationBox.Vertices.size(); ++i)
     {
-        vertices[i + totalVertexCount2].Pos = tesselationBox.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = tesselationBox.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = tesselationBox.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = tesselationBox.Vertices[i].TangentU;
+        vertices[i + totalVertexCount2].Pos = tessellationBox.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = tessellationBox.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = tessellationBox.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = tessellationBox.Vertices[i].TangentU;
     }
-    totalVertexCount2 += tesselationBox.Vertices.size();
+    totalVertexCount2 += tessellationBox.Vertices.size();
 
-    indices.insert(indices.end(), std::begin(tesselationBox.GetIndices16()), std::end(tesselationBox.GetIndices16()));
+    indices.insert(indices.end(), std::begin(tessellationBox.GetIndices16()), std::end(tessellationBox.GetIndices16()));
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
@@ -3088,7 +3172,7 @@ void Engine::BuildScene5Geometry()
     geo->IndexFormat = DXGI_FORMAT_R16_UINT;
     geo->IndexBufferByteSize = ibByteSize;
 
-    geo->DrawArgs["tesselationBox"] = tesselationBoxSubmesh;
+    geo->DrawArgs["tessellationBox"] = tessellationBoxSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -3552,7 +3636,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC decalsTessPsoDesc;
     ZeroMemory(&decalsTessPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     decalsTessPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    decalsTessPsoDesc.pRootSignature = mRootSignature.Get();
+    decalsTessPsoDesc.pRootSignature = mRootSignatureTess.Get();
     decalsTessPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["decalsTessVS"]->GetBufferPointer()),
@@ -3575,6 +3659,7 @@ void Engine::BuildPSOs()
     };
     decalsTessPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
     decalsTessPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    decalsTessPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     decalsTessPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     decalsTessPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     decalsTessPsoDesc.SampleMask = UINT_MAX;
@@ -3791,19 +3876,19 @@ void Engine::BuildRenderItems()
     mAllRitems.push_back(std::move(boxTileRitem));
 
 
-    auto stoneTesselationRitem = std::make_unique<RenderItem>();
-    stoneTesselationRitem->ObjCBIndex = 2;
-    XMStoreFloat4x4(&stoneTesselationRitem->World, DirectX::XMMatrixScaling(1.0f, 1.0f, 1.0f) * DirectX::XMMatrixTranslation(-3.0f, 0.0f, 0.0f));
-    stoneTesselationRitem->TexTransform = MathHelper::Identity4x4();
-    stoneTesselationRitem->Mat = mMaterials["stoneMaterial"].get();
-    stoneTesselationRitem->Geo = mGeometries["boxGeo"].get();
-    stoneTesselationRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-    stoneTesselationRitem->IndexCount = stoneTesselationRitem->Geo->DrawArgs["box3"].IndexCount;
-    stoneTesselationRitem->StartIndexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].StartIndexLocation;
-    stoneTesselationRitem->BaseVertexLocation = stoneTesselationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
-    mRitemLayer[(int)RenderLayer::Scene10].push_back(stoneTesselationRitem.get());
-    mRitemLayer[(int)RenderLayer::Scene11].push_back(stoneTesselationRitem.get());
-    mAllRitems.push_back(std::move(stoneTesselationRitem));
+    auto stoneTessellationRitem = std::make_unique<RenderItem>();
+    stoneTessellationRitem->ObjCBIndex = 2;
+    XMStoreFloat4x4(&stoneTessellationRitem->World, DirectX::XMMatrixScaling(1.0f, 1.0f, 1.0f) * DirectX::XMMatrixTranslation(-3.0f, 0.0f, 0.0f));
+    stoneTessellationRitem->TexTransform = MathHelper::Identity4x4();
+    stoneTessellationRitem->Mat = mMaterials["stoneMaterial"].get();
+    stoneTessellationRitem->Geo = mGeometries["boxGeo"].get();
+    stoneTessellationRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    stoneTessellationRitem->IndexCount = stoneTessellationRitem->Geo->DrawArgs["box3"].IndexCount;
+    stoneTessellationRitem->StartIndexLocation = stoneTessellationRitem->Geo->DrawArgs["box3"].StartIndexLocation;
+    stoneTessellationRitem->BaseVertexLocation = stoneTessellationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
+    mRitemLayer[(int)RenderLayer::Scene10].push_back(stoneTessellationRitem.get());
+    mRitemLayer[(int)RenderLayer::Scene11].push_back(stoneTessellationRitem.get());
+    mAllRitems.push_back(std::move(stoneTessellationRitem));
 
 
     auto boxInstancingRitem = std::make_unique<RenderItem>();
@@ -3983,18 +4068,18 @@ void Engine::BuildRenderItems()
     mRitemLayer[(int)RenderLayer::Scene4].push_back(tilingRitemScene4.get());
     mAllRitems.push_back(std::move(tilingRitemScene4));
 
-    auto tesselationRitemScene5 = std::make_unique<RenderItem>();
-    tesselationRitemScene5->World = MathHelper::Identity4x4();
-    tesselationRitemScene5->ObjCBIndex = 745;
-    tesselationRitemScene5->Mat = mMaterials["stoneMaterial"].get();
-    tesselationRitemScene5->Geo = mGeometries["scene5Geo"].get();
-    tesselationRitemScene5->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-    tesselationRitemScene5->IndexCount = tesselationRitemScene5->Geo->DrawArgs["tesselationBox"].IndexCount;
-    tesselationRitemScene5->StartIndexLocation = tesselationRitemScene5->Geo->DrawArgs["tesselationBox"].StartIndexLocation;
-    tesselationRitemScene5->BaseVertexLocation = tesselationRitemScene5->Geo->DrawArgs["tesselationBox"].BaseVertexLocation;
+    auto tessellationRitemScene5 = std::make_unique<RenderItem>();
+    tessellationRitemScene5->World = MathHelper::Identity4x4();
+    tessellationRitemScene5->ObjCBIndex = 745;
+    tessellationRitemScene5->Mat = mMaterials["stoneMaterial"].get();
+    tessellationRitemScene5->Geo = mGeometries["scene5Geo"].get();
+    tessellationRitemScene5->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    tessellationRitemScene5->IndexCount = tessellationRitemScene5->Geo->DrawArgs["tessellationBox"].IndexCount;
+    tessellationRitemScene5->StartIndexLocation = tessellationRitemScene5->Geo->DrawArgs["tessellationBox"].StartIndexLocation;
+    tessellationRitemScene5->BaseVertexLocation = tessellationRitemScene5->Geo->DrawArgs["tessellationBox"].BaseVertexLocation;
 
-    mRitemLayer[(int)RenderLayer::Scene5].push_back(tesselationRitemScene5.get());
-    mAllRitems.push_back(std::move(tesselationRitemScene5));
+    mRitemLayer[(int)RenderLayer::Scene5].push_back(tessellationRitemScene5.get());
+    mAllRitems.push_back(std::move(tessellationRitemScene5));
 
     auto particle2Ritem = std::make_unique<RenderItem>();
     particle2Ritem->World = MathHelper::Identity4x4();
@@ -5019,13 +5104,13 @@ void Engine::RenderUI()
         ImGui::Text("Scene 2: Day/night scene");
         ImGui::Text("Scene 3: Instancing/frumstum culling scene");
         ImGui::Text("Scene 4: Texture animation & Tiling scene");
-        ImGui::Text("Scene 5: Tesselation scene");
+        ImGui::Text("Scene 5: Tessellation scene");
         ImGui::Text("Scene 6: Particles scene");
         ImGui::Text("Scene 7: Shadows scene");
         ImGui::Text("Scene 8: Post-processing scene");
         ImGui::Text("Scene 9: PBR scene");
         ImGui::Text("Scene 10: Rendering Techniques");
-        ImGui::Text("Scene 11: Decals Tesselation");
+        ImGui::Text("Scene 11: Decals Tessellation");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -5147,9 +5232,9 @@ void Engine::RenderUI()
             ImGui::Checkbox("Parallax Mapping", &isParallaxMapping);
 
             ImGui::Text("");
-            ImGui::Text("Tesselation & Displacement");
+            ImGui::Text("Tessellation & Displacement");
             ImGui::Checkbox("Solid Mode", &isSolid);
-            ImGui::SliderFloat("Tesselation Factor", &tessFactor, 1.f, 64.f);
+            ImGui::SliderFloat("Tessellation Factor", &tessFactor, 1.f, 64.f);
             ImGui::SliderFloat("Displacement Level", &displacementLevel, 0.f, 5.f);
 
             ImGui::Text("");
@@ -5178,6 +5263,7 @@ void Engine::RenderUI()
 
             mAllRitems[0]->NumFramesDirty = 1;
             mAllRitems[1]->NumFramesDirty = 1;
+            mAllRitems[2]->NumFramesDirty = 1;
             mAllRitems[4]->NumFramesDirty = 1;
             mAllRitems[5]->NumFramesDirty = 1;
             mAllRitems[6]->NumFramesDirty = 1;
@@ -5225,9 +5311,9 @@ void Engine::RenderUI()
         else if (activeSceneID == 5)
         {
             ImGui::Text("");
-            ImGui::Text("Tesselation & Displacement");
+            ImGui::Text("Tessellation & Displacement");
             ImGui::Checkbox("Solid Mode", &isSolidScene5);
-            ImGui::SliderFloat("Tesselation Factor", &tessFactorScene5, 1.f, 64.f);
+            ImGui::SliderFloat("Tessellation Factor", &tessFactorScene5, 1.f, 64.f);
             ImGui::SliderFloat("Displacement Level", &displacementLevelScene5, 0.f, 5.f);
             mAllRitems[745]->NumFramesDirty = 1;
         }
@@ -5375,9 +5461,34 @@ void Engine::RenderUI()
         else if (activeSceneID == 11)
         {
             ImGui::Text("");
-            ImGui::Checkbox("Wireframe", &isWireframeScene10);
+            ImGui::Checkbox("Wireframe", &isWireframeScene11);
+            ImGui::Checkbox("Back Face Culling", &bIsBackCullingScene11);
+            ImGui::Checkbox("Displacement Adaptive Tess", &bIsDisplacementAdaptiveTessScene11);
+            ImGui::SliderFloat("Tessellation Factor", &tessFactorScene11, 1.0f, 64.0f);
             ImGui::Text("");
             ImGui::Text("Decals settings");
+            ImGui::Text("Decal 1");
+            ImGui::Checkbox("Is Active 1", &decalsIsActiveScene11[0]);
+            if (decalsIsActiveScene11[0])
+            {
+                ImGui::SliderFloat("Displacement Scale 1", &decalsDisplacementScaleScene11[0], 0.0f, 2.0f);
+                ImGui::SliderFloat("Decal Scale 1", &decalsScaleScene11[0], 0.5f, 3.0f);
+            }
+            ImGui::Text("Decal 2");
+            ImGui::Checkbox("Is Active 2", &decalsIsActiveScene11[1]);
+            if (decalsIsActiveScene11[1])
+            {
+                ImGui::SliderFloat("Displacement Scale 2", &decalsDisplacementScaleScene11[1], 0.0f, 2.0f);
+                ImGui::SliderFloat("Decal Scale 2", &decalsScaleScene11[1], 0.5f, 3.0f);
+            }
+            ImGui::Text("Decal 3");
+            ImGui::Checkbox("Is Active 3", &decalsIsActiveScene11[2]);
+            if (decalsIsActiveScene11[2])
+            {
+                ImGui::SliderFloat("Displacement Scale 3", &decalsDisplacementScaleScene11[2], 0.0f, 2.0f);
+                ImGui::SliderFloat("Decal Scale 3", &decalsScaleScene11[2], 0.5f, 3.0f);
+            }
+            mAllRitems[2]->NumFramesDirty = 1;
         }
     } ImGui::End();
 

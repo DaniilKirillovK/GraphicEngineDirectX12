@@ -53,11 +53,21 @@ struct LODConstants
     UINT LevelOfDetail;
 };
 
+struct TessConstants
+{
+    float TessFactor = 1.f;
+    UINT bIsBackCulling = 0;
+    UINT DisplacementAdaptiveTess = 0;
+    float pad0;
+
+    Decal Decals[MaxDecals];
+};
+
 struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-    float isTesselationNeeded = 1.0f;
+    float isTessellationNeeded = 1.0f;
     float scale = 1.0f;
 };
 
@@ -144,6 +154,7 @@ public:
     std::unique_ptr<UploadBuffer<NoiseComputeConstants>> NoiseCB = nullptr;
     std::unique_ptr<UploadBuffer<MoreSamplersConstants>> SamplersCB = nullptr;
     std::unique_ptr<UploadBuffer<LODConstants>> LODCB = nullptr;
+    std::unique_ptr<UploadBuffer<TessConstants>> TessCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.

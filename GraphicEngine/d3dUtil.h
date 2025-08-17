@@ -225,6 +225,17 @@ struct Light
 
 #define MaxLights 16
 
+struct Decal
+{
+    DirectX::XMFLOAT3 Position = { 0.f, 0.f, 0.f };
+    float DisplacementScale = 1.0f;
+    UINT IsActive = 0;
+    float Scale = 1.0f;
+    DirectX::XMFLOAT2 pad0;
+};
+
+#define MaxDecals 3
+
 struct MaterialConstants
 {
     DirectX::XMFLOAT4 DiffuseAlbedo = { 1.0f, 1.0f, 1.0f, 1.0f };

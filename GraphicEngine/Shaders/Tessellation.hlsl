@@ -31,7 +31,7 @@ cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
-    float isTesselationNeeded;
+    float isTessellationNeeded;
     float scale;
 };
 
@@ -152,7 +152,7 @@ PatchTess ConstantHS(InputPatch<VertexOut, 3> patch, uint patchID : SV_Primitive
     float tess = tessFactor * saturate((d1 - d) / (d1 - d0)) * saturate((d1 - d) / (d1 - d0));
 
 	// Uniformly tessellate the patch.
-    if (isTesselationNeeded == 1.f)
+    if (isTessellationNeeded == 1.f)
     {
         if (tess < 1.f)  
             tess = 1.f;
@@ -250,7 +250,7 @@ DomainOut DS(PatchTess patchTess,
 
     float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
     float displacementScale = 0.1f * displacementLevel;
-    if (isTesselationNeeded == 0.f)
+    if (isTessellationNeeded == 0.f)
         displacementScale = 0.0f;
     displacement = (2.f * displacement - 1.0f) * displacementScale;
 
