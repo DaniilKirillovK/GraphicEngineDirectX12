@@ -109,6 +109,8 @@ protected:
     virtual void BuildScene3Geometry() {}
     virtual void BuildScene4Geometry() {}
     virtual void BuildScene5Geometry() {}
+    virtual void BuildModelsGeometry() {}
+    virtual void BuildSponzaGeometryAndTextures() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
     virtual void CreateScene3RTV() {}
@@ -198,13 +200,16 @@ protected:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> postProcessingBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> noiseTexture;
-
+    Microsoft::WRL::ComPtr<ID3D12Resource> sponzaTextures[24];
+    Microsoft::WRL::ComPtr<ID3D12Resource> sponzaTexturesUpload[24];
+    
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRtvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSrvHeap;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mUavHeap;
 
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mParticlesSrvUavHeap;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSponzaSrvHeap;
 
     D3D12_VIEWPORT mScreenViewportFull;
     D3D12_VIEWPORT mScreenViewport;

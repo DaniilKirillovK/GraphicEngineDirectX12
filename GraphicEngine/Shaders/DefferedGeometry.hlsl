@@ -1,15 +1,3 @@
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 3
-#endif
-
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 3
-#endif
-
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 2
-#endif
-
 #include "LightingUtil.hlsl"
 #include "Common.hlsl"
 
@@ -22,11 +10,20 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
+struct GBuffer
+{
+    float4 Albedo : SV_TARGET0;
+    float4 Position : SV_TARGET1;
+    float4 Normal : SV_TARGET2;
+    float4 Specular : SV_TARGET3;
+};
+
+
 cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
-    float isTesselationNeeded;
+    float isTessellationNeeded;
     float scale;
 };
 
@@ -103,7 +100,6 @@ VertexOut VS(VertexIn vin)
    
     // Transform to world space.
     float4 posW = mul(float4(vin.PosL * scale, 1.0f), gWorld);
-
     vout.PosW = posW.xyz;
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
@@ -122,34 +118,22 @@ VertexOut VS(VertexIn vin)
     return vout;
 }
 
-float4 PS(VertexOut pin) : SV_Target
+GBuffer PS(VertexOut pin)
 {
-    float4 Position = float4(pin.PosW, 1.0f);
+    GBuffer gBuffer;
+    gBuffer.Position = float4(pin.PosW, 1.0f);
     
-    float2 TexCoord = pin.TexC;
-    float4 Albedo = float4((gTextures[0].Sample(gsamLinearWrap, TexCoord) * gDiffuseAlbedo * pin.Color).xyz, 1.0f);
+    float2 texCoord = pin.TexC;
+    gBuffer.Albedo = float4((gTextures[0].Sample(gsamLinearWrap, texCoord) * gDiffuseAlbedo * pin.Color).xyz, 1.0f);
     
     float3 normalMap = pin.NormalW;
     
-    float4 Normal = float4(normalMap, 1.0f);
+    gBuffer.Normal = float4(normalMap, 1.0f);
     
     float3 Roughness = float3(gRoughness, gRoughness, gRoughness);
     float3 AO = float3(0.5f, 0.5f, 0.5f);
     
-    float3 toEyeW = normalize(gEyePosW - Position.xyz);
+    gBuffer.Specular = float4(Roughness.xyz, AO.x);
 
-    // Light terms.
-    float4 ambient = gAmbientLight * Albedo;
-
-    float3 gFresnelR0 = float3(0.01f, 0.01f, 0.01f);
-    
-    const float shininess = 1.0f - Roughness.x;
-    Material mat = { Albedo, gFresnelR0, shininess };
-    float3 shadowFactor = float3(AO.x, AO.x, AO.x);
-    float4 directLight = ComputeLighting(gLights, mat, Position.xyz,
-        Normal.xyz, toEyeW, shadowFactor);
-    
-    float4 litColor = ambient + directLight;
-
-    return litColor;
+    return gBuffer;
 }

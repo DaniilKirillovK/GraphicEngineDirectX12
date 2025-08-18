@@ -71,16 +71,16 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
-    <IncludePath>imgui</IncludePath>
+    <IncludePath>imgui; stb_image</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>imgui</IncludePath>
+    <IncludePath>imgui; stb_image</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
-    <IncludePath>imgui</IncludePath>
+    <IncludePath>imgui; stb_image</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>imgui</IncludePath>
+    <IncludePath>imgui; stb_image</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -171,7 +171,7 @@
     <ClCompile Include="Instancing.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MathHelper.cpp" />
-    <ClCompile Include="Model.cpp" />
+    <ClCompile Include="ModelLoader.cpp" />
     <ClCompile Include="Particles.cpp" />
     <ClCompile Include="ParticleSystem.cpp" />
   </ItemGroup>
@@ -197,10 +197,12 @@
     <ClInclude Include="imgui\imstb_truetype.h" />
     <ClInclude Include="Instancing.h" />
     <ClInclude Include="MathHelper.h" />
-    <ClInclude Include="Model.h" />
     <ClInclude Include="ModelHelper.h" />
+    <ClInclude Include="ModelLoader.h" />
     <ClInclude Include="Particles.h" />
     <ClInclude Include="ParticleSystem.h" />
+    <ClInclude Include="SponzaLoader.h" />
+    <ClInclude Include="stb_image.h" />
     <ClInclude Include="UploadBuffer.h" />
   </ItemGroup>
   <ItemGroup>

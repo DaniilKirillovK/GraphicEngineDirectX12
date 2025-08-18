@@ -512,6 +512,8 @@ BuildShapeGeometry();
 BuildScene3Geometry();
 BuildScene4Geometry();
 BuildScene5Geometry();
+//BuildModelsGeometry();
+BuildSponzaGeometryAndTextures();
 BuildBillboardSpritesGeometry();
 InitParticleSystem();
 BuildMaterials();

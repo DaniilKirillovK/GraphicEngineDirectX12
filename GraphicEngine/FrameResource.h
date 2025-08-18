@@ -58,7 +58,7 @@ struct TessConstants
     float TessFactor = 1.f;
     UINT bIsBackCulling = 0;
     UINT DisplacementAdaptiveTess = 0;
-    float pad0;
+    UINT DistantAdaptiveTess = 0;
 
     Decal Decals[MaxDecals];
 };

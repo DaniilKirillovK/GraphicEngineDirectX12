@@ -16,9 +16,10 @@
 #include "FrameResource.h"
 #include "Camera.h"
 #include "GBuffer.h"
-#include "Model.h"
 #include "Instancing.h"
 #include "ParticleSystem.h"
+#include "ModelLoader.h"
+#include "SponzaLoader.h"
 
 extern "C" { _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
 
@@ -73,6 +74,7 @@ struct FrameContext
 
 ExampleDescriptorHeapAllocator mSrvHeapAllocator;
 ExampleDescriptorHeapAllocator mSrvHeapAllocator2;
+ExampleDescriptorHeapAllocator mSrvHeapAllocatorSponza;
 ExampleDescriptorHeapAllocator mUavHeapAllocator;
 
 std::string ParseTime(const GameTimer &gt)
@@ -146,6 +148,8 @@ private:
     virtual void BuildScene3Geometry() override;
     virtual void BuildScene4Geometry() override;
     virtual void BuildScene5Geometry() override;
+    virtual void BuildModelsGeometry() override;
+    virtual void BuildSponzaGeometryAndTextures() override;
     virtual void BuildPSOs() override;
     virtual void BuildPostProcessingResources() override;
     virtual void CreateNoiseTexture() override;
@@ -174,6 +178,7 @@ private:
     void DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawSponzaScene(ID3D12GraphicsCommandList* cmdList);
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
@@ -202,6 +207,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureComputeNoise = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureMoreSamplers = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureTess = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureRT = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -237,6 +243,8 @@ private:
 
     Camera mCamera;
     Camera mCamera2Scene3;
+
+    Model Sponza;
 
     float tilesCount = 1.0f;
 
@@ -382,6 +390,7 @@ bool isWireframeScene11 = false;
 float tessFactorScene11 = 1.0f;
 bool bIsBackCullingScene11 = false;
 bool bIsDisplacementAdaptiveTessScene11 = false;
+bool bIsDistantAdaptiveTessScene11 = false;
 DirectX::XMFLOAT3 decalsPositionScene11[3] = 
 {
     DirectX::XMFLOAT3(0.f, 1.0f, -2.5f),
@@ -1176,9 +1185,9 @@ void Engine::Draw(const GameTimer& gt)
     {
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatureRT.Get());
 
-        mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -1203,8 +1212,13 @@ void Engine::Draw(const GameTimer& gt)
 
             mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
-            mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+            mCommandList->SetPipelineState(mPSOs["defferedRT"].Get());
 
+            ID3D12DescriptorHeap* descriptorHeapSponza[] = { mSponzaSrvHeap.Get() };
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeapSponza), descriptorHeapSponza);
+            DrawSponzaScene(mCommandList.Get());
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
             DrawRenderItemsScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10]);
 
             // Indicate a state transition on the resource usage.
@@ -1238,6 +1252,11 @@ void Engine::Draw(const GameTimer& gt)
 
             mCommandList->SetPipelineState(mPSOs["forwardRT"].Get());
 
+            ID3D12DescriptorHeap* descriptorHeapSponza[] = { mSponzaSrvHeap.Get() };
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeapSponza), descriptorHeapSponza);
+            DrawSponzaScene(mCommandList.Get());
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
             DrawRenderItemsScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10]);
 
             // Indicate a state transition on the resource usage.
@@ -1925,6 +1944,9 @@ void Engine::UpdateTessCB()
     if (bIsDisplacementAdaptiveTessScene11)
         tessConst.DisplacementAdaptiveTess = 1;
     else tessConst.DisplacementAdaptiveTess = 0;
+    if (bIsDistantAdaptiveTessScene11)
+        tessConst.DistantAdaptiveTess = 1;
+    else tessConst.DistantAdaptiveTess = 0;
     tessConst.TessFactor = tessFactorScene11;
 
     tessConst.Decals[0].Position = decalsPositionScene11[0];
@@ -2105,6 +2127,17 @@ void Engine::BuildDescriptorHeaps()
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvParticlesHeapDesc, IID_PPV_ARGS(&mParticlesSrvUavHeap)));
 
     mSrvHeapAllocator2.Create(md3dDevice.Get(), mParticlesSrvUavHeap.Get());
+
+    //
+    // Create sponza SRV heap.
+    //
+    D3D12_DESCRIPTOR_HEAP_DESC srvSponzaHeapDesc = {};
+    srvSponzaHeapDesc.NumDescriptors = 30;
+    srvSponzaHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    srvSponzaHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvSponzaHeapDesc, IID_PPV_ARGS(&mSponzaSrvHeap)));
+
+    mSrvHeapAllocatorSponza.Create(md3dDevice.Get(), mSponzaSrvHeap.Get());
 }
 
 void Engine::UploadTextures()
@@ -2274,6 +2307,9 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableNoiseCompute;
     texTableNoiseCompute.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableRT;
+    texTableRT.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -2293,6 +2329,8 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterComputeNoise[2];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterTessellation[6];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterRT[4];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -2356,6 +2394,11 @@ void Engine::BuildRootSignature()
     slotRootParameterTessellation[4].InitAsConstantBufferView(2);
     slotRootParameterTessellation[5].InitAsConstantBufferView(3);
 
+    slotRootParameterRT[0].InitAsDescriptorTable(1, &texTableRT);
+    slotRootParameterRT[1].InitAsConstantBufferView(0);
+    slotRootParameterRT[2].InitAsConstantBufferView(1);
+    slotRootParameterRT[3].InitAsConstantBufferView(2);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -2406,6 +2449,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescTess(6, slotRootParameterTessellation,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescRT(4, slotRootParameterRT,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -2613,6 +2660,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureTess.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescRT, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureRT.GetAddressOf())));
 }
 
 
@@ -2659,9 +2723,10 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["moreSamplersPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\MoreTextureSamples.hlsl", nullptr, "PS", "ps_5_1");
 
     mShaders["forwardRT_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "VS", "vs_5_1");
-    mShaders["forwardRT_HS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "HS", "hs_5_1");
-    mShaders["forwardRT_DS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "DS", "ds_5_1");
     mShaders["forwardRT_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Forward.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["defferedRT_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedGeometry.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["defferedRT_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedGeometry.hlsl", nullptr, "PS", "ps_5_1");
 
     mShaders["decalsTessVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DecalsTessellation.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["decalsTessHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DecalsTessellation.hlsl", nullptr, "HS", "hs_5_1");
@@ -3177,6 +3242,54 @@ void Engine::BuildScene5Geometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
+void Engine::BuildModelsGeometry()
+{
+    std::vector<Vertex> vertices;
+    std::vector<std::uint32_t> indices;
+
+    ModelLoader::LoadModel("Sponza/sponza.obj", vertices, indices);
+
+    SubmeshGeometry fishSubmesh;
+    fishSubmesh.IndexCount = indices.size();
+    fishSubmesh.StartIndexLocation = 0;
+    fishSubmesh.BaseVertexLocation = 0;
+    fishSubmesh.VertexCount = vertices.size();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "ModelsGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["Fish"] = fishSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void Engine::BuildSponzaGeometryAndTextures()
+{
+    LoadModel("Sponza/sponza.obj", Sponza, md3dDevice.Get(),
+        mGeometries, mCommandList, mSponzaSrvHeap, mCbvSrvDescriptorSize,
+        sponzaTextures, sponzaTexturesUpload);
+}
+
 
 void Engine::BuildPSOs()
 {
@@ -3598,21 +3711,11 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC forwardRTPsoDesc;
     ZeroMemory(&forwardRTPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     forwardRTPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    forwardRTPsoDesc.pRootSignature = mRootSignature.Get();
+    forwardRTPsoDesc.pRootSignature = mRootSignatureRT.Get();
     forwardRTPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["forwardRT_VS"]->GetBufferPointer()),
         mShaders["forwardRT_VS"]->GetBufferSize()
-    };
-    forwardRTPsoDesc.HS =
-    {
-        reinterpret_cast<BYTE*>(mShaders["forwardRT_HS"]->GetBufferPointer()),
-        mShaders["forwardRT_HS"]->GetBufferSize()
-    };
-    forwardRTPsoDesc.DS =
-    {
-        reinterpret_cast<BYTE*>(mShaders["forwardRT_DS"]->GetBufferPointer()),
-        mShaders["forwardRT_DS"]->GetBufferSize()
     };
     forwardRTPsoDesc.PS =
     {
@@ -3624,13 +3727,44 @@ void Engine::BuildPSOs()
     forwardRTPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     forwardRTPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     forwardRTPsoDesc.SampleMask = UINT_MAX;
-    forwardRTPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    forwardRTPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     forwardRTPsoDesc.NumRenderTargets = 1;
     forwardRTPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     forwardRTPsoDesc.SampleDesc.Count = 1;
     forwardRTPsoDesc.SampleDesc.Quality = 0;
     forwardRTPsoDesc.DSVFormat = mDepthStencilFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&forwardRTPsoDesc, IID_PPV_ARGS(&mPSOs["forwardRT"])));
+
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedRTPsoDesc;
+    ZeroMemory(&defferedRTPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    defferedRTPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    defferedRTPsoDesc.pRootSignature = mRootSignatureRT.Get();
+    defferedRTPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["defferedRT_VS"]->GetBufferPointer()),
+        mShaders["defferedRT_VS"]->GetBufferSize()
+    };
+    defferedRTPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["defferedRT_PS"]->GetBufferPointer()),
+        mShaders["defferedRT_PS"]->GetBufferSize()
+    };
+    defferedRTPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    defferedRTPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    defferedRTPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    defferedRTPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    defferedRTPsoDesc.SampleMask = UINT_MAX;
+    defferedRTPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    defferedRTPsoDesc.NumRenderTargets = 4;
+    defferedRTPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    defferedRTPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    defferedRTPsoDesc.RTVFormats[2] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    defferedRTPsoDesc.RTVFormats[3] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    defferedRTPsoDesc.SampleDesc.Count = 1;
+    defferedRTPsoDesc.SampleDesc.Quality = 0;
+    defferedRTPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedRTPsoDesc, IID_PPV_ARGS(&mPSOs["defferedRT"])));
 
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC decalsTessPsoDesc;
@@ -3860,7 +3994,6 @@ void Engine::BuildRenderItems()
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
     boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
     boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
-    mRitemLayer[(int)RenderLayer::Scene10].push_back(boxRitem.get());
     mAllRitems.push_back(std::move(boxRitem));
 
     auto boxTileRitem = std::make_unique<RenderItem>();
@@ -3872,7 +4005,6 @@ void Engine::BuildRenderItems()
     boxTileRitem->IndexCount = boxTileRitem->Geo->DrawArgs["box2"].IndexCount;
     boxTileRitem->StartIndexLocation = boxTileRitem->Geo->DrawArgs["box2"].StartIndexLocation;
     boxTileRitem->BaseVertexLocation = boxTileRitem->Geo->DrawArgs["box2"].BaseVertexLocation;
-    mRitemLayer[(int)RenderLayer::Scene10].push_back(boxTileRitem.get());
     mAllRitems.push_back(std::move(boxTileRitem));
 
 
@@ -3886,7 +4018,6 @@ void Engine::BuildRenderItems()
     stoneTessellationRitem->IndexCount = stoneTessellationRitem->Geo->DrawArgs["box3"].IndexCount;
     stoneTessellationRitem->StartIndexLocation = stoneTessellationRitem->Geo->DrawArgs["box3"].StartIndexLocation;
     stoneTessellationRitem->BaseVertexLocation = stoneTessellationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
-    mRitemLayer[(int)RenderLayer::Scene10].push_back(stoneTessellationRitem.get());
     mRitemLayer[(int)RenderLayer::Scene11].push_back(stoneTessellationRitem.get());
     mAllRitems.push_back(std::move(stoneTessellationRitem));
 
@@ -4093,6 +4224,28 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::Particles2].push_back(particle2Ritem.get());
     mAllRitems.push_back(std::move(particle2Ritem));
+
+    /*auto fishRitem = std::make_unique<RenderItem>();
+    fishRitem->World = MathHelper::Identity4x4();
+    fishRitem->ObjCBIndex = 747;
+    fishRitem->Mat = mMaterials["stoneMaterial"].get();
+    fishRitem->Geo = mGeometries["ModelsGeo"].get();
+    fishRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    fishRitem->IndexCount = fishRitem->Geo->DrawArgs["Fish"].IndexCount;
+    fishRitem->StartIndexLocation = fishRitem->Geo->DrawArgs["Fish"].StartIndexLocation;
+    fishRitem->BaseVertexLocation = fishRitem->Geo->DrawArgs["Fish"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene10].push_back(fishRitem.get());
+    mAllRitems.push_back(std::move(fishRitem));*/
+
+    auto sponzaRitem = std::make_unique<RenderItem>();
+    sponzaRitem->World = MathHelper::Identity4x4();
+    sponzaRitem->ObjCBIndex = 747;
+    sponzaRitem->Mat = mMaterials["stoneMaterial"].get();
+    sponzaRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+    mAllRitems.push_back(std::move(sponzaRitem));
+
 
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
@@ -4465,7 +4618,8 @@ void Engine::InitInstanceBuffer()
         nullptr,
         IID_PPV_ARGS(&instanceUploadBuffer));
 
-    D3D12_SUBRESOURCE_DATA instanceDataSub = {
+    D3D12_SUBRESOURCE_DATA instanceDataSub = 
+    {
         .pData = instanceData.data(),
         .RowPitch = instanceBufferSize,
         .SlicePitch = instanceBufferSize
@@ -4828,6 +4982,38 @@ void Engine::DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const st
 
             cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
+    }
+}
+
+void Engine::DrawSponzaScene(ID3D12GraphicsCommandList* cmdList)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    for (int i = 0; i < Sponza.meshes.size(); ++i)
+    {
+        auto ri = mAllRitems[747].get();
+
+        auto tmp1 = Sponza.meshes[i].vertexBufferView;
+        auto tmp2 = Sponza.meshes[i].indexBufferView;
+        cmdList->IASetVertexBuffers(0, 1, &tmp1);
+        cmdList->IASetIndexBuffer(&tmp2);
+        cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        tex.Offset(Sponza.meshes[i].materialIndex, mCbvSrvDescriptorSize);
+
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+        cmdList->SetGraphicsRootDescriptorTable(0, tex);
+        cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+        cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+        cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
     }
 }
 
@@ -5457,12 +5643,14 @@ void Engine::RenderUI()
                 ImGui::Text("Other settings");
                 ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfoScene10);
             }
+            mAllRitems[2]->NumFramesDirty = 1;
         }
         else if (activeSceneID == 11)
         {
             ImGui::Text("");
             ImGui::Checkbox("Wireframe", &isWireframeScene11);
             ImGui::Checkbox("Back Face Culling", &bIsBackCullingScene11);
+            ImGui::Checkbox("Distance Adaptive Tess", &bIsDistantAdaptiveTessScene11);
             ImGui::Checkbox("Displacement Adaptive Tess", &bIsDisplacementAdaptiveTessScene11);
             ImGui::SliderFloat("Tessellation Factor", &tessFactorScene11, 1.0f, 64.0f);
             ImGui::Text("");

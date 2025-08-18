@@ -100,7 +100,7 @@ cbuffer cbTess : register(b3)
     float gTessFactor;
     int bIsBackCulling;
     int bIsDisplacementAdaptiveTess;
-    float pad0;
+    int bIsDistantAdaptiveTess;
     
     Decal gDecals[MaxDecals];
 }
@@ -196,7 +196,11 @@ PatchTess ConstantHS(InputPatch<VertexOut, 3> patch, uint patchID : SV_Primitive
 	
         const float d0 = 5.0f;
         const float d1 = 30.0f;
-        float tess = gTessFactor * saturate((d1 - d) / (d1 - d0)) * saturate((d1 - d) / (d1 - d0));
+        float tess = 64.0f;
+        if (bIsDistantAdaptiveTess == 1)
+        {
+            tess = gTessFactor * saturate((d1 - d) / (d1 - d0)) * saturate((d1 - d) / (d1 - d0));
+        }
 
 	    // Uniformly tessellate the patch.
         if (tess > gTessFactor)
