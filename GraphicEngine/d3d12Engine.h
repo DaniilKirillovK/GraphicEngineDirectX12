@@ -102,6 +102,7 @@ protected:
     virtual void OnMouseUp(WPARAM btnState, int x, int y) {}
     virtual void OnMouseMove(WPARAM btnState, int x, int y) {}
 
+    virtual void BuildShadowMaps() {}
     virtual void BuildDescriptorHeaps() {}
     virtual void BuildRootSignature() {}
     virtual void BuildShadersAndInputLayout() {}
@@ -141,6 +142,7 @@ protected:
     D3D12_CPU_DESCRIPTOR_HANDLE CurrentBackBufferView()const;
     D3D12_CPU_DESCRIPTOR_HANDLE OtherBackBufferView()const;
     D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilView()const;
+    D3D12_CPU_DESCRIPTOR_HANDLE DepthStencilShadowsView()const;
 
     ID3D12Resource* Scene3RenderTargetBuffer()const;
     D3D12_CPU_DESCRIPTOR_HANDLE Scene3RenderTargetBufferView()const;

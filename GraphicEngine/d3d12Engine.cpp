@@ -112,7 +112,7 @@ void D3D12Engine::CreateRtvAndDsvDescriptorHeaps()
 
 
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 2;
+	dsvHeapDesc.NumDescriptors = 3;
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	dsvHeapDesc.NodeMask = 0;
@@ -505,6 +505,7 @@ mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCR
 
 LoadTextures();
 BuildRootSignature();
+BuildShadowMaps();
 BuildDescriptorHeaps();
 UploadTextures();
 BuildShadersAndInputLayout();
@@ -526,6 +527,8 @@ InitInstanceBuffer();
 UploadTextures2();
 BuildPostProcessingResources();
 CreateNoiseTexture();
+
+
 
 // Execute the initialization commands.
 ThrowIfFailed(mCommandList->Close());
@@ -672,6 +675,13 @@ D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::OtherBackBufferView() const
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::DepthStencilView()const
 {
 	return mDsvHeap->GetCPUDescriptorHandleForHeapStart();
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::DepthStencilShadowsView() const
+{
+	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mDsvHeap->GetCPUDescriptorHandleForHeapStart());
+	handle.Offset(2, mDsvDescriptorSize);
+	return handle;
 }
 
 ID3D12Resource* D3D12Engine::Scene3RenderTargetBuffer() const

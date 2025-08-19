@@ -91,7 +91,7 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
         &heapProp,
         D3D12_HEAP_FLAG_NONE,
         &particleBufferDesc,
-        D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_PRESENT,
         nullptr,
         IID_PPV_ARGS(&particleBuffers[0]));
 
@@ -99,7 +99,7 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
         &heapProp,
         D3D12_HEAP_FLAG_NONE,
         &particleBufferDesc,
-        D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_PRESENT,
         nullptr,
         IID_PPV_ARGS(&particleBuffers[1]));
 
