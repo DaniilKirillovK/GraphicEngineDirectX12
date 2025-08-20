@@ -141,7 +141,13 @@ struct PassConstantsShadows
     float displacementLevel = 1.0f;
 
     float isNegative = 0.0f;
-    DirectX::XMFLOAT3 cbPad;
+    UINT BIsTexturedShadows = 0;
+    UINT ShadowTextureID = 1;
+    UINT BIsCascadedShadows = 0;
+
+    UINT ShadowSizeID = 3;
+    UINT ShadowFilteringID = 2;
+    DirectX::XMFLOAT2 pad0;
 
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;

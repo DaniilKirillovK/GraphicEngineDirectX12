@@ -199,7 +199,7 @@ private:
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetMoreStaticSamplers();
     std::array<CD3DX12_STATIC_SAMPLER_DESC, 4> GetLODStaticSamplers();
-    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetLODStaticSamplersShadow();
+    std::array<const CD3DX12_STATIC_SAMPLER_DESC, 9> GetLODStaticSamplersShadow();
 
 private:
 
@@ -441,6 +441,11 @@ bool decalsIsActiveScene11[3] = { false, false, false };
 float decalsScaleScene11[3] = { 1.0f, 1.0f, 1.0f };
 
 float directionalLightPositionScene7 = 0.f;
+bool isTexturedShadowsScene7 = false;
+int shadowTextureIDScene7 = 1;
+bool isUsingCascadedShadowsScene7 = false;
+int shadowSizeIDScene7 = 3;
+int shadowFilteringIDScene7 = 2;
 
 
 
@@ -1295,6 +1300,9 @@ void Engine::Draw(const GameTimer& gt)
 
         passCB = mCurrFrameResource->PassCBShadows->Resource();
         mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+        CD3DX12_GPU_DESCRIPTOR_HANDLE shadowTextures(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        shadowTextures.Offset(28, mCbvSrvDescriptorSize);
+        mCommandList->SetGraphicsRootDescriptorTable(5, shadowTextures);
 
         mCommandList->SetPipelineState(mPSOs["shadowForwardPSO"].Get());
         DrawRenderItemsScene7(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene7]);
@@ -2071,6 +2079,17 @@ void Engine::UpdateMainPassCBShadows(const GameTimer& gt)
     mMainPassCBShadows.Lights[2].Direction = mRotatedLightDirections[2];
     mMainPassCBShadows.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
 
+    mMainPassCBShadows.ShadowTextureID = shadowTextureIDScene7;
+    if (isTexturedShadowsScene7)
+        mMainPassCBShadows.BIsTexturedShadows = 1;
+    else mMainPassCBShadows.BIsTexturedShadows = 0;
+
+    mMainPassCBShadows.ShadowSizeID = shadowSizeIDScene7;
+    if (isUsingCascadedShadowsScene7)
+        mMainPassCBShadows.BIsCascadedShadows = 1;
+    else mMainPassCBShadows.BIsCascadedShadows = 0;
+    mMainPassCBShadows.ShadowFilteringID = shadowFilteringIDScene7;
+
     auto currPassCB = mCurrFrameResource->PassCBShadows.get();
     currPassCB->CopyData(0, mMainPassCBShadows);
 }
@@ -2091,6 +2110,29 @@ void Engine::UpdateShadowPassCB(const GameTimer& gt)
 
     UINT w = mShadowMap2048->Width();
     UINT h = mShadowMap2048->Height();
+    if (!isUsingCascadedShadowsScene7)
+    {
+        if (shadowSizeIDScene7 == 3)
+        {
+            w = mShadowMap2048->Width();
+            h = mShadowMap2048->Height();
+        }
+        else if (shadowSizeIDScene7 == 2)
+        {
+            w = mShadowMap1024->Width();
+            h = mShadowMap1024->Height();
+        }
+        else if (shadowSizeIDScene7 == 2)
+        {
+            w = mShadowMap512->Width();
+            h = mShadowMap512->Height();
+        }
+        else
+        {
+            w = mShadowMap256->Width();
+            h = mShadowMap256->Height();
+        }
+    }
 
     DirectX::XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
     DirectX::XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
@@ -2110,7 +2152,7 @@ void Engine::UpdateShadowPassCB(const GameTimer& gt)
 
 void Engine::UpdateShadowTransform(const GameTimer& gt)
 {
-    float sceneRadius = 30.f;
+    float sceneRadius = 50.f;
     DirectX::XMFLOAT3 sceneCenter(0.0f, 0.0f, 0.0f);
     // Only the first "main" light casts a shadow.
     DirectX::XMVECTOR lightDir = DirectX::XMLoadFloat3(&mRotatedLightDirections[0]);
@@ -2411,6 +2453,30 @@ void Engine::LoadTextures()
         mCommandList.Get(), particle2Tex->Filename.c_str(),
         particle2Tex->Resource, particle2Tex->UploadHeap), true);
     mTextures[particle2Tex->Name] = std::move(particle2Tex);
+
+    auto shadow1Tex = std::make_unique<Texture>();
+    shadow1Tex->Name = "Shadow1Tex";
+    shadow1Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\Shadow1Tex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), shadow1Tex->Filename.c_str(),
+        shadow1Tex->Resource, shadow1Tex->UploadHeap), true);
+    mTextures[shadow1Tex->Name] = std::move(shadow1Tex);
+
+    auto shadow2Tex = std::make_unique<Texture>();
+    shadow2Tex->Name = "Shadow2Tex";
+    shadow2Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\StoneTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), shadow2Tex->Filename.c_str(),
+        shadow2Tex->Resource, shadow2Tex->UploadHeap), true);
+    mTextures[shadow2Tex->Name] = std::move(shadow2Tex);
+
+    auto shadow3Tex = std::make_unique<Texture>();
+    shadow3Tex->Name = "Shadow3Tex";
+    shadow3Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\MetalTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), shadow3Tex->Filename.c_str(),
+        shadow3Tex->Resource, shadow3Tex->UploadHeap), true);
+    mTextures[shadow3Tex->Name] = std::move(shadow3Tex);
 }
 
 void Engine::BuildShadowMaps()
@@ -2465,10 +2531,50 @@ void Engine::BuildShadowMapsDescriptors()
     auto srvGpuStart = mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart();
     auto dsvCpuStart = mDsvHeap->GetCPUDescriptorHandleForHeapStart();
 
-    mShadowMap2048->BuildDescriptors(
+    mShadowMap256->BuildDescriptors(
         CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, 24, mCbvSrvUavDescriptorSize),
         CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, 24, mCbvSrvUavDescriptorSize),
         CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 2, mDsvDescriptorSize));
+
+    mShadowMap512->BuildDescriptors(
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, 25, mCbvSrvUavDescriptorSize),
+        CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, 25, mCbvSrvUavDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 3, mDsvDescriptorSize));
+
+    mShadowMap1024->BuildDescriptors(
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, 26, mCbvSrvUavDescriptorSize),
+        CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, 26, mCbvSrvUavDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 4, mDsvDescriptorSize));
+
+    mShadowMap2048->BuildDescriptors(
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, 27, mCbvSrvUavDescriptorSize),
+        CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, 27, mCbvSrvUavDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 5, mDsvDescriptorSize));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSponzaSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(28, mCbvSrvDescriptorSize);
+
+    auto ShadowTex1 = mTextures["Shadow1Tex"]->Resource;
+    auto ShadowTex2 = mTextures["Shadow2Tex"]->Resource;
+    auto ShadowTex3 = mTextures["Shadow3Tex"]->Resource;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc1 = {};
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = ShadowTex1->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(ShadowTex1.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc1.Format = ShadowTex2->GetDesc().Format;
+    md3dDevice->CreateShaderResourceView(ShadowTex2.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    srvDesc1.Format = ShadowTex3->GetDesc().Format;
+    md3dDevice->CreateShaderResourceView(ShadowTex3.Get(), &srvDesc1, hDescriptor);
 }
 
 void Engine::UploadTextures()
@@ -2645,9 +2751,11 @@ void Engine::BuildRootSignature()
     texTableShadowPass.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
     CD3DX12_DESCRIPTOR_RANGE texTableShadowForward0;
-    texTableShadowForward0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    texTableShadowForward0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 4, 0, 0);
     CD3DX12_DESCRIPTOR_RANGE texTableShadowForward1;
     texTableShadowForward1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+    CD3DX12_DESCRIPTOR_RANGE texTableShadowForward2;
+    texTableShadowForward2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 2);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
@@ -2672,7 +2780,7 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterRT[4];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsPass[4];
-    CD3DX12_ROOT_PARAMETER slotRootParameterShadowsForward[5];
+    CD3DX12_ROOT_PARAMETER slotRootParameterShadowsForward[6];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -2751,6 +2859,7 @@ void Engine::BuildRootSignature()
     slotRootParameterShadowsForward[2].InitAsConstantBufferView(0);
     slotRootParameterShadowsForward[3].InitAsConstantBufferView(1);
     slotRootParameterShadowsForward[4].InitAsConstantBufferView(2);
+    slotRootParameterShadowsForward[5].InitAsDescriptorTable(1, &texTableShadowForward2);
 
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
@@ -2814,7 +2923,7 @@ void Engine::BuildRootSignature()
         (UINT)shadowSamplers.size(), shadowSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescShadowsForward(5, slotRootParameterShadowsForward,
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescShadowsForward(6, slotRootParameterShadowsForward,
         (UINT)shadowSamplers.size(), shadowSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -5648,19 +5757,83 @@ void Engine::DrawSceneToShadowMap()
     auto objectCB = mCurrFrameResource->ObjectCB->Resource();
     auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
-    auto viewport = mShadowMap2048->Viewport();
-    auto scissorsRect = mShadowMap2048->ScissorRect();
+    D3D12_VIEWPORT viewport;
+    D3D12_RECT scissorsRect;
+    CD3DX12_RESOURCE_BARRIER barrier1;
+    CD3DX12_RESOURCE_BARRIER barrier2;
+    CD3DX12_CPU_DESCRIPTOR_HANDLE dsv;
+
+    if (!isUsingCascadedShadowsScene7)
+    {
+        if (shadowSizeIDScene7 == 3)
+        {
+            viewport = mShadowMap2048->Viewport();
+            scissorsRect = mShadowMap2048->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap2048->Dsv();
+        }
+        else if (shadowSizeIDScene7 == 2)
+        {
+            viewport = mShadowMap1024->Viewport();
+            scissorsRect = mShadowMap1024->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap1024->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap1024->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap1024->Dsv();
+        }
+        else if (shadowSizeIDScene7 == 1)
+        {
+            viewport = mShadowMap512->Viewport();
+            scissorsRect = mShadowMap512->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap512->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap512->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap512->Dsv();
+        }
+        else if (shadowSizeIDScene7 == 0)
+        {
+            viewport = mShadowMap256->Viewport();
+            scissorsRect = mShadowMap256->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap256->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap256->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap256->Dsv();
+        }
+        else 
+        {
+            viewport = mShadowMap2048->Viewport();
+            scissorsRect = mShadowMap2048->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap2048->Dsv();
+        }
+    }
+    else
+    {
+        viewport = mShadowMap2048->Viewport();
+        scissorsRect = mShadowMap2048->ScissorRect();
+        barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+            D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+        dsv = mShadowMap2048->Dsv();
+    }
+
     mCommandList->RSSetViewports(1, &viewport);
     mCommandList->RSSetScissorRects(1, &scissorsRect);
 
-    auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
-        D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     mCommandList->ResourceBarrier(1, &barrier1);
 
-    mCommandList->ClearDepthStencilView(DepthStencilShadowsView(),
-        D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+    mCommandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-    auto dsv = DepthStencilShadowsView();
     mCommandList->OMSetRenderTargets(0, nullptr, false, &dsv);
 
     mCommandList->SetPipelineState(mPSOs["shadowPSO"].Get());
@@ -5668,8 +5841,6 @@ void Engine::DrawSceneToShadowMap()
     DrawRenderItemsScene7Shadows(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene7]);
 
     // Change back to GENERIC_READ so we can read the texture in a shader.
-    auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
-        D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
     mCommandList->ResourceBarrier(1, &barrier2);
 }
 
@@ -5824,7 +5995,7 @@ std::array<CD3DX12_STATIC_SAMPLER_DESC, 4> Engine::GetLODStaticSamplers()
     return { linearWrap0, linearWrap1, linearWrap2, linearWrap3 };
 }
 
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> Engine::GetLODStaticSamplersShadow()
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 9> Engine::GetLODStaticSamplersShadow()
 {
     const CD3DX12_STATIC_SAMPLER_DESC pointWrap(
         0, // shaderRegister
@@ -5872,9 +6043,31 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> Engine::GetLODStaticSamplersSha
         0.0f,                              // mipLODBias
         8);                                // maxAnisotropy
 
-    const CD3DX12_STATIC_SAMPLER_DESC shadow(
+    const CD3DX12_STATIC_SAMPLER_DESC shadowPoint(
         6, // shaderRegister
+        D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressW
+        0.0f,                               // mipLODBias
+        16,                                 // maxAnisotropy
+        D3D12_COMPARISON_FUNC_LESS_EQUAL,
+        D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK);
+
+    const CD3DX12_STATIC_SAMPLER_DESC shadowLinear(
+        7, // shaderRegister
         D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT, // filter
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressU
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressV
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressW
+        0.0f,                               // mipLODBias
+        16,                                 // maxAnisotropy
+        D3D12_COMPARISON_FUNC_LESS_EQUAL,
+        D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK);
+
+    const CD3DX12_STATIC_SAMPLER_DESC shadowAnisotropic(
+        8, // shaderRegister
+        D3D12_FILTER_COMPARISON_ANISOTROPIC, // filter
         D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressU
         D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressV
         D3D12_TEXTURE_ADDRESS_MODE_BORDER,  // addressW
@@ -5887,7 +6080,7 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> Engine::GetLODStaticSamplersSha
         pointWrap, pointClamp,
         linearWrap, linearClamp,
         anisotropicWrap, anisotropicClamp,
-        shadow
+        shadowPoint, shadowLinear, shadowAnisotropic
     };
 }
 
@@ -6174,7 +6367,35 @@ void Engine::RenderUI()
         {
             ImGui::Text("");
             ImGui::Text("Directional Light");
-            ImGui::SliderFloat("Position", &directionalLightPositionScene7, 0.0f, 2.0f);
+            ImGui::SliderFloat("Position", &directionalLightPositionScene7, 0.0f, 10.0f);
+
+            ImGui::Text("");
+            ImGui::Text("Shadow Texturing");
+            ImGui::Checkbox("Using Shadows Texturing", &isTexturedShadowsScene7);
+            if (isTexturedShadowsScene7)
+            {
+                ImGui::RadioButton("Texture 1", &shadowTextureIDScene7, 1);
+                ImGui::RadioButton("Texture 2", &shadowTextureIDScene7, 2);
+                ImGui::RadioButton("Texture 3", &shadowTextureIDScene7, 3);
+            }
+
+            ImGui::Text("");
+            ImGui::Text("Cascaded Shadows");
+            ImGui::Checkbox("Using Cascaded Shadows", &isUsingCascadedShadowsScene7);
+            if (!isUsingCascadedShadowsScene7)
+            {
+                ImGui::Text("Shadow Map Size");
+                ImGui::RadioButton("256", &shadowSizeIDScene7, 0);
+                ImGui::RadioButton("512", &shadowSizeIDScene7, 1);
+                ImGui::RadioButton("1024", &shadowSizeIDScene7, 2);
+                ImGui::RadioButton("2048", &shadowSizeIDScene7, 3);
+            }
+
+            ImGui::Text("");
+            ImGui::Text("Shadows Filtering");
+            ImGui::RadioButton("Point", &shadowFilteringIDScene7, 0);
+            ImGui::RadioButton("Linear", &shadowFilteringIDScene7, 1);
+            ImGui::RadioButton("Anisotropic", &shadowFilteringIDScene7, 2);
         }
         else if (activeSceneID == 8)
         {

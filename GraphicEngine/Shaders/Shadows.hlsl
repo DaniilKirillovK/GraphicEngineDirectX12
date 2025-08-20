@@ -21,7 +21,10 @@ SamplerState gsamLinearWrap : register(s2);
 SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
-SamplerComparisonState gsamShadow : register(s6);
+
+SamplerComparisonState gsamShadowPoint : register(s6);
+SamplerComparisonState gsamShadowLinear : register(s7);
+SamplerComparisonState gsamShadowAnisotropic : register(s8);
 
 // Constant data that varies per frame.
 cbuffer cbPerObject : register(b0)
@@ -63,7 +66,13 @@ cbuffer cbPass : register(b1)
     float displacementLevel;
     
     float isNegative;
-    float3 cbPad;
+    int isTexturedShadows;
+    int shadowTextureID;
+    int isCascadedShadows;
+    
+    int shadowMapSizeID;
+    int shadowFilteringID;
+    float2 pad0;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;

@@ -1,5 +1,5 @@
 #ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 3
+    #define NUM_DIR_LIGHTS 1
 #endif
 
 #ifndef NUM_POINT_LIGHTS
@@ -13,8 +13,9 @@
 #include "Common.hlsl"
 #include "LightingUtil.hlsl"
 
-Texture2D<float4> gShadowMap[1] : register(t0, space0);
+Texture2D<float4> gShadowMap[4] : register(t0, space0);
 Texture2D<float4> gTextures[1] : register(t0, space1);
+Texture2D<float4> gShadowTextures[3] : register(t0, space2);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -23,7 +24,9 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
-SamplerComparisonState gsamShadow : register(s6);
+SamplerComparisonState gsamShadowPoint : register(s6);
+SamplerComparisonState gsamShadowLinear : register(s7);
+SamplerComparisonState gsamShadowAnisotropic : register(s8);
 
 // Constant data that varies per frame.
 cbuffer cbPerObject : register(b0)
@@ -65,7 +68,13 @@ cbuffer cbPass : register(b1)
     float displacementLevel;
     
     float isNegative;
-    float3 cbPad;
+    int isTexturedShadows;
+    int shadowTextureID;
+    int isCascadedShadows;
+    
+    int shadowMapSizeID;
+    int shadowFilteringID;
+    float2 pad0;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -93,7 +102,11 @@ float CalcShadowFactor(float4 shadowPosH)
     float depth = shadowPosH.z;
 
     uint width, height, numMips;
-    gShadowMap[0].GetDimensions(0, width, height, numMips);
+    if (isCascadedShadows == 0)
+    {
+        gShadowMap[shadowMapSizeID].GetDimensions(0, width, height, numMips);
+    }
+    else gShadowMap[3].GetDimensions(0, width, height, numMips);
 
     // Texel size.
     float dx = 1.0f / (float) width;
@@ -109,8 +122,11 @@ float CalcShadowFactor(float4 shadowPosH)
     [unroll]
     for (int i = 0; i < 9; ++i)
     {
-        percentLit += gShadowMap[0].SampleCmpLevelZero(gsamShadow,
-            shadowPosH.xy + offsets[i], depth).r;
+        if (shadowFilteringID == 0)
+            percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowPoint, shadowPosH.xy + offsets[i], depth).r;
+        else if (shadowFilteringID == 1)
+            percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowLinear, shadowPosH.xy + offsets[i], depth).r;
+        else percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowAnisotropic, shadowPosH.xy + offsets[i], depth).r;
     }
     
     return percentLit / 9.0f;
@@ -166,9 +182,21 @@ float4 PS(VertexOut pin) : SV_Target
     float4 diffuseAlbedo = gDiffuseAlbedo;
     float3 fresnelR0 = gFresnelR0;
     float roughness = gRoughness;
+    
+    // Only the first light casts a shadow.
+    float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
+    shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH);
+    shadowFactor[1] = shadowFactor[0];
+    shadowFactor[2] = shadowFactor[0];
 	
     // Dynamically look up the texture in the array.
-    diffuseAlbedo *= gTextures[0].Sample(gsamAnisotropicWrap, pin.TexC);
+    if (isTexturedShadows)
+    {
+        if (shadowFactor.r != 1.0f)
+            diffuseAlbedo *= gShadowTextures[shadowTextureID - 1].Sample(gsamAnisotropicWrap, pin.TexC);
+        else diffuseAlbedo *= gTextures[0].Sample(gsamAnisotropicWrap, pin.TexC);
+    }
+    else diffuseAlbedo *= gTextures[0].Sample(gsamAnisotropicWrap, pin.TexC);
 
 	// Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);
@@ -178,12 +206,6 @@ float4 PS(VertexOut pin) : SV_Target
 
     // Light terms.
     float4 ambient = gAmbientLight * diffuseAlbedo;
-
-    // Only the first light casts a shadow.
-    float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
-    shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH);
-    shadowFactor[1] = shadowFactor[0];
-    shadowFactor[2] = shadowFactor[0];
 
     const float shininess = (1.0f - roughness);
     Material mat = { diffuseAlbedo, fresnelR0, shininess };
