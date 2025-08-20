@@ -40,6 +40,9 @@ cbuffer cbPerObject : register(b0)
 // Constant data that varies per frame.
 cbuffer cbPass : register(b1)
 {
+    float4x4 gViewMain;
+    float4x4 gProjMain;
+    
     float4x4 gView;
     float4x4 gInvView;
     float4x4 gProj;
@@ -74,7 +77,8 @@ cbuffer cbPass : register(b1)
     
     int shadowMapSizeID;
     int shadowFilteringID;
-    float2 pad0;
+    int cascadedShadowMapID;
+    float pad0;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -93,20 +97,36 @@ cbuffer cbMaterial : register(b2)
     float tilesCount;
 };
 
-float CalcShadowFactor(float4 shadowPosH)
+float CalcShadowFactor(float4 shadowPosH, float4 posH)
 {
     // Complete projection by doing division by w.
     shadowPosH.xyz /= shadowPosH.w;
+    posH.xyz /= posH.w;
 
     // Depth in NDC space.
     float depth = shadowPosH.z;
+    float depthCascade = posH.z;
 
     uint width, height, numMips;
+    
+    int cascadedMapID = 0;
+    if (depthCascade > 0.03)
+        cascadedMapID = 3;
+    else if (depthCascade > 0.025)
+        cascadedMapID = 2;
+    else if (depthCascade > 0.020)
+        cascadedMapID = 1;
+    else
+        cascadedMapID = 0;
+    
     if (isCascadedShadows == 0)
     {
         gShadowMap[shadowMapSizeID].GetDimensions(0, width, height, numMips);
     }
-    else gShadowMap[3].GetDimensions(0, width, height, numMips);
+    else
+    {
+        gShadowMap[cascadedMapID].GetDimensions(0, width, height, numMips);
+    }
 
     // Texel size.
     float dx = 1.0f / (float) width;
@@ -122,11 +142,24 @@ float CalcShadowFactor(float4 shadowPosH)
     [unroll]
     for (int i = 0; i < 9; ++i)
     {
-        if (shadowFilteringID == 0)
-            percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowPoint, shadowPosH.xy + offsets[i], depth).r;
-        else if (shadowFilteringID == 1)
-            percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowLinear, shadowPosH.xy + offsets[i], depth).r;
-        else percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowAnisotropic, shadowPosH.xy + offsets[i], depth).r;
+        if (isCascadedShadows == 0)
+        {
+            if (shadowFilteringID == 0)
+                percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowPoint, shadowPosH.xy + offsets[i], depth).r;
+            else if (shadowFilteringID == 1)
+                percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowLinear, shadowPosH.xy + offsets[i], depth).r;
+            else
+                percentLit += gShadowMap[shadowMapSizeID].SampleCmpLevelZero(gsamShadowAnisotropic, shadowPosH.xy + offsets[i], depth).r;
+        }
+        else
+        {
+            if (shadowFilteringID == 0)
+                percentLit += gShadowMap[cascadedMapID].SampleCmpLevelZero(gsamShadowPoint, shadowPosH.xy + offsets[i], depth).r;
+            else if (shadowFilteringID == 1)
+                percentLit += gShadowMap[cascadedMapID].SampleCmpLevelZero(gsamShadowLinear, shadowPosH.xy + offsets[i], depth).r;
+            else
+                percentLit += gShadowMap[cascadedMapID].SampleCmpLevelZero(gsamShadowAnisotropic, shadowPosH.xy + offsets[i], depth).r;
+        }
     }
     
     return percentLit / 9.0f;
@@ -185,7 +218,7 @@ float4 PS(VertexOut pin) : SV_Target
     
     // Only the first light casts a shadow.
     float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
-    shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH);
+    shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH, pin.PosH);
     shadowFactor[1] = shadowFactor[0];
     shadowFactor[2] = shadowFactor[0];
 	

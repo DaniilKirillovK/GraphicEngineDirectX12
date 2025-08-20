@@ -13,6 +13,7 @@
 struct Mesh 
 {
     int materialIndex;
+    DirectX::BoundingBox boundingBox;
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
     Microsoft::WRL::ComPtr<ID3D12Resource> vertexBuffer;
@@ -129,12 +130,15 @@ Mesh ProcessMesh(aiMesh* mesh, const aiScene* scene,
     Mesh result;
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
+    DirectX::BoundingBox bounds;
+    std::vector<DirectX::XMFLOAT3> points;
 
     // Vertices
     for (unsigned int i = 0; i < mesh->mNumVertices; i++) 
     {
         Vertex vertex;
         vertex.Pos = { mesh->mVertices[i].x / 70, mesh->mVertices[i].y / 70, mesh->mVertices[i].z / 70 };
+        points.push_back(vertex.Pos);
         vertex.Normal = { mesh->mNormals[i].x, mesh->mNormals[i].y, mesh->mNormals[i].z };
 
         if (mesh->mTextureCoords[0]) 
@@ -153,6 +157,9 @@ Mesh ProcessMesh(aiMesh* mesh, const aiScene* scene,
 
         vertices.push_back(vertex);
     }
+    const DirectX::XMFLOAT3* ptr = points.data();
+    DirectX::BoundingBox::CreateFromPoints(bounds, points.size(), ptr, size_t(sizeof(DirectX::XMFLOAT3)));
+    result.boundingBox = bounds;
 
     // Indices
     for (unsigned int i = 0; i < mesh->mNumFaces; i++) 

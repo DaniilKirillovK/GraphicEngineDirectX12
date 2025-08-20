@@ -135,6 +135,7 @@ private:
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateMainPassCBScene3Camera2(const GameTimer& gt);
     void UpdateMainPassCBShadows(const GameTimer& gt);
+    void UpdateMainPassCBShadowsCascade(const GameTimer& gt);
     void UpdateShadowPassCB(const GameTimer& gt);
     void UpdateShadowTransform(const GameTimer& gt);
     void UpdateParticleEmitterCB(const GameTimer& gt);
@@ -185,6 +186,7 @@ private:
     void DrawRenderItemsScene4(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene7(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -195,6 +197,9 @@ private:
     void DrawScreenQuadPostProcessing(ID3D12GraphicsCommandList* cmdList);
     void DrawParticles(ParticleSystem particleSystem, RenderLayer layer);
     void DrawSceneToShadowMap();
+    void DrawSceneToShadowMapCascaded(int cascadedMapID);
+
+    bool IsInCameraView(Camera camera, DirectX::XMMATRIX objectPosition, DirectX::BoundingBox itemBox);
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetMoreStaticSamplers();
@@ -525,6 +530,12 @@ Engine::~Engine()
 
 bool Engine::Initialize()
 {
+    mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 100.0f);
+
+    mCamera2Scene3.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    SetCamera2Scene3();
+    DirectX::BoundingFrustum::CreateFromMatrix(mCamFrustum, mCamera.GetProj());
+
     if (!D3D12Engine::Initialize())
         return false;
 
@@ -535,12 +546,6 @@ void Engine::OnResize()
 {
     //ResizeGBuffer();
     D3D12Engine::OnResize();
-
-    mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-
-    mCamera2Scene3.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
-    SetCamera2Scene3();
-    DirectX::BoundingFrustum::CreateFromMatrix(mCamFrustum, mCamera.GetProj());
 }
 
 void Engine::Update(const GameTimer& gt)
@@ -1285,7 +1290,14 @@ void Engine::Draw(const GameTimer& gt)
         auto passCB = mCurrFrameResource->ShadowPassCB->Resource();
         mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
-        DrawSceneToShadowMap();
+        if (isUsingCascadedShadowsScene7)
+        {
+            DrawSceneToShadowMapCascaded(0);
+            DrawSceneToShadowMapCascaded(1);
+            DrawSceneToShadowMapCascaded(2);
+            DrawSceneToShadowMapCascaded(3);
+        }
+        else DrawSceneToShadowMap();
 
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -1298,14 +1310,24 @@ void Engine::Draw(const GameTimer& gt)
 
         mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
 
-        passCB = mCurrFrameResource->PassCBShadows->Resource();
-        mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
         CD3DX12_GPU_DESCRIPTOR_HANDLE shadowTextures(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
         shadowTextures.Offset(28, mCbvSrvDescriptorSize);
         mCommandList->SetGraphicsRootDescriptorTable(5, shadowTextures);
 
         mCommandList->SetPipelineState(mPSOs["shadowForwardPSO"].Get());
-        DrawRenderItemsScene7(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene7]);
+
+        if (isUsingCascadedShadowsScene7)
+        {
+            passCB = mCurrFrameResource->PassCBShadows->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+            DrawRenderItemsScene7Cascaded(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene7]);
+        }
+        else 
+        {
+            passCB = mCurrFrameResource->PassCBShadows->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+            DrawRenderItemsScene7(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene7]);
+        }
 
         // Indicate a state transition on the resource usage.
         auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -1670,6 +1692,7 @@ void Engine::OnMouseMove(WPARAM btnState, int x, int y)
 
             mCamera.Pitch(dy);
             mCamera.RotateY(dx);
+
         }
 
         mLastMousePos.x = x;
@@ -1682,16 +1705,24 @@ void Engine::OnKeyboardInput(const GameTimer& gt)
     const float dt = gt.DeltaTime();
 
     if (GetAsyncKeyState('W') & 0x8000)
+    {
         mCamera.Walk(10.0f * dt);
+    }
 
     if (GetAsyncKeyState('S') & 0x8000)
+    {
         mCamera.Walk(-10.0f * dt);
+    }
 
     if (GetAsyncKeyState('A') & 0x8000)
+    {
         mCamera.Strafe(-10.0f * dt);
+    }
 
     if (GetAsyncKeyState('D') & 0x8000)
+    {
         mCamera.Strafe(10.0f * dt);
+    }
 
     mCamera.UpdateViewMatrix();
 }
@@ -2092,6 +2123,64 @@ void Engine::UpdateMainPassCBShadows(const GameTimer& gt)
 
     auto currPassCB = mCurrFrameResource->PassCBShadows.get();
     currPassCB->CopyData(0, mMainPassCBShadows);
+}
+
+void Engine::UpdateMainPassCBShadowsCascade(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    DirectX::XMMATRIX proj = mCamera.GetProj();
+
+    DirectX::XMMATRIX viewMain = mCamera.GetView();
+    DirectX::XMMATRIX projMain = mCamera.GetProj();
+
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
+    DirectX::XMMATRIX shadowTransform = XMLoadFloat4x4(&mShadowTransform);
+
+    XMStoreFloat4x4(&mMainPassCBShadows.MainView, XMMatrixTranspose(viewMain));
+    XMStoreFloat4x4(&mMainPassCBShadows.MainProj, XMMatrixTranspose(projMain));
+
+    XMStoreFloat4x4(&mMainPassCBShadows.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mMainPassCBShadows.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mMainPassCBShadows.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mMainPassCBShadows.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mMainPassCBShadows.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mMainPassCBShadows.InvViewProj, XMMatrixTranspose(invViewProj));
+    XMStoreFloat4x4(&mMainPassCBShadows.ShadowTransform, XMMatrixTranspose(shadowTransform));
+    mMainPassCBShadows.EyePosW = mCamera.GetPosition3f();
+    mMainPassCBShadows.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+    mMainPassCBShadows.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+    mMainPassCBShadows.NearZ = 1.0f;
+    mMainPassCBShadows.FarZ = 1000.0f;
+    mMainPassCBShadows.TotalTime = gt.TotalTime();
+    mMainPassCBShadows.DeltaTime = gt.DeltaTime();
+    mMainPassCBShadows.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+
+    // Directional lights
+    mMainPassCBShadows.Lights[0].Direction = mRotatedLightDirections[0];
+    mMainPassCBShadows.Lights[0].Strength = { 1.0f, 1.0f, 1.0f };
+
+    mMainPassCBShadows.Lights[1].Direction = mRotatedLightDirections[1];
+    mMainPassCBShadows.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+
+    mMainPassCBShadows.Lights[2].Direction = mRotatedLightDirections[2];
+    mMainPassCBShadows.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+
+    mMainPassCBShadows.ShadowTextureID = shadowTextureIDScene7;
+    if (isTexturedShadowsScene7)
+        mMainPassCBShadows.BIsTexturedShadows = 1;
+    else mMainPassCBShadows.BIsTexturedShadows = 0;
+
+    mMainPassCBShadows.ShadowSizeID = shadowSizeIDScene7;
+    if (isUsingCascadedShadowsScene7)
+        mMainPassCBShadows.BIsCascadedShadows = 1;
+    else mMainPassCBShadows.BIsCascadedShadows = 0;
+    mMainPassCBShadows.ShadowFilteringID = shadowFilteringIDScene7;
 }
 
 void Engine::UpdateShadowPassCB(const GameTimer& gt)
@@ -5501,6 +5590,46 @@ void Engine::DrawRenderItemsScene7(ID3D12GraphicsCommandList* cmdList, const std
     }
 }
 
+void Engine::DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    for (int i = 0; i < Sponza.meshes.size(); ++i)
+    {
+        DirectX::XMFLOAT4X4 worldMat = MathHelper::Identity4x4();
+        DirectX::XMMATRIX world = DirectX::XMLoadFloat4x4(&worldMat);
+        if (IsInCameraView(mCamera, world, Sponza.meshes[i].boundingBox))
+        {
+            auto ri = mAllRitems[747].get();
+
+            auto tmp1 = Sponza.meshes[i].vertexBufferView;
+            auto tmp2 = Sponza.meshes[i].indexBufferView;
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(Sponza.meshes[i].materialIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE shadowMap(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            shadowMap.Offset(24, mCbvSrvDescriptorSize);
+            cmdList->SetGraphicsRootDescriptorTable(0, shadowMap);
+            cmdList->SetGraphicsRootDescriptorTable(1, tex);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
+        }
+    }
+}
+
 void Engine::DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -5842,6 +5971,119 @@ void Engine::DrawSceneToShadowMap()
 
     // Change back to GENERIC_READ so we can read the texture in a shader.
     mCommandList->ResourceBarrier(1, &barrier2);
+}
+
+void Engine::DrawSceneToShadowMapCascaded(int cascadedMapID)
+{
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    D3D12_VIEWPORT viewport;
+    D3D12_RECT scissorsRect;
+    CD3DX12_RESOURCE_BARRIER barrier1;
+    CD3DX12_RESOURCE_BARRIER barrier2;
+    CD3DX12_CPU_DESCRIPTOR_HANDLE dsv;
+
+    {
+        if (cascadedMapID == 3)
+        {
+            viewport = mShadowMap2048->Viewport();
+            scissorsRect = mShadowMap2048->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap2048->Dsv();
+        }
+        else if (cascadedMapID == 2)
+        {
+            viewport = mShadowMap1024->Viewport();
+            scissorsRect = mShadowMap1024->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap1024->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap1024->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap1024->Dsv();
+        }
+        else if (cascadedMapID == 1)
+        {
+            viewport = mShadowMap512->Viewport();
+            scissorsRect = mShadowMap512->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap512->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap512->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap512->Dsv();
+        }
+        else if (cascadedMapID == 0)
+        {
+            viewport = mShadowMap256->Viewport();
+            scissorsRect = mShadowMap256->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap256->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap256->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap256->Dsv();
+        }
+        else
+        {
+            viewport = mShadowMap2048->Viewport();
+            scissorsRect = mShadowMap2048->ScissorRect();
+            barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+                D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap2048->Resource(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+            dsv = mShadowMap2048->Dsv();
+        }
+    }
+
+
+    mCommandList->RSSetViewports(1, &viewport);
+    mCommandList->RSSetScissorRects(1, &scissorsRect);
+
+    mCommandList->ResourceBarrier(1, &barrier1);
+
+    mCommandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+
+    mCommandList->OMSetRenderTargets(0, nullptr, false, &dsv);
+
+    mCommandList->SetPipelineState(mPSOs["shadowPSO"].Get());
+
+    DrawRenderItemsScene7Shadows(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene7]);
+
+    // Change back to GENERIC_READ so we can read the texture in a shader.
+    mCommandList->ResourceBarrier(1, &barrier2);
+}
+
+bool Engine::IsInCameraView(Camera camera, DirectX::XMMATRIX objectPosition, DirectX::BoundingBox itemBox)
+{
+    DirectX::XMMATRIX view = camera.GetView();
+    auto det = XMMatrixDeterminant(view);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&det, view);
+
+    {
+        DirectX::XMMATRIX world = objectPosition;
+
+        auto det2 = XMMatrixDeterminant(world);
+        DirectX::XMMATRIX invWorld = DirectX::XMMatrixInverse(&det2, world);
+
+        // View space to the object's local space.
+        DirectX::XMMATRIX viewToLocal = DirectX::XMMatrixMultiply(invView, invWorld);
+
+        DirectX::BoundingFrustum mCamFrustumTest;
+        DirectX::BoundingFrustum::CreateFromMatrix(mCamFrustumTest, camera.GetProj());
+
+        // Transform the camera frustum from view space to the object's local space.
+        DirectX::BoundingFrustum localSpaceFrustum;
+        mCamFrustumTest.Transform(localSpaceFrustum, viewToLocal);
+
+        // Perform the box/frustum intersection test in local space.
+        if (localSpaceFrustum.Contains(itemBox) != DirectX::DISJOINT)
+        {
+            return true;
+        }
+        else return false;
+    }
 }
 
 

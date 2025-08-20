@@ -38,6 +38,9 @@ cbuffer cbPerObject : register(b0)
 // Constant data that varies per frame.
 cbuffer cbPass : register(b1)
 {
+    float4x4 gViewMain;
+    float4x4 gProjMain;
+    
     float4x4 gView;
     float4x4 gInvView;
     float4x4 gProj;
@@ -72,7 +75,8 @@ cbuffer cbPass : register(b1)
     
     int shadowMapSizeID;
     int shadowFilteringID;
-    float2 pad0;
+    int cascadedShadowMapID;
+    float pad0;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;

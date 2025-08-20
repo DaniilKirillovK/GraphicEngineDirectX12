@@ -112,6 +112,9 @@ struct PassConstants
 
 struct PassConstantsShadows
 {
+    DirectX::XMFLOAT4X4 MainView = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 MainProj = MathHelper::Identity4x4();
+
     DirectX::XMFLOAT4X4 View = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 InvView = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 Proj = MathHelper::Identity4x4();
@@ -147,7 +150,8 @@ struct PassConstantsShadows
 
     UINT ShadowSizeID = 3;
     UINT ShadowFilteringID = 2;
-    DirectX::XMFLOAT2 pad0;
+    UINT CascadedShadowMapID = 3;
+    float pad0;
 
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
