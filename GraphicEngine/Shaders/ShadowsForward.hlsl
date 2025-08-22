@@ -1,7 +1,20 @@
+#ifndef NUM_DIR_LIGHTS
+    #define NUM_DIR_LIGHTS 3
+#endif
+
+#ifndef NUM_POINT_LIGHTS
+    #define NUM_POINT_LIGHTS 3
+#endif
+
+#ifndef NUM_SPOT_LIGHTS
+    #define NUM_SPOT_LIGHTS 0
+#endif
+
 #include "Common.hlsl"
 #include "LightingUtil.hlsl"
 
-Texture2D<float4> gTextures[1] : register(t0, space0);
+Texture2D<float4> gShadowMap[1] : register(t0, space0);
+Texture2D<float4> gTextures[1] : register(t0, space1);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -83,15 +96,55 @@ cbuffer cbMaterial : register(b2)
     float tilesCount;
 };
 
+float CalcShadowFactor(float4 shadowPosH, float4 posH)
+{
+    // Complete projection by doing division by w.
+    shadowPosH.xyz /= shadowPosH.w;
+    posH.xyz /= posH.w;
+
+    // Depth in NDC space.
+    float depth = shadowPosH.z;
+    float depthCascade = posH.z;
+
+    uint width, height, numMips;
+    
+    gShadowMap[0].GetDimensions(0, width, height, numMips);
+
+    // Texel size.
+    float dx = 1.0f / (float) width;
+
+    float percentLit = 0.0f;
+    const float2 offsets[9] =
+    {
+        float2(-dx, -dx), float2(0.0f, -dx), float2(dx, -dx),
+        float2(-dx, 0.0f), float2(0.0f, 0.0f), float2(dx, 0.0f),
+        float2(-dx, +dx), float2(0.0f, +dx), float2(dx, +dx)
+    };
+
+    [unroll]
+    for (int i = 0; i < 9; ++i)
+    {
+        percentLit += gShadowMap[0].SampleCmpLevelZero(gsamShadowAnisotropic, shadowPosH.xy + offsets[i], depth).r;
+    }
+    
+    return percentLit / 9.0f;
+}
+
 struct VertexIn
 {
     float3 PosL : POSITION;
+    float3 NormalL : NORMAL;
     float2 TexC : TEXCOORD;
+    float3 TangentU : TANGENT;
 };
 
 struct VertexOut
 {
     float4 PosH : SV_POSITION;
+    float4 ShadowPosH : POSITION0;
+    float3 PosW : POSITION1;
+    float3 NormalW : NORMAL;
+    float3 TangentW : TANGENT;
     float2 TexC : TEXCOORD;
 };
 
@@ -101,6 +154,12 @@ VertexOut VS(VertexIn vin)
 	
     // Transform to world space.
     float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
+    vout.PosW = posW.xyz;
+
+    // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
+    vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
+	
+    vout.TangentW = mul(vin.TangentU, (float3x3) gWorld);
 
     // Transform to homogeneous clip space.
     vout.PosH = mul(posW, gViewProj);
@@ -108,25 +167,47 @@ VertexOut VS(VertexIn vin)
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
+
+    // Generate projective tex-coords to project shadow map onto scene.
+    vout.ShadowPosH = mul(posW, gShadowTransform);
 	
     return vout;
 }
 
-// This is only used for alpha cut out geometry, so that shadows 
-// show up correctly.  Geometry that does not need to sample a
-// texture can use a NULL pixel shader for depth pass.
-void PS(VertexOut pin)
+float4 PS(VertexOut pin) : SV_Target
 {
 	// Fetch the material data.
     float4 diffuseAlbedo = gDiffuseAlbedo;
+    float3 fresnelR0 = gFresnelR0;
+    float roughness = gRoughness;
+    
+    // Only the first light casts a shadow.
+    float3 shadowFactor = float3(1.0f, 1.0f, 1.0f);
+    shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH, pin.PosH);
+    shadowFactor[1] = shadowFactor[0];
+    shadowFactor[2] = shadowFactor[0];
 	
-	// Dynamically look up the texture in the array.
+    // Dynamically look up the texture in the array.
     diffuseAlbedo *= gTextures[0].Sample(gsamAnisotropicWrap, pin.TexC);
 
-#ifdef ALPHA_TEST
-    // Discard pixel if texture alpha < 0.1.  We do this test as soon 
-    // as possible in the shader so that we can potentially exit the
-    // shader early, thereby skipping the rest of the shader code.
-    clip(diffuseAlbedo.a - 0.1f);
-#endif
+	// Interpolating normal can unnormalize it, so renormalize it.
+    pin.NormalW = normalize(pin.NormalW);
+
+    // Vector from point being lit to eye. 
+    float3 toEyeW = normalize(gEyePosW - pin.PosW);
+
+    // Light terms.
+    float4 ambient = gAmbientLight * diffuseAlbedo;
+
+    const float shininess = (1.0f - roughness);
+    Material mat = { diffuseAlbedo, fresnelR0, shininess };
+    float4 directLight = ComputeLighting(gLights, mat, pin.PosW,
+        pin.NormalW, toEyeW, shadowFactor);
+
+    float4 litColor = ambient + directLight;
+	
+    // Common convention to take alpha from diffuse albedo.
+    litColor.a = diffuseAlbedo.a;
+
+    return litColor;
 }

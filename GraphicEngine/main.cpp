@@ -61,9 +61,11 @@ enum class RenderLayer : int
     Scene4 = 6,
     Scene5 = 7,
     Particles2 = 8,
-    Scene7 = 9,
-    Scene10 = 10,
-    Scene11 = 11,
+    Particles3 = 9,
+    Scene6_3 = 10,
+    Scene7 = 11,
+    Scene10 = 12,
+    Scene11 = 13,
     Count
 };
 
@@ -133,13 +135,16 @@ private:
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
+    void UpdateMainPassCBParticles(const GameTimer& gt);
     void UpdateMainPassCBScene3Camera2(const GameTimer& gt);
     void UpdateMainPassCBShadows(const GameTimer& gt);
     void UpdateMainPassCBShadowsCascade(const GameTimer& gt);
     void UpdateShadowPassCB(const GameTimer& gt);
+    void UpdateShadowPassCBParticles(const GameTimer& gt);
     void UpdateShadowTransform(const GameTimer& gt);
     void UpdateParticleEmitterCB(const GameTimer& gt);
     void UpdateParticleEmitter2CB(const GameTimer& gt);
+    void UpdateParticleEmitter3CB(const GameTimer& gt);
     void UpdatePostProcessingCB(const GameTimer& gt);
     void UpdateNoiseCB(const GameTimer& gt);
     void UpdateSamplersCB(const GameTimer& gt);
@@ -157,6 +162,7 @@ private:
     virtual void BuildScene3Geometry() override;
     virtual void BuildScene4Geometry() override;
     virtual void BuildScene5Geometry() override;
+    virtual void BuildScene6Geometry() override;
     virtual void BuildModelsGeometry() override;
     virtual void BuildSponzaGeometryAndTextures() override;
     virtual void BuildPSOs() override;
@@ -185,6 +191,8 @@ private:
     void DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene4(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene6(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene6Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene7(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -197,6 +205,7 @@ private:
     void DrawScreenQuadPostProcessing(ID3D12GraphicsCommandList* cmdList);
     void DrawParticles(ParticleSystem particleSystem, RenderLayer layer);
     void DrawSceneToShadowMap();
+    void DrawParticlesSceneToShadowMap();
     void DrawSceneToShadowMapCascaded(int cascadedMapID);
 
     bool IsInCameraView(Camera camera, DirectX::XMMATRIX objectPosition, DirectX::BoundingBox itemBox);
@@ -227,6 +236,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureRT = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadows = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsForward = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsParticlesForward = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -255,6 +265,7 @@ private:
 
     ParticleSystem* mParticleSystem;
     ParticleSystem* mParticleSystem2;
+    ParticleSystem* mParticleSystemSmoke;
 
     float mTheta = 1.3f * DirectX::XM_PI;
     float mPhi = 0.4f * DirectX::XM_PI;
@@ -278,6 +289,7 @@ private:
     std::unique_ptr<ShadowMap> mShadowMap512;
     std::unique_ptr<ShadowMap> mShadowMap1024;
     std::unique_ptr<ShadowMap> mShadowMap2048;
+    std::unique_ptr<ShadowMap> mShadowMapScene6;
 
     float mLightNearZ = 0.0f;
     float mLightFarZ = 0.0f;
@@ -301,7 +313,7 @@ bool isFirstExecution = true;
 // Imgui Variables
 bool opened = true;
 
-int activeSceneID = 7;
+int activeSceneID = 6;
 
 bool isDebug = true;
 bool gridIsActive = false;
@@ -452,6 +464,8 @@ bool isUsingCascadedShadowsScene7 = false;
 int shadowSizeIDScene7 = 3;
 int shadowFilteringIDScene7 = 2;
 
+int lightingIDScene6 = 1;
+
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -601,6 +615,14 @@ void Engine::Update(const GameTimer& gt)
             UpdateParticleEmitterCB(gt);
         else if (activeParticleSystemScene6 == 2)
             UpdateParticleEmitter2CB(gt);
+        else if (activeParticleSystemScene6 == 3)
+        {
+            UpdateParticleEmitter3CB(gt);
+            UpdateShadowPassCBParticles(gt);
+            UpdateShadowTransform(gt);
+            UpdateMainPassCBShadows(gt);
+            UpdateMainPassCBParticles(gt);
+        }
     }
     if (activeSceneID == 7)
     {
@@ -1276,6 +1298,112 @@ void Engine::Draw(const GameTimer& gt)
                 DrawParticles(*mParticleSystem2, RenderLayer::Particles2);
             }
         }
+        else if (activeParticleSystemScene6 == 3)
+        {
+            // Compute pass
+            {
+                ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
+
+                CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particleSmokeBuffers[1 - currParticleSmokeReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                mCommandList->ResourceBarrier(1, &computeBarrier1);
+
+                auto emitterCB = mCurrFrameResource->Emitter3CB->Resource();
+
+                mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
+
+                mCommandList->SetComputeRootUnorderedAccessView(0, particleSmokeBuffers[1 - currParticleSmokeReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootShaderResourceView(1, particleSmokeBuffers[currParticleSmokeReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootConstantBufferView(2, emitterCB->GetGPUVirtualAddress());
+
+                mCommandList->SetPipelineState(mPSOs["computeParticles"].Get());
+
+                UINT threadGroupCount = 8;
+                mCommandList->Dispatch(threadGroupCount, 1, 1);
+
+                CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particleSmokeBuffers[1 - currParticleSmokeReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+                mCommandList->ResourceBarrier(1, &computeBarrier2);
+
+                currParticleSmokeReadBuffer = 1 - currParticleSmokeReadBuffer;
+            }
+
+            // Shadow Pass
+            {
+                ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatureShadows.Get());
+
+                auto passCB = mCurrFrameResource->ShadowPassCBParticles->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+                DrawParticlesSceneToShadowMap();
+            }
+
+            // Draw calls
+            // Draw objects
+            {
+                ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+
+                D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
+
+                 mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatureShadowsParticlesForward.Get());
+
+                auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                    D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                mCommandList->ResourceBarrier(1, &barrier1);
+
+                mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+
+                mCommandList->SetPipelineState(mPSOs["shadowForwardParticlesPSO"].Get());
+
+                {
+                    passCB = mCurrFrameResource->PassCBShadows->Resource();
+                    mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+                    DrawRenderItemsScene6Shadows(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene6_3]);
+                }
+            }
+
+            // Draw particles
+            {
+                ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+
+                auto passCB = mCurrFrameResource->PassCB->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+                CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+                handle.Offset(8 + currParticle2ReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
+                mCommandList->SetGraphicsRootDescriptorTable(1, handle);
+
+                D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+                mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetPipelineState(mPSOs["renderParticlesForward"].Get());
+
+                DrawParticles(*mParticleSystemSmoke, RenderLayer::Particles3);
+
+                // Indicate a state transition on the resource usage.
+                auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+                mCommandList->ResourceBarrier(1, &barrier2);
+            }
+        }
     }
 
     else if (activeSceneID == 7)
@@ -1527,7 +1655,7 @@ void Engine::Draw(const GameTimer& gt)
     
 
     // Draw screen quad
-    if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7)
+    if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3))
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -1957,23 +2085,25 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
 
 
     // Point lights
-    mMainPassCB.Lights[3].Strength = { light1Strength, light1Strength, light1Strength };
-    mMainPassCB.Lights[3].Position = { lightPos1[0], lightPos1[1], lightPos1[2] };
-    mMainPassCB.Lights[3].FalloffStart = light1Distance;
-    mMainPassCB.Lights[3].FalloffEnd = light1Distance;
-    mMainPassCB.Lights[3].Color = { col1[0], col1[1], col1[2], 1.0f };
+    {
+        mMainPassCB.Lights[3].Strength = { light1Strength, light1Strength, light1Strength };
+        mMainPassCB.Lights[3].Position = { lightPos1[0], lightPos1[1], lightPos1[2] };
+        mMainPassCB.Lights[3].FalloffStart = light1Distance;
+        mMainPassCB.Lights[3].FalloffEnd = light1Distance;
+        mMainPassCB.Lights[3].Color = { col1[0], col1[1], col1[2], 1.0f };
 
-    mMainPassCB.Lights[4].Strength = { light2Strength, light2Strength, light2Strength };
-    mMainPassCB.Lights[4].Position = { lightPos2[0], lightPos2[1], lightPos2[2] };
-    mMainPassCB.Lights[4].FalloffStart = light2Distance;
-    mMainPassCB.Lights[4].FalloffEnd = light2Distance;
-    mMainPassCB.Lights[4].Color = { col2[0], col2[1], col2[2], 1.0f };
+        mMainPassCB.Lights[4].Strength = { light2Strength, light2Strength, light2Strength };
+        mMainPassCB.Lights[4].Position = { lightPos2[0], lightPos2[1], lightPos2[2] };
+        mMainPassCB.Lights[4].FalloffStart = light2Distance;
+        mMainPassCB.Lights[4].FalloffEnd = light2Distance;
+        mMainPassCB.Lights[4].Color = { col2[0], col2[1], col2[2], 1.0f };
 
-    mMainPassCB.Lights[5].Strength = { light3Strength, light3Strength, light3Strength };
-    mMainPassCB.Lights[5].Position = { lightPos3[0], lightPos3[1], lightPos3[2] };
-    mMainPassCB.Lights[5].FalloffStart = light3Distance;
-    mMainPassCB.Lights[5].FalloffEnd = light3Distance;
-    mMainPassCB.Lights[5].Color = { col3[0], col3[1], col3[2], 1.0f };
+        mMainPassCB.Lights[5].Strength = { light3Strength, light3Strength, light3Strength };
+        mMainPassCB.Lights[5].Position = { lightPos3[0], lightPos3[1], lightPos3[2] };
+        mMainPassCB.Lights[5].FalloffStart = light3Distance;
+        mMainPassCB.Lights[5].FalloffEnd = light3Distance;
+        mMainPassCB.Lights[5].Color = { col3[0], col3[1], col3[2], 1.0f };
+    }
 
 
     // Spot lights
@@ -2020,6 +2150,88 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
     if (isNegative)
         mMainPassCB.isNegative = 1.0f;
     else mMainPassCB.isNegative = 0.0f;
+
+    auto currPassCB = mCurrFrameResource->PassCB.get();
+    currPassCB->CopyData(0, mMainPassCB);
+}
+
+void Engine::UpdateMainPassCBParticles(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    DirectX::XMMATRIX proj = mCamera.GetProj();
+
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
+
+    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mMainPassCB.EyePosW = mCamera.GetPosition3f();
+    mMainPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+    mMainPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+    mMainPassCB.NearZ = 1.0f;
+    mMainPassCB.FarZ = 1000.0f;
+    mMainPassCB.TotalTime = gt.TotalTime();
+    mMainPassCB.DeltaTime = gt.DeltaTime();
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+
+    // Directional lights
+    mMainPassCB.Lights[0].Direction = mRotatedLightDirections[0];
+    mMainPassCB.Lights[0].Strength = { 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[1].Direction = mRotatedLightDirections[1];
+    mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+
+    mMainPassCB.Lights[2].Direction = mRotatedLightDirections[2];
+    mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+
+    // Point lights
+    mMainPassCB.Lights[3].Strength = { 1.0f, 1.0f, 1.0f };
+    mMainPassCB.Lights[3].Position = { 1.0f, 5.0f, 0.0f };
+    mMainPassCB.Lights[3].FalloffStart = 5.f;
+    mMainPassCB.Lights[3].FalloffEnd = 5.f;
+    mMainPassCB.Lights[3].Color = { 1.0f, 0.0f, 0.0f, 1.0f };
+
+    mMainPassCB.Lights[4].Strength = { 1.0f, 1.0f, 1.0f };
+    mMainPassCB.Lights[4].Position = { -1.0f, 8.0f, 0.0f };
+    mMainPassCB.Lights[4].FalloffStart = 5.f;
+    mMainPassCB.Lights[4].FalloffEnd = 5.f;
+    mMainPassCB.Lights[4].Color = { 0.0f, 1.0f, 0.0f, 1.0f };
+
+    mMainPassCB.Lights[5].Strength = { 1.0f, 1.0f, 1.0f };
+    mMainPassCB.Lights[5].Position = { 0.0f, 3.0f, -1.0f };
+    mMainPassCB.Lights[5].FalloffStart = 5.f;
+    mMainPassCB.Lights[5].FalloffEnd = 5.f;
+    mMainPassCB.Lights[5].Color = { 0.0f, 0.0f, 1.0f, 1.0f };
+
+    if (activeSceneID == 1)
+    {
+        mMainPassCB.TessFactor = tessFactor;
+        mMainPassCB.displacementLevel = displacementLevel;
+    }
+    else if (activeSceneID == 5)
+    {
+        mMainPassCB.TessFactor = tessFactorScene5;
+        mMainPassCB.displacementLevel = displacementLevelScene5;
+    }
+
+    mMainPassCB.PixelationFactor = pixelationFactor;
+    if (isParallaxMapping)
+        mMainPassCB.ParallaxMapping = 1.0f;
+    else mMainPassCB.ParallaxMapping = 0.0f;
+
+    if (isNegative)
+        mMainPassCB.isNegative = 1.0f;
+    else mMainPassCB.isNegative = 0.0f;
+    mMainPassCB.lightingID = lightingIDScene6;
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -2109,6 +2321,27 @@ void Engine::UpdateMainPassCBShadows(const GameTimer& gt)
 
     mMainPassCBShadows.Lights[2].Direction = mRotatedLightDirections[2];
     mMainPassCBShadows.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+
+    if (activeSceneID == 6 && activeParticleSystemScene6 == 3)
+    {
+        mMainPassCBShadows.Lights[3].Strength = { 1.0f, 1.0f, 1.0f };
+        mMainPassCBShadows.Lights[3].Position = { 1.0f, 5.0f, 0.0f };
+        mMainPassCBShadows.Lights[3].FalloffStart = 5.f;
+        mMainPassCBShadows.Lights[3].FalloffEnd = 7.f;
+        mMainPassCBShadows.Lights[3].Color = { 1.0f, 0.0f, 0.0f, 1.0f };
+
+        mMainPassCBShadows.Lights[4].Strength = { 1.0f, 1.0f, 1.0f };
+        mMainPassCBShadows.Lights[4].Position = { -1.0f, 8.0f, 0.0f };
+        mMainPassCBShadows.Lights[4].FalloffStart = 5.f;
+        mMainPassCBShadows.Lights[4].FalloffEnd = 7.f;
+        mMainPassCBShadows.Lights[4].Color = { 0.0f, 1.0f, 0.0f, 1.0f };
+
+        mMainPassCBShadows.Lights[5].Strength = { 1.0f, 1.0f, 1.0f };
+        mMainPassCBShadows.Lights[5].Position = { 0.0f, 1.0f, -3.0f };
+        mMainPassCBShadows.Lights[5].FalloffStart = 5.f;
+        mMainPassCBShadows.Lights[5].FalloffEnd = 7.f;
+        mMainPassCBShadows.Lights[5].Color = { 0.0f, 0.0f, 1.0f, 1.0f };
+    }
 
     mMainPassCBShadows.ShadowTextureID = shadowTextureIDScene7;
     if (isTexturedShadowsScene7)
@@ -2239,6 +2472,39 @@ void Engine::UpdateShadowPassCB(const GameTimer& gt)
     currPassCB->CopyData(0, mShadowPassCB);
 }
 
+void Engine::UpdateShadowPassCBParticles(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = DirectX::XMLoadFloat4x4(&mLightView);
+    DirectX::XMMATRIX proj = DirectX::XMLoadFloat4x4(&mLightProj);
+
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+
+    DirectX::XMMATRIX viewProj = DirectX::XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invView = DirectX::XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = DirectX::XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX invViewProj = DirectX::XMMatrixInverse(&tmp3, viewProj);
+
+    UINT w = mShadowMap2048->Width();
+    UINT h = mShadowMap2048->Height();
+
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mShadowPassCB.EyePosW = mLightPosW;
+    mShadowPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)w, (float)h);
+    mShadowPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / w, 1.0f / h);
+    mShadowPassCB.NearZ = mLightNearZ;
+    mShadowPassCB.FarZ = mLightFarZ;
+
+    auto currPassCB = mCurrFrameResource->ShadowPassCBParticles.get();
+    currPassCB->CopyData(0, mShadowPassCB);
+}
+
 void Engine::UpdateShadowTransform(const GameTimer& gt)
 {
     float sceneRadius = 50.f;
@@ -2318,6 +2584,26 @@ void Engine::UpdateParticleEmitter2CB(const GameTimer& gt)
     emitterConstPass.TotalTime = gt.TotalTime();
 
     auto currPassCB = mCurrFrameResource->Emitter2CB.get();
+    currPassCB->CopyData(0, emitterConstPass);
+}
+
+void Engine::UpdateParticleEmitter3CB(const GameTimer& gt)
+{
+    EmitterConstants emitterConstPass;
+
+    emitterConstPass.Position = mParticleSystemSmoke->emitterData.Position;
+    emitterConstPass.DeltaTime = gt.DeltaTime();
+    emitterConstPass.GravityForce = mParticleSystemSmoke->emitterData.GravityForce;
+    emitterConstPass.SystemID = mParticleSystemSmoke->emitterData.SystemID;
+    emitterConstPass.StartColor = mParticleSystemSmoke->emitterData.StartColor;
+    emitterConstPass.EndColor = mParticleSystemSmoke->emitterData.EndColor;
+    emitterConstPass.StartSize = mParticleSystemSmoke->emitterData.StartSize;
+    emitterConstPass.EndSize = mParticleSystemSmoke->emitterData.EndSize;
+    emitterConstPass.MaxParticles = mParticleSystemSmoke->emitterData.MaxParticles;
+    emitterConstPass.EmitterIsActive = mParticleSystemSmoke->emitterData.EmitterIsActive;
+    emitterConstPass.TotalTime = gt.TotalTime();
+
+    auto currPassCB = mCurrFrameResource->Emitter3CB.get();
     currPassCB->CopyData(0, emitterConstPass);
 }
 
@@ -2566,6 +2852,30 @@ void Engine::LoadTextures()
         mCommandList.Get(), shadow3Tex->Filename.c_str(),
         shadow3Tex->Resource, shadow3Tex->UploadHeap), true);
     mTextures[shadow3Tex->Name] = std::move(shadow3Tex);
+
+    auto bonfireTex = std::make_unique<Texture>();
+    bonfireTex->Name = "BonfireTex";
+    bonfireTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\BonfireTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), bonfireTex->Filename.c_str(),
+        bonfireTex->Resource, bonfireTex->UploadHeap), true);
+    mTextures[bonfireTex->Name] = std::move(bonfireTex);
+
+    auto particlesSmokeTex = std::make_unique<Texture>();
+    particlesSmokeTex->Name = "ParticleSmokeTex";
+    particlesSmokeTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\ParticleSmokeTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), particlesSmokeTex->Filename.c_str(),
+        particlesSmokeTex->Resource, particlesSmokeTex->UploadHeap), true);
+    mTextures[particlesSmokeTex->Name] = std::move(particlesSmokeTex);
+
+    auto grassTex = std::make_unique<Texture>();
+    grassTex->Name = "GrassTex";
+    grassTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\GrassTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), grassTex->Filename.c_str(),
+        grassTex->Resource, grassTex->UploadHeap), true);
+    mTextures[grassTex->Name] = std::move(grassTex);
 }
 
 void Engine::BuildShadowMaps()
@@ -2574,6 +2884,8 @@ void Engine::BuildShadowMaps()
     mShadowMap512 = std::make_unique<ShadowMap>(md3dDevice.Get(), 512, 512);
     mShadowMap1024 = std::make_unique<ShadowMap>(md3dDevice.Get(), 1024, 1024);
     mShadowMap2048 = std::make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
+
+    mShadowMapScene6 = std::make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
 }
 
 void Engine::BuildDescriptorHeaps()
@@ -2593,7 +2905,7 @@ void Engine::BuildDescriptorHeaps()
     // Create particles SRV/UAV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvParticlesHeapDesc = {};
-    srvParticlesHeapDesc.NumDescriptors = 10;
+    srvParticlesHeapDesc.NumDescriptors = 25;
     srvParticlesHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvParticlesHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvParticlesHeapDesc, IID_PPV_ARGS(&mParticlesSrvUavHeap)));
@@ -2639,6 +2951,15 @@ void Engine::BuildShadowMapsDescriptors()
         CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, 27, mCbvSrvUavDescriptorSize),
         CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, 27, mCbvSrvUavDescriptorSize),
         CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 5, mDsvDescriptorSize));
+
+    srvCpuStart = mParticlesSrvUavHeap->GetCPUDescriptorHandleForHeapStart();
+    srvGpuStart = mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart();
+    dsvCpuStart = mDsvHeap->GetCPUDescriptorHandleForHeapStart();
+
+    mShadowMapScene6->BuildDescriptors(
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, 21, mCbvSrvUavDescriptorSize),
+        CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, 21, mCbvSrvUavDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 6, mDsvDescriptorSize));
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSponzaSrvHeap->GetCPUDescriptorHandleForHeapStart());
     hDescriptor.Offset(28, mCbvSrvDescriptorSize);
@@ -2782,7 +3103,7 @@ void Engine::UploadTextures2()
     auto ParticleTex = mTextures["ParticleTex"]->Resource;
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptorParticles(mParticlesSrvUavHeap->GetCPUDescriptorHandleForHeapStart());
-    hDescriptorParticles.Offset(8, mCbvSrvDescriptorSize);
+    hDescriptorParticles.Offset(16, mCbvSrvDescriptorSize);
 
     srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc1.Format = ParticleTex->GetDesc().Format;
@@ -2801,6 +3122,39 @@ void Engine::UploadTextures2()
     srvDesc1.Texture2D.MostDetailedMip = 0;
     srvDesc1.Texture2D.MipLevels = -1;
     md3dDevice->CreateShaderResourceView(Particle2Tex.Get(), &srvDesc1, hDescriptorParticles);
+
+    hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
+
+    auto ParticleSmokeTex = mTextures["ParticleSmokeTex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = ParticleSmokeTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(ParticleSmokeTex.Get(), &srvDesc1, hDescriptorParticles);
+
+    hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
+
+    auto BonfireTex = mTextures["BonfireTex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = BonfireTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(BonfireTex.Get(), &srvDesc1, hDescriptorParticles);
+
+    hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
+
+    auto GrassTex = mTextures["GrassTex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = GrassTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(GrassTex.Get(), &srvDesc1, hDescriptorParticles);
 
     hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
 }
@@ -2846,6 +3200,11 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableShadowForward2;
     texTableShadowForward2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 2);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableShadowParticlesForward0;
+    texTableShadowParticlesForward0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTableShadowParticlesForward1;
+    texTableShadowParticlesForward1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -2870,6 +3229,7 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsPass[4];
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsForward[6];
+    CD3DX12_ROOT_PARAMETER slotRootParameterShadowsParticlesForward[5];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -2950,6 +3310,12 @@ void Engine::BuildRootSignature()
     slotRootParameterShadowsForward[4].InitAsConstantBufferView(2);
     slotRootParameterShadowsForward[5].InitAsDescriptorTable(1, &texTableShadowForward2);
 
+    slotRootParameterShadowsParticlesForward[0].InitAsDescriptorTable(1, &texTableShadowParticlesForward0);
+    slotRootParameterShadowsParticlesForward[1].InitAsDescriptorTable(1, &texTableShadowParticlesForward1);
+    slotRootParameterShadowsParticlesForward[2].InitAsConstantBufferView(0);
+    slotRootParameterShadowsParticlesForward[3].InitAsConstantBufferView(1);
+    slotRootParameterShadowsParticlesForward[4].InitAsConstantBufferView(2);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -3013,6 +3379,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescShadowsForward(6, slotRootParameterShadowsForward,
+        (UINT)shadowSamplers.size(), shadowSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescShadowsParticlesForward(5, slotRootParameterShadowsParticlesForward,
         (UINT)shadowSamplers.size(), shadowSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -3272,6 +3642,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureShadowsForward.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescShadowsParticlesForward, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureShadowsParticlesForward.GetAddressOf())));
 }
 
 
@@ -3299,6 +3686,10 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["particlesVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Particles.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["particlesGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Particles.hlsl", nullptr, "GS", "gs_5_1");
     mShaders["particlesPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Particles.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["particlesForwardVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForward.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["particlesForwardGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForward.hlsl", nullptr, "GS", "gs_5_1");
+    mShaders["particlesForwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForward.hlsl", nullptr, "PS", "ps_5_1");
 
     mShaders["particlesCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeParticles.hlsl", nullptr, "CS_UpdateParticles", "cs_5_1");
 
@@ -3331,8 +3722,15 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["shadowVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["shadowPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Shadows.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["shadowParticlesVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ShadowsParticles.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["shadowParticlesGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ShadowsParticles.hlsl", nullptr, "GS", "gs_5_1");
+    mShaders["shadowParticlesPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ShadowsParticles.hlsl", nullptr, "PS", "ps_5_1");
+
     mShaders["cascadedShadowsForwardVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\CascadedShadowsForward.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["cascadedShadowsForwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\CascadedShadowsForward.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["shadowsForwardVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ShadowsForward.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["shadowsForwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ShadowsForward.hlsl", nullptr, "PS", "ps_5_1");
 
     mInputLayout =
     {
@@ -3357,8 +3755,7 @@ void Engine::BuildShadersAndInputLayout()
     mParticlesInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 20, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "SIZE", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
 
     mPostProcessingInputLayout =
@@ -3843,24 +4240,87 @@ void Engine::BuildScene5Geometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
+void Engine::BuildScene6Geometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData grassPlatform = geoGen.CreateBoxTiling(100.0f, 0.1f, 100.0f, 0, 10);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry grassPlatformSubmesh;
+    grassPlatformSubmesh.IndexCount = (UINT)grassPlatform.Indices32.size();
+    grassPlatformSubmesh.StartIndexLocation = totalIndexCount;
+    grassPlatformSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += grassPlatformSubmesh.IndexCount;
+    totalVertexCount += grassPlatform.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < grassPlatform.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = grassPlatform.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = grassPlatform.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = grassPlatform.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = grassPlatform.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += grassPlatform.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(grassPlatform.GetIndices16()), std::end(grassPlatform.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene6GrassPlatform";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["GrassPlatform"] = grassPlatformSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
 void Engine::BuildModelsGeometry()
 {
     std::vector<Vertex> vertices;
     std::vector<std::uint32_t> indices;
 
-    ModelLoader::LoadModel("Sponza/sponza.obj", vertices, indices);
+    ModelLoader::LoadModel("Obj/bonfire.obj", vertices, indices);
+    for (int i = 0; i < vertices.size(); ++i)
+    {
+        vertices[i].Pos = DirectX::XMFLOAT3(vertices[i].Pos.x / 10 + 10.8f, vertices[i].Pos.y / 10, vertices[i].Pos.z / 10 + 1.f);
+    }
 
-    SubmeshGeometry fishSubmesh;
-    fishSubmesh.IndexCount = indices.size();
-    fishSubmesh.StartIndexLocation = 0;
-    fishSubmesh.BaseVertexLocation = 0;
-    fishSubmesh.VertexCount = vertices.size();
+    SubmeshGeometry bonfireSubmesh;
+    bonfireSubmesh.IndexCount = indices.size();
+    bonfireSubmesh.StartIndexLocation = 0;
+    bonfireSubmesh.BaseVertexLocation = 0;
+    bonfireSubmesh.VertexCount = vertices.size();
 
     const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
 
     auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "ModelsGeo";
+    geo->Name = "scene6Bonfire";
 
     ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
     CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
@@ -3879,7 +4339,7 @@ void Engine::BuildModelsGeometry()
     geo->IndexFormat = DXGI_FORMAT_R32_UINT;
     geo->IndexBufferByteSize = ibByteSize;
 
-    geo->DrawArgs["Fish"] = fishSubmesh;
+    geo->DrawArgs["Bonfire"] = bonfireSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -4223,6 +4683,33 @@ void Engine::BuildPSOs()
 
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticles"])));
 
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesForwardPsoDesc;
+    ZeroMemory(&particlesForwardPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    particlesForwardPsoDesc = particlesPsoDesc;
+    particlesForwardPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesForwardVS"]->GetBufferPointer()),
+        mShaders["particlesForwardVS"]->GetBufferSize()
+    };
+    particlesForwardPsoDesc.GS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesForwardGS"]->GetBufferPointer()),
+        mShaders["particlesForwardGS"]->GetBufferSize()
+    };
+    particlesForwardPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesForwardPS"]->GetBufferPointer()),
+        mShaders["particlesForwardPS"]->GetBufferSize()
+    };
+    particlesForwardPsoDesc.NumRenderTargets = 1;
+    particlesForwardPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    particlesForwardPsoDesc.RTVFormats[1] = DXGI_FORMAT_UNKNOWN;
+    particlesForwardPsoDesc.RTVFormats[2] = DXGI_FORMAT_UNKNOWN;
+    particlesForwardPsoDesc.RTVFormats[3] = DXGI_FORMAT_UNKNOWN;
+
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticlesForward"])));
+
+
     // Post Processing PSOs
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingGCPsoDesc;
     ZeroMemory(&postProcessingGCPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -4442,6 +4929,39 @@ void Engine::BuildPSOs()
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapPsoDesc, IID_PPV_ARGS(&mPSOs["shadowPSO"])));
 
     //
+    // PSO for particles shadow map pass.
+    //
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC smapParticlesPsoDesc;
+    ZeroMemory(&smapParticlesPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    smapParticlesPsoDesc = forwardRTPsoDesc;
+    smapParticlesPsoDesc.InputLayout = { mParticlesInputLayout.data(), (UINT)mParticlesInputLayout.size() };
+    smapParticlesPsoDesc.RasterizerState.DepthBias = 100000;
+    smapParticlesPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
+    smapParticlesPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
+    smapParticlesPsoDesc.pRootSignature = mRootSignatureParticlesRender.Get();
+    smapParticlesPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["shadowParticlesVS"]->GetBufferPointer()),
+        mShaders["shadowParticlesVS"]->GetBufferSize()
+    };
+    smapParticlesPsoDesc.GS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["shadowParticlesGS"]->GetBufferPointer()),
+        mShaders["shadowParticlesGS"]->GetBufferSize()
+    };
+    smapParticlesPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["shadowParticlesPS"]->GetBufferPointer()),
+        mShaders["shadowParticlesPS"]->GetBufferSize()
+    };
+
+    // Shadow map pass does not have a render target.
+    smapParticlesPsoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
+    smapParticlesPsoDesc.NumRenderTargets = 0;
+    smapParticlesPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapParticlesPsoDesc, IID_PPV_ARGS(&mPSOs["shadowParticlesPSO"])));
+
+    //
     // PSO for shadows forward pass
     //
     D3D12_GRAPHICS_PIPELINE_STATE_DESC smapForwardPsoDesc;
@@ -4459,6 +4979,25 @@ void Engine::BuildPSOs()
         mShaders["cascadedShadowsForwardPS"]->GetBufferSize()
     };
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapForwardPsoDesc, IID_PPV_ARGS(&mPSOs["shadowForwardPSO"])));
+
+    //
+    // PSO for shadows forward pass with particles
+    //
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC smapForwardParticlesPsoDesc;
+    ZeroMemory(&smapForwardParticlesPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    smapForwardParticlesPsoDesc = forwardRTPsoDesc;
+    smapForwardParticlesPsoDesc.pRootSignature = mRootSignatureShadowsParticlesForward.Get();
+    smapForwardParticlesPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["shadowsForwardVS"]->GetBufferPointer()),
+        mShaders["shadowsForwardVS"]->GetBufferSize()
+    };
+    smapForwardParticlesPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["shadowsForwardPS"]->GetBufferPointer()),
+        mShaders["shadowsForwardPS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapForwardParticlesPsoDesc, IID_PPV_ARGS(&mPSOs["shadowForwardParticlesPSO"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -4601,7 +5140,7 @@ void Engine::BuildMaterials()
     auto particleMat = std::make_unique<Material>();
     particleMat->Name = "particleMaterial";
     particleMat->MatCBIndex = 4;
-    particleMat->DiffuseSrvHeapIndex = 8;
+    particleMat->DiffuseSrvHeapIndex = 16;
     particleMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     particleMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
     particleMat->Roughness = 0.125f;
@@ -4611,7 +5150,7 @@ void Engine::BuildMaterials()
     auto particle2Mat = std::make_unique<Material>();
     particle2Mat->Name = "particle2Material";
     particle2Mat->MatCBIndex = 4;
-    particle2Mat->DiffuseSrvHeapIndex = 9;
+    particle2Mat->DiffuseSrvHeapIndex = 17;
     particle2Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     particle2Mat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
     particle2Mat->Roughness = 0.125f;
@@ -4627,6 +5166,36 @@ void Engine::BuildMaterials()
     skyboxMat->Roughness = 0.125f;
 
     mMaterials["skyboxMaterial"] = std::move(skyboxMat);
+
+    auto smokeMat = std::make_unique<Material>();
+    smokeMat->Name = "smokeMaterial";
+    smokeMat->MatCBIndex = 6;
+    smokeMat->DiffuseSrvHeapIndex = 18;
+    smokeMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    smokeMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
+    smokeMat->Roughness = 0.125f;
+
+    mMaterials["smokeMaterial"] = std::move(smokeMat);
+
+    auto bonfireMat = std::make_unique<Material>();
+    bonfireMat->Name = "bonfireMaterial";
+    bonfireMat->MatCBIndex = 7;
+    bonfireMat->DiffuseSrvHeapIndex = 19;
+    bonfireMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    bonfireMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
+    bonfireMat->Roughness = 0.125f;
+
+    mMaterials["bonfireMaterial"] = std::move(bonfireMat);
+
+    auto grassMat = std::make_unique<Material>();
+    grassMat->Name = "grassMaterial";
+    grassMat->MatCBIndex = 8;
+    grassMat->DiffuseSrvHeapIndex = 20;
+    grassMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    grassMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
+    grassMat->Roughness = 0.125f;
+
+    mMaterials["grassMaterial"] = std::move(grassMat);
 }
 
 void Engine::BuildRenderItems()
@@ -4893,6 +5462,45 @@ void Engine::BuildRenderItems()
     sponzaRitem->Mat = mMaterials["stoneMaterial"].get();
     sponzaRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     mAllRitems.push_back(std::move(sponzaRitem));
+
+    auto bonfireRitem = std::make_unique<RenderItem>();
+    bonfireRitem->World = MathHelper::Identity4x4();
+    bonfireRitem->ObjCBIndex = 748;
+    bonfireRitem->Mat = mMaterials["bonfireMaterial"].get();
+    bonfireRitem->Geo = mGeometries["scene6Bonfire"].get();
+    bonfireRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    bonfireRitem->IndexCount = bonfireRitem->Geo->DrawArgs["Bonfire"].IndexCount;
+    bonfireRitem->StartIndexLocation = bonfireRitem->Geo->DrawArgs["Bonfire"].StartIndexLocation;
+    bonfireRitem->BaseVertexLocation = bonfireRitem->Geo->DrawArgs["Bonfire"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene6_3].push_back(bonfireRitem.get());
+    mAllRitems.push_back(std::move(bonfireRitem));
+
+    auto grassPlatformRitem = std::make_unique<RenderItem>();
+    grassPlatformRitem->World = MathHelper::Identity4x4();
+    grassPlatformRitem->ObjCBIndex = 749;
+    grassPlatformRitem->Mat = mMaterials["grassMaterial"].get();
+    grassPlatformRitem->Geo = mGeometries["scene6GrassPlatform"].get();
+    grassPlatformRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    grassPlatformRitem->IndexCount = grassPlatformRitem->Geo->DrawArgs["GrassPlatform"].IndexCount;
+    grassPlatformRitem->StartIndexLocation = grassPlatformRitem->Geo->DrawArgs["GrassPlatform"].StartIndexLocation;
+    grassPlatformRitem->BaseVertexLocation = grassPlatformRitem->Geo->DrawArgs["GrassPlatform"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene6_3].push_back(grassPlatformRitem.get());
+    mAllRitems.push_back(std::move(grassPlatformRitem));
+
+    auto particleSmokeRitem = std::make_unique<RenderItem>();
+    particleSmokeRitem->World = MathHelper::Identity4x4();
+    particleSmokeRitem->ObjCBIndex = 750;
+    particleSmokeRitem->Mat = mMaterials["smokeMaterial"].get();
+    particleSmokeRitem->Geo = mGeometries["particlesGeo3"].get();
+    particleSmokeRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+    particleSmokeRitem->IndexCount = particleSmokeRitem->Geo->DrawArgs["points3"].IndexCount;
+    particleSmokeRitem->StartIndexLocation = particleSmokeRitem->Geo->DrawArgs["points3"].StartIndexLocation;
+    particleSmokeRitem->BaseVertexLocation = particleSmokeRitem->Geo->DrawArgs["points3"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Particles3].push_back(particleSmokeRitem.get());
+    mAllRitems.push_back(std::move(particleSmokeRitem));
 
 
     for (int i = 0; i < mAllRitems.size(); ++i)
@@ -5331,6 +5939,18 @@ void Engine::InitParticleSystem()
     mParticleSystem2->BuildSystemVertexBuffers(mGeometries,
         md3dDevice,
         mCommandList);
+
+    mParticleSystemSmoke = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 0.5f, 0.f), 3);
+
+    mParticleSystemSmoke->InitializeSystem(md3dDevice,
+        particleSmokeBuffers,
+        mParticlesSrvUavHeap,
+        mCbvSrvUavDescriptorSize,
+        2);
+
+    mParticleSystemSmoke->BuildSystemVertexBuffers(mGeometries,
+        md3dDevice,
+        mCommandList);
 }
 
 void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
@@ -5547,6 +6167,79 @@ void Engine::DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std
 
             cmdList->SetGraphicsRootDescriptorTable(0, tex);
             cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
+void Engine::DrawRenderItemsScene6(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
+void Engine::DrawRenderItemsScene6Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE shadowMap(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+            shadowMap.Offset(21, mCbvSrvDescriptorSize);
+            cmdList->SetGraphicsRootDescriptorTable(0, shadowMap);
+            cmdList->SetGraphicsRootDescriptorTable(1, tex);
             cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
             cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
 
@@ -5969,6 +6662,61 @@ void Engine::DrawSceneToShadowMap()
 
     DrawRenderItemsScene7Shadows(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene7]);
 
+    // Change back to GENERIC_READ so we can read the texture in a shader.
+    mCommandList->ResourceBarrier(1, &barrier2);
+}
+
+void Engine::DrawParticlesSceneToShadowMap()
+{
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    D3D12_VIEWPORT viewport;
+    D3D12_RECT scissorsRect;
+    CD3DX12_RESOURCE_BARRIER barrier1;
+    CD3DX12_RESOURCE_BARRIER barrier2;
+    CD3DX12_CPU_DESCRIPTOR_HANDLE dsv;
+
+    {
+        viewport = mShadowMapScene6->Viewport();
+        scissorsRect = mShadowMapScene6->ScissorRect();
+        barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMapScene6->Resource(),
+            D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mShadowMapScene6->Resource(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ);
+        dsv = mShadowMapScene6->Dsv();
+    }
+
+    mCommandList->RSSetViewports(1, &viewport);
+    mCommandList->RSSetScissorRects(1, &scissorsRect);
+
+    mCommandList->ResourceBarrier(1, &barrier1);
+
+    mCommandList->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+
+    mCommandList->OMSetRenderTargets(0, nullptr, false, &dsv);
+
+    mCommandList->SetPipelineState(mPSOs["shadowPSO"].Get());
+
+    DrawRenderItemsScene6(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene6_3]);
+
+    // Particles
+    ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
+    mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+
+    mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+
+    auto passCB = mCurrFrameResource->ShadowPassCBParticles->Resource();
+    mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+    CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+    handle.Offset(8 + currParticle2ReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
+    mCommandList->SetGraphicsRootDescriptorTable(1, handle);
+
+    mCommandList->SetPipelineState(mPSOs["shadowParticlesPSO"].Get());
+
+    DrawParticles(*mParticleSystemSmoke, RenderLayer::Particles3);
+    
     // Change back to GENERIC_READ so we can read the texture in a shader.
     mCommandList->ResourceBarrier(1, &barrier2);
 }
@@ -6556,19 +7304,25 @@ void Engine::RenderUI()
         {
             ImGui::Text("");
             ImGui::Text("Particles");
-            if (ImGui::BeginTable("Systems", 2))
+            if (ImGui::BeginTable("Systems", 3))
             {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                if (ImGui::Button("System 1", ImVec2(100, 40)))
+                if (ImGui::Button("System 1", ImVec2(80, 40)))
                 {
                     activeParticleSystemScene6 = 1;
                 }
 
                 ImGui::TableSetColumnIndex(1);
-                if (ImGui::Button("System 2", ImVec2(100, 40)))
+                if (ImGui::Button("System 2", ImVec2(80, 40)))
                 {
                     activeParticleSystemScene6 = 2;
+                }
+
+                ImGui::TableSetColumnIndex(2);
+                if (ImGui::Button("System 3", ImVec2(80, 40)))
+                {
+                    activeParticleSystemScene6 = 3;
                 }
 
                 ImGui::EndTable();
@@ -6603,6 +7357,12 @@ void Engine::RenderUI()
                 mParticleSystem2->emitterData.EndColor = DirectX::XMFLOAT4(particle2EndColorScene6[0], particle2EndColorScene6[1], particle2EndColorScene6[2], 1.0f);
                 mParticleSystem2->emitterData.StartSize = particle2StartSizeScene6;
                 mParticleSystem2->emitterData.EndSize = particle2EndSizeScene6;
+            }
+            else if (activeParticleSystemScene6 == 3)
+            {
+                ImGui::Text("");
+                ImGui::Text("Lighting Technique");
+                ImGui::RadioButton("Vertex Shaders", &lightingIDScene6, 1);
             }
         }
         else if (activeSceneID == 7)

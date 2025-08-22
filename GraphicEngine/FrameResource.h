@@ -101,7 +101,8 @@ struct PassConstants
     float displacementLevel = 1.0f;
 
     float isNegative = 0.0f;
-    DirectX::XMFLOAT3 cbPad;
+    UINT lightingID = 1;
+    DirectX::XMFLOAT2 cbPad;
 
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -197,10 +198,12 @@ public:
     std::unique_ptr<UploadBuffer<PassConstants>> PassCBScene3Camera2 = nullptr;
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> PassCBShadows = nullptr;
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> ShadowPassCB = nullptr;
+    std::unique_ptr<UploadBuffer<PassConstantsShadows>> ShadowPassCBParticles = nullptr;
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> EmitterCB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter2CB = nullptr;
+    std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter3CB = nullptr;
     std::unique_ptr<UploadBuffer<InstanceData>> InstancingCB = nullptr;
     std::unique_ptr<UploadBuffer<PostProcessingConstants>> PostProcessingCB = nullptr;
     std::unique_ptr<UploadBuffer<NoiseComputeConstants>> NoiseCB = nullptr;

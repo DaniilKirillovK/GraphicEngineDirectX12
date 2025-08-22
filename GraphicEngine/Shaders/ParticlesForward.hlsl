@@ -35,14 +35,6 @@ struct Particle
 
 StructuredBuffer<Particle> particlesIn : register(t0, space1);
 
-struct GBuffer
-{
-    float4 Albedo : SV_TARGET0;
-    float4 Position : SV_TARGET1;
-    float4 Normal : SV_TARGET2;
-    float4 Specular : SV_TARGET3;
-};
-
 // Constant data that varies per frame.
 cbuffer cbPass : register(b0)
 {
@@ -75,7 +67,6 @@ cbuffer cbPass : register(b0)
     float isNegative;
     int lightingID;
     float2 cbPad;
-    
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -105,7 +96,6 @@ struct VertexOut
 {
     float3 CenterW : POSITION;
     float2 SizeW : SIZE;
-
 };
 
 VertexOut VS(VertexIn vin)
@@ -126,6 +116,7 @@ struct GeoOut
     float3 NormalW : NORMAL;
     float2 TexC : TEXCOORD;
     uint PrimID : SV_PrimitiveID;
+    float4 Color : COLOR;
 };
  
  // We expand each point into a quad (4 vertices), so the maximum number of vertices
@@ -172,6 +163,24 @@ void GS(point VertexOut gin[1],
 		float2(1.0f, 1.0f),
 		float2(1.0f, 0.0f)
     };
+    
+    float3 Roughness = float3(gRoughness, gRoughness, gRoughness);
+    float3 AO = float3(0.5f, 0.5f, 0.5f);
+    
+    float3 toEyeW = normalize(gEyePosW - position);
+    
+    float3 normal = normalize(float3(1.0f, 1.0f, 1.0f));
+
+    // Light terms.
+    float4 ambient = gAmbientLight;
+
+    float3 gFresnelR0 = float3(0.01f, 0.01f, 0.01f);
+    
+    const float shininess = 1.0f - Roughness.x;
+    Material mat = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
+    float3 shadowFactor = float3(AO.x, AO.x, AO.x);
+    float4 Color = ComputeLighting(gLights, mat, position,
+        normal, toEyeW, shadowFactor);
 	
     GeoOut gout;
 	[unroll]
@@ -182,37 +191,24 @@ void GS(point VertexOut gin[1],
         gout.NormalW = look;
         gout.TexC = texC[i];
         gout.PrimID = primID;
+        gout.Color = Color;
 		
         triStream.Append(gout);
     }
 }
 
-GBuffer PS(GeoOut pin)
+float4 PS(GeoOut pin) : SV_Target
 {
-    float2 uv = pin.TexC;
+    float4 Position = float4(pin.PosW, 1.0f);
     
-    GBuffer gBuffer;
-    gBuffer.Albedo = gParticleTexture.Sample(gsamAnisotropicWrap, uv) * gDiffuseAlbedo * particlesIn[pin.PrimID].Color;
+    float2 TexCoord = pin.TexC;
+    float4 Albedo = (gParticleTexture.Sample(gsamLinearWrap, TexCoord) * gDiffuseAlbedo);
+
+    // Light terms.
+    float4 ambient = gAmbientLight * Albedo;
+    clip(ambient.a - 0.1f);
     
-    clip(gBuffer.Albedo.a - 0.1f);
-    
-    gBuffer.Position = float4(pin.PosW, 1.0f);
-    
-#ifdef ALPHA_TEST
-	// Discard pixel if texture alpha < 0.1.  We do this test as soon 
-	// as possible in the shader so that we can potentially exit the
-	// shader early, thereby skipping the rest of the shader code.
-	clip(diffuseAlbedo.a - 0.1f);
-#endif
+    float4 litColor = ambient + pin.Color;
 
-    gBuffer.Normal = float4(normalize(pin.NormalW), 1.0f);
-
-    gBuffer.Specular = float4(gRoughness, gRoughness, gRoughness, 1.0f);
-
-#ifdef FOG
-	float fogAmount = saturate((distToEye - gFogStart) / gFogRange);
-	litColor = lerp(litColor, gFogColor, fogAmount);
-#endif
-
-    return gBuffer;
+    return litColor;
 }

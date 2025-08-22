@@ -114,6 +114,31 @@ void CS_UpdateParticles(uint3 id : SV_DispatchThreadID)
             particle.Size = lerp(StartSize, EndSize, particle.Age / particle.LifeTime);
         }
     }
+    else if (SystemID == 3)
+    {
+        if (particle.Age >= particle.LifeTime)
+        {
+            // Respawning particle
+            if (EmitterIsActive)
+            {
+                particle.Position = EmitterPosition + float3(sin(TotalTime * id.x) * 1.f % 0.5f, 0.0f, cos(TotalTime * id.x) * 1.f % 0.5f);
+                particle.Velocity = GravityForce;
+                particle.Color = StartColor;
+                particle.Size = StartSize;
+                particle.Age = 0;
+                particle.LifeTime = (float) id.x % 10 + sin(TotalTime * id.x) * 5.f;
+            }
+        }
+        else
+        {
+            // Updating alive particles
+            particle.Age += DeltaTime;
+            particle.Position += particle.Velocity * DeltaTime;
+            particle.Velocity += float3(0.0f, 0.0f, 0.0f);
+            particle.Color = lerp(StartColor, EndColor, particle.Age / particle.LifeTime);
+            particle.Size = lerp(StartSize, EndSize, particle.Age / particle.LifeTime);
+        }
+    }
     
     particlesOut[id.x] = particle;
 }

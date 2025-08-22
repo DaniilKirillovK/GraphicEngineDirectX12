@@ -110,6 +110,7 @@ protected:
     virtual void BuildScene3Geometry() {}
     virtual void BuildScene4Geometry() {}
     virtual void BuildScene5Geometry() {}
+    virtual void BuildScene6Geometry() {}
     virtual void BuildModelsGeometry() {}
     virtual void BuildSponzaGeometryAndTextures() {}
     virtual void BuildPSOs() {}
@@ -199,6 +200,8 @@ protected:
     UINT currParticleReadBuffer = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> particle2Buffers[2];
     UINT currParticle2ReadBuffer = 0;
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleSmokeBuffers[2];
+    UINT currParticleSmokeReadBuffer = 0;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> postProcessingBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> noiseTexture;

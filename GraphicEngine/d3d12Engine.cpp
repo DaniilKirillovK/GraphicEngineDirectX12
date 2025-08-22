@@ -112,7 +112,7 @@ void D3D12Engine::CreateRtvAndDsvDescriptorHeaps()
 
 
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 6;
+	dsvHeapDesc.NumDescriptors = 7;
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	dsvHeapDesc.NodeMask = 0;
@@ -513,7 +513,8 @@ BuildShapeGeometry();
 BuildScene3Geometry();
 BuildScene4Geometry();
 BuildScene5Geometry();
-//BuildModelsGeometry();
+BuildScene6Geometry();
+BuildModelsGeometry();
 BuildSponzaGeometryAndTextures();
 BuildBillboardSpritesGeometry();
 InitParticleSystem();

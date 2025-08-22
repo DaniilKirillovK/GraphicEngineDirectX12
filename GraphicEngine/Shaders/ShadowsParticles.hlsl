@@ -1,15 +1,4 @@
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 3
-#endif
-
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 3
-#endif
-
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 0
-#endif
-
+#include "Common.hlsl"
 #include "LightingUtil.hlsl"
 
 Texture2D gParticleTexture : register(t0, space0);
@@ -35,23 +24,20 @@ struct Particle
 
 StructuredBuffer<Particle> particlesIn : register(t0, space1);
 
-struct GBuffer
-{
-    float4 Albedo : SV_TARGET0;
-    float4 Position : SV_TARGET1;
-    float4 Normal : SV_TARGET2;
-    float4 Specular : SV_TARGET3;
-};
 
 // Constant data that varies per frame.
 cbuffer cbPass : register(b0)
 {
+    float4x4 gViewMain;
+    float4x4 gProjMain;
+    
     float4x4 gView;
     float4x4 gInvView;
     float4x4 gProj;
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+    float4x4 gShadowTransform;
     float3 gEyePosW;
     float cbPerObjectPad1;
     float2 gRenderTargetSize;
@@ -73,9 +59,14 @@ cbuffer cbPass : register(b0)
     float displacementLevel;
     
     float isNegative;
-    int lightingID;
-    float2 cbPad;
+    int isTexturedShadows;
+    int shadowTextureID;
+    int isCascadedShadows;
     
+    int shadowMapSizeID;
+    int shadowFilteringID;
+    int cascadedShadowMapID;
+    float pad0;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -94,7 +85,6 @@ cbuffer cbMaterial : register(b1)
     float tilesCount;
 };
 
-
 struct VertexIn
 {
     float3 PosW : POSITION;
@@ -105,7 +95,6 @@ struct VertexOut
 {
     float3 CenterW : POSITION;
     float2 SizeW : SIZE;
-
 };
 
 VertexOut VS(VertexIn vin)
@@ -187,32 +176,16 @@ void GS(point VertexOut gin[1],
     }
 }
 
-GBuffer PS(GeoOut pin)
+// This is only used for alpha cut out geometry, so that shadows 
+// show up correctly.  Geometry that does not need to sample a
+// texture can use a NULL pixel shader for depth pass.
+void PS(GeoOut pin)
 {
-    float2 uv = pin.TexC;
-    
-    GBuffer gBuffer;
-    gBuffer.Albedo = gParticleTexture.Sample(gsamAnisotropicWrap, uv) * gDiffuseAlbedo * particlesIn[pin.PrimID].Color;
-    
-    clip(gBuffer.Albedo.a - 0.1f);
-    
-    gBuffer.Position = float4(pin.PosW, 1.0f);
-    
-#ifdef ALPHA_TEST
-	// Discard pixel if texture alpha < 0.1.  We do this test as soon 
-	// as possible in the shader so that we can potentially exit the
-	// shader early, thereby skipping the rest of the shader code.
-	clip(diffuseAlbedo.a - 0.1f);
-#endif
+	// Fetch the material data.
+    float4 diffuseAlbedo = gDiffuseAlbedo;
+	
+	// Dynamically look up the texture in the array.
+    diffuseAlbedo *= gParticleTexture.Sample(gsamAnisotropicWrap, pin.TexC);
 
-    gBuffer.Normal = float4(normalize(pin.NormalW), 1.0f);
-
-    gBuffer.Specular = float4(gRoughness, gRoughness, gRoughness, 1.0f);
-
-#ifdef FOG
-	float fogAmount = saturate((distToEye - gFogStart) / gFogRange);
-	litColor = lerp(litColor, gFogColor, fogAmount);
-#endif
-
-    return gBuffer;
+    clip(diffuseAlbedo.a - 0.1f);
 }
