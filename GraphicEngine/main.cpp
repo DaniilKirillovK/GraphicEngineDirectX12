@@ -65,7 +65,8 @@ enum class RenderLayer : int
     Scene6_3 = 10,
     Scene7 = 11,
     Scene10 = 12,
-    Scene11 = 13,
+    Scene10DebugGeometry = 13,
+    Scene11 = 14,
     Count
 };
 
@@ -135,6 +136,7 @@ private:
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
+    void UpdateMainPassCBScene10(const GameTimer& gt);
     void UpdateMainPassCBParticles(const GameTimer& gt);
     void UpdateMainPassCBScene3Camera2(const GameTimer& gt);
     void UpdateMainPassCBShadows(const GameTimer& gt);
@@ -164,6 +166,7 @@ private:
     virtual void BuildScene5Geometry() override;
     virtual void BuildScene6Geometry() override;
     virtual void BuildModelsGeometry() override;
+    virtual void BuildScene10DebugGeometry() override;
     virtual void BuildSponzaGeometryAndTextures() override;
     virtual void BuildPSOs() override;
     virtual void BuildPostProcessingResources() override;
@@ -197,6 +200,7 @@ private:
     void DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawSponzaScene(ID3D12GraphicsCommandList* cmdList);
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -237,6 +241,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadows = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsForward = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsParticlesForward = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebugGeometry = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -249,6 +254,7 @@ private:
     std::vector<D3D12_INPUT_ELEMENT_DESC> mBillboardSpriteInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mParticlesInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mPostProcessingInputLayout;
+    std::vector<D3D12_INPUT_ELEMENT_DESC> mDebugInputLayout;
 
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
@@ -313,7 +319,7 @@ bool isFirstExecution = true;
 // Imgui Variables
 bool opened = true;
 
-int activeSceneID = 6;
+int activeSceneID = 10;
 
 bool isDebug = true;
 bool gridIsActive = false;
@@ -441,6 +447,25 @@ float nSizeScene8 = 2.f;
 
 int selectedRenderTechScene10 = 0;
 bool deferredRenderDisplayInfoScene10 = false;
+bool isDebugLayerActiveScene10 = false;
+float col1Scene10[3] = { 0.0f, 0.0f, 1.0f };
+float col2Scene10[3] = { 0.0f, 1.0f, 0.0f };
+float col3Scene10[3] = { 1.0f, 0.0f, 0.0f };
+float lightPos1Scene10[3] = { 0.0f, 1.0f, 2.0f };
+float lightPos2Scene10[3] = { 0.0f, 1.0f, 0.0f };
+float lightPos3Scene10[3] = { 0.0f, 1.0f, -2.0f };
+float light1StrengthScene10 = 1.0f;
+float light2StrengthScene10 = 1.0f;
+float light3StrengthScene10 = 1.0f;
+float light1DistanceScene10 = 2.0f;
+float light2DistanceScene10 = 2.0f;
+float light3DistanceScene10 = 2.0f;
+float lightPosSpot1Scene10[3] = { 0.0f, 0.0f, 0.0f };
+float spotLight1DirectionScene10[3] = { -2.0f, 1.5f, 0.0f };
+float light1SpotStrengthScene10 = 5.0f;
+float light1SpotDistanceScene10 = 18.0f;
+float spotLight1PowerScene10 = 64.f;
+float colSpot1Scene10[3] = { 1.0f, 1.0f, 0.0f };
 
 bool isWireframeScene11 = false;
 float tessFactorScene11 = 1.0f;
@@ -598,7 +623,7 @@ void Engine::Update(const GameTimer& gt)
 
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
-    if (activeSceneID != 7)
+    if (activeSceneID != 7 && activeSceneID != 10)
         UpdateMainPassCB(gt);
     if (activeSceneID == 3)
     {
@@ -637,6 +662,10 @@ void Engine::Update(const GameTimer& gt)
         {
             UpdateNoiseCB(gt);
         }
+    }
+    if (activeSceneID == 10)
+    {
+        UpdateMainPassCBScene10(gt);
     }
     if (activeSceneID == 11)
     {
@@ -1690,6 +1719,39 @@ void Engine::Draw(const GameTimer& gt)
         }
     }
 
+    // Draw Debug Geometry Scene 10
+    if (activeSceneID == 10 && isDebugLayerActiveScene10)
+    {
+        auto depthOpen = CD3DX12_RESOURCE_BARRIER::Transition(mDepthStencilBuffer.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        D3D12_RESOURCE_BARRIER barrierOpen[] = { depthOpen };
+        mCommandList->ResourceBarrier(1, barrierOpen);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignatureDebugGeometry.Get());
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+
+        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+        mCommandList->SetPipelineState(mPSOs["debugGeometry"].Get());
+
+        DrawDebugGeometryScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10DebugGeometry]);
+
+        auto depthClose = CD3DX12_RESOURCE_BARRIER::Transition(mDepthStencilBuffer.Get(),
+            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        D3D12_RESOURCE_BARRIER barrierClose[] = { depthClose };
+        mCommandList->ResourceBarrier(1, barrierClose);
+    }
+
     if (activeSceneID == 8)
     {
         // Noise compute
@@ -1944,6 +2006,8 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
         {
             DirectX::XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
             DirectX::XMFLOAT4X4 worldM = MathHelper::Identity4x4();
+            ObjectConstants objConstants;
+
             if (i == 0)
                 world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 1.0f, 0.0f, 0.0f }, Obj1rotX)
                 * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, Obj1rotY)
@@ -1987,10 +2051,35 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 mAllRitems[i]->Mat->TilesCount = tilesCountScene4;
                 mAllRitems[i]->Mat->NumFramesDirty = gNumFrameResources;
             }
+            else if (activeSceneID == 10)
+            {
+                if (i == 751)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos1Scene10[0], lightPos1Scene10[1], lightPos1Scene10[2]);
+                    objConstants.scale = light1DistanceScene10;
+                }
+                else if (i == 752)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos2Scene10[0], lightPos2Scene10[1], lightPos2Scene10[2]);
+                    objConstants.scale = light2DistanceScene10;
+                }
+                else if (i == 753)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos3Scene10[0], lightPos3Scene10[1], lightPos3Scene10[2]);
+                    objConstants.scale = light3DistanceScene10;
+                }
+                else if (i == 754)
+                {
+                    world = XMLoadFloat4x4(&worldM)
+                        * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, DirectX::XM_PI / 2)
+                        * DirectX::XMMatrixRotationRollPitchYaw(spotLight1DirectionScene10[0], spotLight1DirectionScene10[1], spotLight1DirectionScene10[2])
+                        * DirectX::XMMatrixTranslation(lightPosSpot1Scene10[0], lightPosSpot1Scene10[1], lightPosSpot1Scene10[2]);
+                    objConstants.scale = light1SpotDistanceScene10;
+                }
+            }
 
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
-            ObjectConstants objConstants;
             XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
             XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
             if (i <= 4 || i == 745)
@@ -2146,6 +2235,107 @@ void Engine::UpdateMainPassCB(const GameTimer& gt)
         mMainPassCB.ParallaxMapping = 1.0f;
     else mMainPassCB.ParallaxMapping = 0.0f;
     
+
+    if (isNegative)
+        mMainPassCB.isNegative = 1.0f;
+    else mMainPassCB.isNegative = 0.0f;
+
+    auto currPassCB = mCurrFrameResource->PassCB.get();
+    currPassCB->CopyData(0, mMainPassCB);
+}
+
+void Engine::UpdateMainPassCBScene10(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    DirectX::XMMATRIX proj = mCamera.GetProj();
+
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
+
+    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mMainPassCB.EyePosW = mCamera.GetPosition3f();
+    mMainPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+    mMainPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+    mMainPassCB.NearZ = 1.0f;
+    mMainPassCB.FarZ = 1000.0f;
+    mMainPassCB.TotalTime = gt.TotalTime();
+    mMainPassCB.DeltaTime = gt.DeltaTime();
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+
+    // Directional lights
+    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
+    mMainPassCB.Lights[0].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+    mMainPassCB.Lights[1].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+    mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+    mMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+
+    // Point lights
+    {
+        mMainPassCB.Lights[3].Strength = { light1StrengthScene10, light1StrengthScene10, light1StrengthScene10 };
+        mMainPassCB.Lights[3].Position = { lightPos1Scene10[0], lightPos1Scene10[1], lightPos1Scene10[2] };
+        mMainPassCB.Lights[3].FalloffStart = light1DistanceScene10;
+        mMainPassCB.Lights[3].FalloffEnd = light1DistanceScene10;
+        mMainPassCB.Lights[3].Color = { col1Scene10[0], col1Scene10[1], col1Scene10[2], 1.0f };
+
+        mMainPassCB.Lights[4].Strength = { light2StrengthScene10, light2StrengthScene10, light2StrengthScene10 };
+        mMainPassCB.Lights[4].Position = { lightPos2Scene10[0], lightPos2Scene10[1], lightPos2Scene10[2] };
+        mMainPassCB.Lights[4].FalloffStart = light2DistanceScene10;
+        mMainPassCB.Lights[4].FalloffEnd = light2DistanceScene10;
+        mMainPassCB.Lights[4].Color = { col2Scene10[0], col2Scene10[1], col2Scene10[2], 1.0f };
+
+        mMainPassCB.Lights[5].Strength = { light3StrengthScene10, light3StrengthScene10, light3StrengthScene10 };
+        mMainPassCB.Lights[5].Position = { lightPos3Scene10[0], lightPos3Scene10[1], lightPos3Scene10[2] };
+        mMainPassCB.Lights[5].FalloffStart = light3DistanceScene10;
+        mMainPassCB.Lights[5].FalloffEnd = light3DistanceScene10;
+        mMainPassCB.Lights[5].Color = { col3Scene10[0], col3Scene10[1], col3Scene10[2], 1.0f };
+    }
+
+
+    // Spot lights
+    mMainPassCB.Lights[6].Strength = { light1SpotStrengthScene10, light1SpotStrengthScene10, light1SpotStrengthScene10 };
+    mMainPassCB.Lights[6].FalloffStart = light1SpotDistanceScene10;
+    mMainPassCB.Lights[6].FalloffEnd = light1SpotDistanceScene10;
+    mMainPassCB.Lights[6].Color = { colSpot1Scene10[0], colSpot1Scene10[1], colSpot1Scene10[2], 1.0f };
+    mMainPassCB.Lights[6].SpotPower = spotLight1PowerScene10;
+    DirectX::XMVECTOR vector = DirectX::XMVectorSet(0.0f, -1.0f, 0.0f, 0.0f);
+    DirectX::XMMATRIX rotation = DirectX::XMMatrixRotationRollPitchYaw(spotLight1DirectionScene10[0], spotLight1DirectionScene10[1], spotLight1DirectionScene10[2]);
+    DirectX::XMVECTOR rotatedVector = DirectX::XMVector3Transform(vector, rotation);
+    DirectX::XMStoreFloat3(&mMainPassCB.Lights[6].Direction, rotatedVector);
+    mMainPassCB.Lights[6].Position = { lightPosSpot1Scene10[0], lightPosSpot1Scene10[1], lightPosSpot1Scene10[2] };
+
+    if (activeSceneID == 1)
+    {
+        mMainPassCB.TessFactor = tessFactor;
+        mMainPassCB.displacementLevel = displacementLevel;
+    }
+    else if (activeSceneID == 5)
+    {
+        mMainPassCB.TessFactor = tessFactorScene5;
+        mMainPassCB.displacementLevel = displacementLevelScene5;
+    }
+
+    mMainPassCB.PixelationFactor = pixelationFactor;
+    if (isParallaxMapping)
+        mMainPassCB.ParallaxMapping = 1.0f;
+    else mMainPassCB.ParallaxMapping = 0.0f;
+
 
     if (isNegative)
         mMainPassCB.isNegative = 1.0f;
@@ -3226,6 +3416,7 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterTessellation[6];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterRT[4];
+    CD3DX12_ROOT_PARAMETER slotRootParameterDebugLayer[4];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsPass[4];
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsForward[6];
@@ -3297,6 +3488,9 @@ void Engine::BuildRootSignature()
     slotRootParameterRT[1].InitAsConstantBufferView(0);
     slotRootParameterRT[2].InitAsConstantBufferView(1);
     slotRootParameterRT[3].InitAsConstantBufferView(2);
+
+    slotRootParameterDebugLayer[0].InitAsConstantBufferView(0);
+    slotRootParameterDebugLayer[1].InitAsConstantBufferView(1);
 
     slotRootParameterShadowsPass[0].InitAsDescriptorTable(1, &texTableShadowPass);
     slotRootParameterShadowsPass[1].InitAsConstantBufferView(0);
@@ -3371,6 +3565,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescRT(4, slotRootParameterRT,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDebugLayer(2, slotRootParameterDebugLayer,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -3659,6 +3857,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureShadowsParticlesForward.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescDebugLayer, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureDebugGeometry.GetAddressOf())));
 }
 
 
@@ -3678,6 +3893,9 @@ void Engine::BuildShadersAndInputLayout()
 
     mShaders["debugVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DebugLayer.hlsl", nullptr, "VS", "vs_5_0");
     mShaders["debugPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DebugLayer.hlsl", nullptr, "PS", "ps_5_0");
+
+    mShaders["debugGeometryVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DebugGeometry.hlsl", nullptr, "VS", "vs_5_0");
+    mShaders["debugGeometryPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DebugGeometry.hlsl", nullptr, "PS", "ps_5_0");
 
     mShaders["billboardSpriteVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Billboard.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["billboardSpriteGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Billboard.hlsl", nullptr, "GS", "gs_5_1");
@@ -3762,6 +3980,12 @@ void Engine::BuildShadersAndInputLayout()
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+    };
+
+    mDebugInputLayout =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
 }
 
@@ -4340,6 +4564,109 @@ void Engine::BuildModelsGeometry()
     geo->IndexBufferByteSize = ibByteSize;
 
     geo->DrawArgs["Bonfire"] = bonfireSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void Engine::BuildScene10DebugGeometry()
+{
+    GeometryGenerator geoGen;
+    GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.0f, 7, 7, 0.f, 0.f, 0.f);
+    GeometryGenerator::MeshData cone = geoGen.CreateCone(1.0f, 0.2f, 20);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry pointLight1Submesh;
+    pointLight1Submesh.IndexCount = (UINT)sphere.Indices32.size();
+    pointLight1Submesh.StartIndexLocation = totalIndexCount;
+    pointLight1Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += pointLight1Submesh.IndexCount;
+    totalVertexCount += sphere.Vertices.size();
+
+    SubmeshGeometry pointLight2Submesh;
+    pointLight2Submesh.IndexCount = (UINT)sphere.Indices32.size();
+    pointLight2Submesh.StartIndexLocation = totalIndexCount;
+    pointLight2Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += pointLight2Submesh.IndexCount;
+    totalVertexCount += sphere.Vertices.size();
+
+    SubmeshGeometry pointLight3Submesh;
+    pointLight3Submesh.IndexCount = (UINT)sphere.Indices32.size();
+    pointLight3Submesh.StartIndexLocation = totalIndexCount;
+    pointLight3Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += pointLight3Submesh.IndexCount;
+    totalVertexCount += sphere.Vertices.size();
+
+    SubmeshGeometry coneSubmesh;
+    coneSubmesh.IndexCount = (UINT)cone.Indices32.size();
+    coneSubmesh.StartIndexLocation = totalIndexCount;
+    coneSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += coneSubmesh.IndexCount;
+    totalVertexCount += cone.Vertices.size();
+
+    std::vector<DebugVertex> vertices(totalVertexCount);
+    UINT totalVertexCount2 = 0;
+
+    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Position = sphere.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+    totalVertexCount2 += sphere.Vertices.size();
+    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Position = sphere.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+    totalVertexCount2 += sphere.Vertices.size();
+    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Position = sphere.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+    totalVertexCount2 += sphere.Vertices.size();
+    for (size_t i = 0; i < cone.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Position = cone.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+    totalVertexCount2 += cone.Vertices.size();
+
+
+    std::vector<std::uint16_t> indices;
+    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
+    indices.insert(indices.end(), std::begin(cone.GetIndices16()), std::end(cone.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(DebugVertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "debugGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(DebugVertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["pointLight1"] = pointLight1Submesh;
+    geo->DrawArgs["pointLight2"] = pointLight2Submesh;
+    geo->DrawArgs["pointLight3"] = pointLight3Submesh;
+    geo->DrawArgs["cone"] = coneSubmesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -4998,6 +5325,36 @@ void Engine::BuildPSOs()
         mShaders["shadowsForwardPS"]->GetBufferSize()
     };
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapForwardParticlesPsoDesc, IID_PPV_ARGS(&mPSOs["shadowForwardParticlesPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC debugGeometryPsoDesc;
+    ZeroMemory(&debugGeometryPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    debugGeometryPsoDesc.InputLayout = { mDebugInputLayout.data(), (UINT)mDebugInputLayout.size() };
+    debugGeometryPsoDesc.pRootSignature = mRootSignatureDebugGeometry.Get();
+    debugGeometryPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["debugGeometryVS"]->GetBufferPointer()),
+        mShaders["debugGeometryVS"]->GetBufferSize()
+    };
+    debugGeometryPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["debugGeometryPS"]->GetBufferPointer()),
+        mShaders["debugGeometryPS"]->GetBufferSize()
+    };
+    debugGeometryPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    debugGeometryPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    debugGeometryPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    debugGeometryPsoDesc.DepthStencilState.DepthEnable = TRUE;
+    debugGeometryPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+    debugGeometryPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+    debugGeometryPsoDesc.DepthStencilState.StencilEnable = FALSE;
+    debugGeometryPsoDesc.SampleMask = UINT_MAX;
+    debugGeometryPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    debugGeometryPsoDesc.NumRenderTargets = 1;
+    debugGeometryPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    debugGeometryPsoDesc.SampleDesc.Count = 1;
+    debugGeometryPsoDesc.SampleDesc.Quality = 0;
+    debugGeometryPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["debugGeometry"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -5501,6 +5858,62 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::Particles3].push_back(particleSmokeRitem.get());
     mAllRitems.push_back(std::move(particleSmokeRitem));
+
+    auto pointLight1Scene10Ritem = std::make_unique<RenderItem>();
+    pointLight1Scene10Ritem->ObjCBIndex = 751;
+    pointLight1Scene10Ritem->World = MathHelper::Identity4x4();
+    pointLight1Scene10Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight1Scene10Ritem->Mat = mMaterials["stoneMaterial"].get();
+    pointLight1Scene10Ritem->Geo = mGeometries["debugGeo"].get();
+    pointLight1Scene10Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    pointLight1Scene10Ritem->IndexCount = pointLight1Scene10Ritem->Geo->DrawArgs["pointLight1"].IndexCount;
+    pointLight1Scene10Ritem->StartIndexLocation = pointLight1Scene10Ritem->Geo->DrawArgs["pointLight1"].StartIndexLocation;
+    pointLight1Scene10Ritem->BaseVertexLocation = pointLight1Scene10Ritem->Geo->DrawArgs["pointLight1"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene10DebugGeometry].push_back(pointLight1Scene10Ritem.get());
+    mAllRitems.push_back(std::move(pointLight1Scene10Ritem));
+
+    auto pointLight2Scene10Ritem = std::make_unique<RenderItem>();
+    pointLight2Scene10Ritem->ObjCBIndex = 752;
+    pointLight2Scene10Ritem->World = MathHelper::Identity4x4();
+    pointLight2Scene10Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight2Scene10Ritem->Mat = mMaterials["stoneMaterial"].get();
+    pointLight2Scene10Ritem->Geo = mGeometries["debugGeo"].get();
+    pointLight2Scene10Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    pointLight2Scene10Ritem->IndexCount = pointLight2Scene10Ritem->Geo->DrawArgs["pointLight2"].IndexCount;
+    pointLight2Scene10Ritem->StartIndexLocation = pointLight2Scene10Ritem->Geo->DrawArgs["pointLight2"].StartIndexLocation;
+    pointLight2Scene10Ritem->BaseVertexLocation = pointLight2Scene10Ritem->Geo->DrawArgs["pointLight2"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene10DebugGeometry].push_back(pointLight2Scene10Ritem.get());
+    mAllRitems.push_back(std::move(pointLight2Scene10Ritem));
+
+    auto pointLight3Scene10Ritem = std::make_unique<RenderItem>();
+    pointLight3Scene10Ritem->ObjCBIndex = 753;
+    pointLight3Scene10Ritem->World = MathHelper::Identity4x4();
+    pointLight3Scene10Ritem->TexTransform = MathHelper::Identity4x4();
+    pointLight3Scene10Ritem->Mat = mMaterials["stoneMaterial"].get();
+    pointLight3Scene10Ritem->Geo = mGeometries["debugGeo"].get();
+    pointLight3Scene10Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    pointLight3Scene10Ritem->IndexCount = pointLight3Scene10Ritem->Geo->DrawArgs["pointLight3"].IndexCount;
+    pointLight3Scene10Ritem->StartIndexLocation = pointLight3Scene10Ritem->Geo->DrawArgs["pointLight3"].StartIndexLocation;
+    pointLight3Scene10Ritem->BaseVertexLocation = pointLight3Scene10Ritem->Geo->DrawArgs["pointLight3"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene10DebugGeometry].push_back(pointLight3Scene10Ritem.get());
+    mAllRitems.push_back(std::move(pointLight3Scene10Ritem));
+
+    auto coneLightScene10Ritem = std::make_unique<RenderItem>();
+    coneLightScene10Ritem->ObjCBIndex = 754;
+    coneLightScene10Ritem->World = MathHelper::Identity4x4();
+    coneLightScene10Ritem->TexTransform = MathHelper::Identity4x4();
+    coneLightScene10Ritem->Mat = mMaterials["stoneMaterial"].get();
+    coneLightScene10Ritem->Geo = mGeometries["debugGeo"].get();
+    coneLightScene10Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    coneLightScene10Ritem->IndexCount = coneLightScene10Ritem->Geo->DrawArgs["cone"].IndexCount;
+    coneLightScene10Ritem->StartIndexLocation = coneLightScene10Ritem->Geo->DrawArgs["cone"].StartIndexLocation;
+    coneLightScene10Ritem->BaseVertexLocation = coneLightScene10Ritem->Geo->DrawArgs["cone"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene10DebugGeometry].push_back(coneLightScene10Ritem.get());
+    mAllRitems.push_back(std::move(coneLightScene10Ritem));
 
 
     for (int i = 0; i < mAllRitems.size(); ++i)
@@ -6388,6 +6801,33 @@ void Engine::DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const st
             cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
             cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
             cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
+void Engine::DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+
+            cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
 
             cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
@@ -7482,7 +7922,15 @@ void Engine::RenderUI()
                 ImGui::Text("Other settings");
                 ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfoScene10);
             }
-            mAllRitems[2]->NumFramesDirty = 1;
+
+            ImGui::Text("");
+            ImGui::Checkbox("Debug Layer", &isDebugLayerActiveScene10);
+
+            mAllRitems[2]->NumFramesDirty = gNumFrameResources;
+            mAllRitems[751]->NumFramesDirty = gNumFrameResources;
+            mAllRitems[752]->NumFramesDirty = gNumFrameResources;
+            mAllRitems[753]->NumFramesDirty = gNumFrameResources;
+            mAllRitems[754]->NumFramesDirty = gNumFrameResources;
         }
         else if (activeSceneID == 11)
         {
@@ -7834,6 +8282,136 @@ void Engine::RenderUI()
                 ImGui::Image((ImTextureID)hDescriptor.ptr, ImVec2((float)304, (float)225));
             } ImGui::End();
         }
+    }
+    else if (activeSceneID == 10)
+    {
+        ImVec2 lightPanelSize = ImVec2(350.f, 350.f);
+        ImGui::SetNextWindowSize(lightPanelSize);
+        if (ImGui::Begin("Point Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+        {
+            ImGui::Text("Point Light 1");
+            if (ImGui::BeginTable("PointLight1", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##PointLightPos1X", &lightPos1Scene10[0], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##PointLightPos1Y", &lightPos1Scene10[1], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##PointLightPos1Z", &lightPos1Scene10[2], 0.1f, 0.1f);
+                ImGui::EndTable();
+            }
+            ImGui::SliderFloat("Distance 1", &light1DistanceScene10, 0.0f, 2.0f);
+            ImGui::SliderFloat("Strength 1", &light1StrengthScene10, 0.0f, 1.0f);
+            ImGui::ColorPicker3("Color 1", col1Scene10, ImGuiColorEditFlags_NoAlpha);
+
+            ImGui::Text("");
+            ImGui::Text("Point Light 2");
+            if (ImGui::BeginTable("PointLight2", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##PointLightPos2X", &lightPos2Scene10[0], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##PointLightPos2Y", &lightPos2Scene10[1], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##PointLightPos2Z", &lightPos2Scene10[2], 0.1f, 0.1f);
+                ImGui::EndTable();
+            }
+            ImGui::SliderFloat("Distance 2", &light2DistanceScene10, 0.0f, 2.0f);
+            ImGui::SliderFloat("Strength 2", &light2StrengthScene10, 0.0f, 1.0f);
+            ImGui::ColorPicker3("Color 2", col2Scene10, ImGuiColorEditFlags_NoAlpha);
+
+            ImGui::Text("");
+            ImGui::Text("Point Light 3");
+            if (ImGui::BeginTable("PointLight3", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##PointLightPos3X", &lightPos3Scene10[0], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##PointLightPos3Y", &lightPos3Scene10[1], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##PointLightPos3Z", &lightPos3Scene10[2], 0.1f, 0.1f);
+                ImGui::EndTable();
+            }
+            ImGui::SliderFloat("Distance 3", &light3DistanceScene10, 0.0f, 2.0f);
+            ImGui::SliderFloat("Strength 3", &light3StrengthScene10, 0.0f, 1.0f);
+            ImGui::ColorPicker3("Color 3", col3Scene10, ImGuiColorEditFlags_NoAlpha);
+
+        } ImGui::End();
+
+        ImVec2 spotLightPanelSize = ImVec2(350.f, 350.f);
+        ImVec2 spotLightPanelPos = ImVec2(100.f, 200.f);
+        ImGui::SetNextWindowSize(spotLightPanelSize);
+        ImGui::SetNextWindowPos(spotLightPanelPos);
+        if (ImGui::Begin("Spot Light Config", &opened, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
+        {
+            ImGui::Text("Spot Light 1");
+            if (ImGui::BeginTable("SpotLight1", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pos X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::InputFloat("##SpotLightPos1X", &lightPosSpot1Scene10[0], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Pos Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::InputFloat("##SpotLightPos1Y", &lightPosSpot1Scene10[1], 0.1f, 0.1f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Pos Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::InputFloat("##SpotLightPos1Z", &lightPosSpot1Scene10[2], 0.1f, 0.1f);
+                ImGui::EndTable();
+            }
+            ImGui::SliderFloat("SpotLightDir1X", &spotLight1DirectionScene10[0], -DirectX::XM_PI, DirectX::XM_PI);
+            ImGui::SliderFloat("SpotLightDir1Y", &spotLight1DirectionScene10[1], -DirectX::XM_PI, DirectX::XM_PI);
+            ImGui::SliderFloat("SpotLightDir1Z", &spotLight1DirectionScene10[2], -DirectX::XM_PI, DirectX::XM_PI);
+
+            ImGui::SliderFloat("Spot Distance 1", &light1SpotDistanceScene10, 0.0f, 20.0f);
+            ImGui::SliderFloat("Spot Strength 1", &light1SpotStrengthScene10, 0.0f, 10.0f);
+            ImGui::ColorPicker3("Spot Color 1", colSpot1Scene10, ImGuiColorEditFlags_NoAlpha);
+
+        } ImGui::End();
     }
 
     ImGui::Render();

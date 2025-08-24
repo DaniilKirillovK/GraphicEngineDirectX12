@@ -176,6 +176,13 @@ struct Vertex
     DirectX::XMFLOAT3 TangentU;
 };
 
+
+struct DebugVertex
+{
+    DirectX::XMFLOAT3 Position;
+    DirectX::XMFLOAT4 Color;
+};
+
 // Stores the resources needed for the CPU to build the command lists
 // for a frame.  
 struct FrameResource

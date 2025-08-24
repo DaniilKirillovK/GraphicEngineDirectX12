@@ -112,6 +112,7 @@ protected:
     virtual void BuildScene5Geometry() {}
     virtual void BuildScene6Geometry() {}
     virtual void BuildModelsGeometry() {}
+    virtual void BuildScene10DebugGeometry() {}
     virtual void BuildSponzaGeometryAndTextures() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
