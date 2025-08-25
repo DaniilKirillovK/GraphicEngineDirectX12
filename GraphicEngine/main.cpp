@@ -67,6 +67,7 @@ enum class RenderLayer : int
     Scene10 = 12,
     Scene10DebugGeometry = 13,
     Scene11 = 14,
+    Sky = 15,
     Count
 };
 
@@ -161,6 +162,7 @@ private:
     void BuildShadowMapsDescriptors();
     virtual void BuildRootSignature() override;
     virtual void BuildShadersAndInputLayout() override;
+    virtual void BuildSkyboxGeometry() override;
     virtual void BuildShapeGeometry() override;
     virtual void BuildScene3Geometry() override;
     virtual void BuildScene4Geometry() override;
@@ -191,6 +193,7 @@ private:
 
     void RenderUI();
 
+    void DrawSkybox(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene4(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -203,7 +206,6 @@ private:
     void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDefferedPointSpotScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
-    void DrawScreenQuadDirectionalScene10(ID3D12GraphicsCommandList* cmdList, int lightID);
     void DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawSponzaScene(ID3D12GraphicsCommandList* cmdList);
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -246,6 +248,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsParticlesForward = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebugGeometry = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDefferedPointSpotDirectional = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureSkyBox = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -449,7 +452,7 @@ float vRoundnessScene8 = 1.0f;
 float nIntensityScene8 = 0.5f;
 float nSizeScene8 = 2.f;
 
-int selectedRenderTechScene10 = 2;
+int selectedRenderTechScene10 = 0;
 bool deferredRenderDisplayInfoScene10 = false;
 bool isDebugLayerActiveScene10 = false;
 float col1Scene10[3] = { 0.0f, 0.0f, 1.0f };
@@ -627,7 +630,7 @@ void Engine::Update(const GameTimer& gt)
 
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
-    if (activeSceneID != 7 && activeSceneID != 10)
+    if (activeSceneID != 10)
         UpdateMainPassCB(gt);
     if (activeSceneID == 3)
     {
@@ -1850,6 +1853,36 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->SetPipelineState(mPSOs["postProcessing_Noise"].Get());
 
         DrawScreenQuadPostProcessing(mCommandList.Get());
+    }
+
+    // SkyBox
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignatureSkyBox.Get());
+
+        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetPipelineState(mPSOs["skyboxPSO"].Get());
+
+        passCB = mCurrFrameResource->PassCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+        DrawSkybox(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        mCommandList->ResourceBarrier(1, &barrier1);
     }
 
     mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
@@ -3099,14 +3132,6 @@ void Engine::LoadTextures()
         particleTex->Resource, particleTex->UploadHeap), true);
     mTextures[particleTex->Name] = std::move(particleTex);
 
-    auto skyboxTex = std::make_unique<Texture>();
-    skyboxTex->Name = "SkyboxTex";
-    skyboxTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\StoneTex.dds";
-    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
-        mCommandList.Get(), skyboxTex->Filename.c_str(),
-        skyboxTex->Resource, skyboxTex->UploadHeap), true);
-    mTextures[skyboxTex->Name] = std::move(skyboxTex);
-
     auto particle2Tex = std::make_unique<Texture>();
     particle2Tex->Name = "Particle2Tex";
     particle2Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\Particle2Tex.dds";
@@ -3162,6 +3187,14 @@ void Engine::LoadTextures()
         mCommandList.Get(), grassTex->Filename.c_str(),
         grassTex->Resource, grassTex->UploadHeap), true);
     mTextures[grassTex->Name] = std::move(grassTex);
+
+    auto skyboxTex = std::make_unique<Texture>();
+    skyboxTex->Name = "SkyboxTex";
+    skyboxTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\SkyboxTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), skyboxTex->Filename.c_str(),
+        skyboxTex->Resource, skyboxTex->UploadHeap), true);
+    mTextures[skyboxTex->Name] = std::move(skyboxTex);
 }
 
 void Engine::BuildShadowMaps()
@@ -3379,9 +3412,9 @@ void Engine::UploadTextures2()
 
     srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc1.Format = SkyboxTex->GetDesc().Format;
-    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
     srvDesc1.Texture2D.MostDetailedMip = 0;
-    srvDesc1.Texture2D.MipLevels = -1;
+    srvDesc1.Texture2D.MipLevels = SkyboxTex->GetDesc().MipLevels;
     md3dDevice->CreateShaderResourceView(SkyboxTex.Get(), &srvDesc1, hDescriptor);
 
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
@@ -3494,6 +3527,9 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableShadowParticlesForward1;
     texTableShadowParticlesForward1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableSkyBox;
+    texTableSkyBox.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -3521,6 +3557,8 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsPass[4];
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsForward[6];
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsParticlesForward[5];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterSkybox[3];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -3614,6 +3652,10 @@ void Engine::BuildRootSignature()
     slotRootParameterShadowsParticlesForward[3].InitAsConstantBufferView(1);
     slotRootParameterShadowsParticlesForward[4].InitAsConstantBufferView(2);
 
+    slotRootParameterSkybox[0].InitAsDescriptorTable(1, &texTableSkyBox);
+    slotRootParameterSkybox[1].InitAsConstantBufferView(0);
+    slotRootParameterSkybox[2].InitAsConstantBufferView(1);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -3690,6 +3732,10 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescShadowsParticlesForward(5, slotRootParameterShadowsParticlesForward,
         (UINT)shadowSamplers.size(), shadowSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescSkybox(3, slotRootParameterSkybox,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
@@ -3999,6 +4045,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureDefferedPointSpotDirectional.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescSkybox, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureSkyBox.GetAddressOf())));
 }
 
 
@@ -4081,6 +4144,9 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["shadowsForwardVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ShadowsForward.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["shadowsForwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ShadowsForward.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["skyboxVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\SkyBox.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["skyboxPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\SkyBox.hlsl", nullptr, "PS", "ps_5_1");
+
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -4118,6 +4184,65 @@ void Engine::BuildShadersAndInputLayout()
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
+}
+
+void Engine::BuildSkyboxGeometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData skysphere = geoGen.CreateSphere(0.5f, 20, 20, 0.0f, 0.0f, 0.0f);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry skyboxSubmesh;
+    skyboxSubmesh.IndexCount = (UINT)skysphere.Indices32.size();
+    skyboxSubmesh.StartIndexLocation = totalIndexCount;
+    skyboxSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += skyboxSubmesh.IndexCount;
+    totalVertexCount += skysphere.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < skysphere.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = skysphere.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = skysphere.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = skysphere.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = skysphere.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += skysphere.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(skysphere.GetIndices16()), std::end(skysphere.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "skyboxGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["skybox"] = skyboxSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
 }
 
 void Engine::BuildShapeGeometry()
@@ -5541,6 +5666,36 @@ void Engine::BuildPSOs()
         mShaders["defferedDirectionalPS"]->GetBufferSize()
     };
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedDirectionalLightPso, IID_PPV_ARGS(&mPSOs["defferedDirectional"])));
+
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC skyboxPsoDesc;
+    ZeroMemory(&skyboxPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    skyboxPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    skyboxPsoDesc.pRootSignature = mRootSignatureSkyBox.Get();
+    skyboxPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["skyboxVS"]->GetBufferPointer()),
+        mShaders["skyboxVS"]->GetBufferSize()
+    };
+    skyboxPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["skyboxPS"]->GetBufferPointer()),
+        mShaders["skyboxPS"]->GetBufferSize()
+    };
+    skyboxPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    skyboxPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    skyboxPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    skyboxPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    skyboxPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    skyboxPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+    skyboxPsoDesc.SampleMask = UINT_MAX;
+    skyboxPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    skyboxPsoDesc.NumRenderTargets = 1;
+    skyboxPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    skyboxPsoDesc.SampleDesc.Count = 1;
+    skyboxPsoDesc.SampleDesc.Quality = 0;
+    skyboxPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyboxPsoDesc, IID_PPV_ARGS(&mPSOs["skyboxPSO"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -5895,13 +6050,13 @@ void Engine::BuildRenderItems()
     skyboxRitem->World = MathHelper::Identity4x4();
     skyboxRitem->ObjCBIndex = 12;
     skyboxRitem->Mat = mMaterials["skyboxMaterial"].get();
-    skyboxRitem->Geo = mGeometries["boxGeo"].get();
-    skyboxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    skyboxRitem->Geo = mGeometries["skyboxGeo"].get();
+    skyboxRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     skyboxRitem->IndexCount = skyboxRitem->Geo->DrawArgs["skybox"].IndexCount;
     skyboxRitem->StartIndexLocation = skyboxRitem->Geo->DrawArgs["skybox"].StartIndexLocation;
     skyboxRitem->BaseVertexLocation = skyboxRitem->Geo->DrawArgs["skybox"].BaseVertexLocation;
 
-    mRitemLayer[(int)RenderLayer::Scene2Opaque].push_back(skyboxRitem.get());
+    mRitemLayer[(int)RenderLayer::Sky].push_back(skyboxRitem.get());
     mAllRitems.push_back(std::move(skyboxRitem));
 
     auto instancingRitemScene3 = std::make_unique<RenderItem>();
@@ -6550,6 +6705,37 @@ void Engine::InitParticleSystem()
     mParticleSystemSmoke->BuildSystemVertexBuffers(mGeometries,
         md3dDevice,
         mCommandList);
+}
+
+void Engine::DrawSkybox(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
 }
 
 void Engine::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)

@@ -102,6 +102,7 @@ protected:
     virtual void OnMouseUp(WPARAM btnState, int x, int y) {}
     virtual void OnMouseMove(WPARAM btnState, int x, int y) {}
 
+    virtual void BuildSkyboxGeometry() {}
     virtual void BuildShadowMaps() {}
     virtual void BuildDescriptorHeaps() {}
     virtual void BuildRootSignature() {}

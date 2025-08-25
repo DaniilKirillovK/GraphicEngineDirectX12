@@ -509,6 +509,7 @@ BuildShadowMaps();
 BuildDescriptorHeaps();
 UploadTextures();
 BuildShadersAndInputLayout();
+BuildSkyboxGeometry();
 BuildShapeGeometry();
 BuildScene3Geometry();
 BuildScene4Geometry();
