@@ -14,6 +14,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     ShadowPassCBParticles = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);
     MaterialCB = std::make_unique<UploadBuffer<MaterialConstants>>(device, materialCount, true);
     ObjectCB = std::make_unique<UploadBuffer<ObjectConstants>>(device, objectCount, true);
+    LightObjectCB = std::make_unique<UploadBuffer<LightObjectConstants>>(device, 4, true);
     EmitterCB = std::make_unique<UploadBuffer<EmitterConstants>>(device, 1, true);
     Emitter2CB = std::make_unique<UploadBuffer<EmitterConstants>>(device, 1, true);
     Emitter3CB = std::make_unique<UploadBuffer<EmitterConstants>>(device, 1, true);

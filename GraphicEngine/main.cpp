@@ -134,6 +134,7 @@ private:
     void AnimateMaterials(const GameTimer& gt);
     void UpdateInstanceData(const GameTimer& gt);
     void UpdateObjectCBs(const GameTimer& gt);
+    void UpdateLightObjectCBs(const GameTimer& gt);
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateMainPassCBScene10(const GameTimer& gt);
@@ -201,6 +202,8 @@ private:
     void DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawDefferedPointSpotScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawScreenQuadDirectionalScene10(ID3D12GraphicsCommandList* cmdList, int lightID);
     void DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawSponzaScene(ID3D12GraphicsCommandList* cmdList);
     void DrawDebugRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -242,6 +245,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsForward = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsParticlesForward = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebugGeometry = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDefferedPointSpotDirectional = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -445,7 +449,7 @@ float vRoundnessScene8 = 1.0f;
 float nIntensityScene8 = 0.5f;
 float nSizeScene8 = 2.f;
 
-int selectedRenderTechScene10 = 0;
+int selectedRenderTechScene10 = 2;
 bool deferredRenderDisplayInfoScene10 = false;
 bool isDebugLayerActiveScene10 = false;
 float col1Scene10[3] = { 0.0f, 0.0f, 1.0f };
@@ -666,6 +670,7 @@ void Engine::Update(const GameTimer& gt)
     if (activeSceneID == 10)
     {
         UpdateMainPassCBScene10(gt);
+        UpdateLightObjectCBs(gt);
     }
     if (activeSceneID == 11)
     {
@@ -716,7 +721,7 @@ void Engine::Draw(const GameTimer& gt)
     // Clear the back buffer and depth buffer.
     auto barrier1Clear = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
         D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    /*auto barrier2Clear = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+    auto barrier2Clear = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     auto barrier3Clear = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -724,12 +729,8 @@ void Engine::Draw(const GameTimer& gt)
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     auto barrier5Clear = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    auto barrier6Clear = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-        D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-    auto barrier7Clear = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);*/
-    CD3DX12_RESOURCE_BARRIER barriersClearOpen[] = { barrier1Clear };
-    mCommandList->ResourceBarrier(1, barriersClearOpen);
+    CD3DX12_RESOURCE_BARRIER barriersClearOpen[] = { barrier1Clear, barrier2Clear, barrier3Clear, barrier4Clear, barrier5Clear };
+    mCommandList->ResourceBarrier(5, barriersClearOpen);
 
     
     mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
@@ -745,20 +746,17 @@ void Engine::Draw(const GameTimer& gt)
 
     auto barrier1ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
         D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-    //auto barrier2ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
-    //    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    //auto barrier3ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
-    //    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    //auto barrier4ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
-    //    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    //auto barrier5ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
-    //    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    //auto barrier6ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-    //    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    //auto barrier7ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
-    //    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    CD3DX12_RESOURCE_BARRIER barriersClearClose[] = { barrier1ClearEnd };
-    mCommandList->ResourceBarrier(1, barriersClearClose);
+    auto barrier2ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    auto barrier3ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    auto barrier4ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferNormal.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    auto barrier5ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
+        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    CD3DX12_RESOURCE_BARRIER barriersClearClose[] = { barrier1ClearEnd, barrier2ClearEnd, barrier3ClearEnd, barrier4ClearEnd, barrier5ClearEnd };
+    mCommandList->ResourceBarrier(5, barriersClearClose);
+
 
     if (isFirstExecution)
     {
@@ -766,8 +764,9 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_DEPTH_WRITE);
         CD3DX12_RESOURCE_BARRIER barriersFirstExec[1] = { depthBufferTransition };
         mCommandList->ResourceBarrier(1, barriersFirstExec);
-    }
 
+        isFirstExecution = false;
+    }
 
         mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     if (activeSceneID == 3)
@@ -1567,10 +1566,8 @@ void Engine::Draw(const GameTimer& gt)
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
             auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
-            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
-            mCommandList->ResourceBarrier(6, barriers);
+            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular };
+            mCommandList->ResourceBarrier(5, barriers);
 
             mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
@@ -1622,6 +1619,49 @@ void Engine::Draw(const GameTimer& gt)
             DrawRenderItemsScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10]);
 
             // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
+
+        // Light accumulation
+        if (selectedRenderTechScene10 == 2)
+        {
+            // Point & Spot lights
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatureDefferedPointSpotDirectional.Get());
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, nullptr);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["defferedPointSpot"].Get());
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+            DrawDefferedPointSpotScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10DebugGeometry]);
+
+            // Directional & ambient light
+            mCommandList->SetGraphicsRootSignature(mRootSignatureLight.Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, FALSE, nullptr);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["defferedDirectional"].Get());
+            DrawScreenQuad(mCommandList.Get());
+
             auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
             mCommandList->ResourceBarrier(1, &barrier1);
@@ -1684,7 +1724,8 @@ void Engine::Draw(const GameTimer& gt)
     
 
     // Draw screen quad
-    if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3))
+    if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
+        && !(activeSceneID == 10 && selectedRenderTechScene10 == 2))
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -1717,6 +1758,11 @@ void Engine::Draw(const GameTimer& gt)
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             mCommandList->ResourceBarrier(1, &barrier2);
         }
+
+        auto depthOpen = CD3DX12_RESOURCE_BARRIER::Transition(mDepthStencilBuffer.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        D3D12_RESOURCE_BARRIER barrierOpen[] = { depthOpen };
+        mCommandList->ResourceBarrier(1, barrierOpen);
     }
 
     // Draw Debug Geometry Scene 10
@@ -1745,11 +1791,6 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->SetPipelineState(mPSOs["debugGeometry"].Get());
 
         DrawDebugGeometryScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10DebugGeometry]);
-
-        auto depthClose = CD3DX12_RESOURCE_BARRIER::Transition(mDepthStencilBuffer.Get(),
-            D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        D3D12_RESOURCE_BARRIER barrierClose[] = { depthClose };
-        mCommandList->ResourceBarrier(1, barrierClose);
     }
 
     if (activeSceneID == 8)
@@ -2104,6 +2145,59 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
     }
 }
 
+void Engine::UpdateLightObjectCBs(const GameTimer& gt)
+{
+    auto currObjectCB = mCurrFrameResource->LightObjectCB.get();
+    for (int i = 751; i <= 754; ++i)
+    {
+        // Only update the cbuffer data if the constants have changed.  
+        // This needs to be tracked per frame resource.
+        if (mAllRitems[i]->NumFramesDirty > 0)
+        {
+            DirectX::XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
+            DirectX::XMFLOAT4X4 worldM = MathHelper::Identity4x4();
+            LightObjectConstants objConstants;
+            if (i == 751)
+            {
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos1Scene10[0], lightPos1Scene10[1], lightPos1Scene10[2]);
+                objConstants.scale = light1DistanceScene10;
+                objConstants.lightID = 3;
+                objConstants.lightTypeID = 1;
+            }
+            else if (i == 752)
+            {
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos2Scene10[0], lightPos2Scene10[1], lightPos2Scene10[2]);
+                objConstants.scale = light2DistanceScene10;
+                objConstants.lightID = 4;
+                objConstants.lightTypeID = 1;
+            }
+            else if (i == 753)
+            {
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(lightPos3Scene10[0], lightPos3Scene10[1], lightPos3Scene10[2]);
+                objConstants.scale = light3DistanceScene10;
+                objConstants.lightID = 5;
+                objConstants.lightTypeID = 1;
+            }
+            else if (i == 754)
+            {
+                world = XMLoadFloat4x4(&worldM)
+                    * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, DirectX::XM_PI / 2)
+                    * DirectX::XMMatrixRotationRollPitchYaw(spotLight1DirectionScene10[0], spotLight1DirectionScene10[1], spotLight1DirectionScene10[2])
+                    * DirectX::XMMatrixTranslation(lightPosSpot1Scene10[0], lightPosSpot1Scene10[1], lightPosSpot1Scene10[2]);
+                objConstants.scale = light1SpotDistanceScene10;
+                objConstants.lightID = 6;
+                objConstants.lightTypeID = 2;
+            }
+            XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+
+            currObjectCB->CopyData(mAllRitems[i]->ObjCBIndex - 751, objConstants);
+
+            // Next FrameResource need to be updated too.
+            mAllRitems[i]->NumFramesDirty--;
+        }
+    }
+}
+
 void Engine::UpdateMaterialCBs(const GameTimer& gt)
 {
     auto currMaterialCB = mCurrFrameResource->MaterialCB.get();
@@ -2340,6 +2434,8 @@ void Engine::UpdateMainPassCBScene10(const GameTimer& gt)
     if (isNegative)
         mMainPassCB.isNegative = 1.0f;
     else mMainPassCB.isNegative = 0.0f;
+
+    mMainPassCB.Resolution = DirectX::XMFLOAT2(1280, 800);
 
     auto currPassCB = mCurrFrameResource->PassCB.get();
     currPassCB->CopyData(0, mMainPassCB);
@@ -3380,6 +3476,9 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableRT;
     texTableRT.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableDefferedPointSpot;
+    texTableDefferedPointSpot.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
+
     CD3DX12_DESCRIPTOR_RANGE texTableShadowPass;
     texTableShadowPass.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
@@ -3417,6 +3516,7 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_PARAMETER slotRootParameterRT[4];
     CD3DX12_ROOT_PARAMETER slotRootParameterDebugLayer[4];
+    CD3DX12_ROOT_PARAMETER slotRootParameterDefferedPointSpot[3];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsPass[4];
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsForward[6];
@@ -3491,6 +3591,10 @@ void Engine::BuildRootSignature()
 
     slotRootParameterDebugLayer[0].InitAsConstantBufferView(0);
     slotRootParameterDebugLayer[1].InitAsConstantBufferView(1);
+
+    slotRootParameterDefferedPointSpot[0].InitAsDescriptorTable(1, &texTableDefferedPointSpot);
+    slotRootParameterDefferedPointSpot[1].InitAsConstantBufferView(0);
+    slotRootParameterDefferedPointSpot[2].InitAsConstantBufferView(1);
 
     slotRootParameterShadowsPass[0].InitAsDescriptorTable(1, &texTableShadowPass);
     slotRootParameterShadowsPass[1].InitAsConstantBufferView(0);
@@ -3569,6 +3673,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDebugLayer(2, slotRootParameterDebugLayer,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescDefferedPointSpot(3, slotRootParameterDefferedPointSpot,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -3874,6 +3982,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureDebugGeometry.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescDefferedPointSpot, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignatureDefferedPointSpotDirectional.GetAddressOf())));
 }
 
 
@@ -3931,6 +4056,12 @@ void Engine::BuildShadersAndInputLayout()
 
     mShaders["defferedRT_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedGeometry.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["defferedRT_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedGeometry.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["defferedPointSpotVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedSpotAndPoint.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["defferedPointSpotPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedSpotAndPoint.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["defferedDirectionalVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedDirectionalLight.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["defferedDirectionalPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedDirectionalLight.hlsl", nullptr, "PS", "ps_5_1");
 
     mShaders["decalsTessVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DecalsTessellation.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["decalsTessHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DecalsTessellation.hlsl", nullptr, "HS", "hs_5_1");
@@ -5350,11 +5481,66 @@ void Engine::BuildPSOs()
     debugGeometryPsoDesc.SampleMask = UINT_MAX;
     debugGeometryPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     debugGeometryPsoDesc.NumRenderTargets = 1;
-    debugGeometryPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    debugGeometryPsoDesc.RTVFormats[0] = mBackBufferFormat;
     debugGeometryPsoDesc.SampleDesc.Count = 1;
     debugGeometryPsoDesc.SampleDesc.Quality = 0;
     debugGeometryPsoDesc.DSVFormat = mDepthStencilFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["debugGeometry"])));
+
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedPointSpotLightPso;
+    ZeroMemory(&defferedPointSpotLightPso, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    defferedPointSpotLightPso.InputLayout = { mDebugInputLayout.data(), (UINT)mDebugInputLayout.size() };
+    defferedPointSpotLightPso.pRootSignature = mRootSignatureDefferedPointSpotDirectional.Get();
+    defferedPointSpotLightPso.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["defferedPointSpotVS"]->GetBufferPointer()),
+        mShaders["defferedPointSpotVS"]->GetBufferSize()
+    };
+    defferedPointSpotLightPso.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["defferedPointSpotPS"]->GetBufferPointer()),
+        mShaders["defferedPointSpotPS"]->GetBufferSize()
+    };
+    defferedPointSpotLightPso.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    defferedPointSpotLightPso.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    defferedPointSpotLightPso.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    defferedPointSpotLightPso.BlendState.IndependentBlendEnable = FALSE;
+    defferedPointSpotLightPso.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    defferedPointSpotLightPso.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    defferedPointSpotLightPso.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+    defferedPointSpotLightPso.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    defferedPointSpotLightPso.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
+    defferedPointSpotLightPso.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    defferedPointSpotLightPso.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    defferedPointSpotLightPso.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    defferedPointSpotLightPso.DepthStencilState.DepthEnable = FALSE;
+    defferedPointSpotLightPso.DepthStencilState.StencilEnable = FALSE;
+    defferedPointSpotLightPso.SampleMask = UINT_MAX;
+    defferedPointSpotLightPso.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    defferedPointSpotLightPso.NumRenderTargets = 1;
+    defferedPointSpotLightPso.RTVFormats[0] = mBackBufferFormat;
+    defferedPointSpotLightPso.SampleDesc.Count = 1;
+    defferedPointSpotLightPso.SampleDesc.Quality = 0;
+    defferedPointSpotLightPso.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedPointSpotLightPso, IID_PPV_ARGS(&mPSOs["defferedPointSpot"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedDirectionalLightPso;
+    ZeroMemory(&defferedDirectionalLightPso, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    defferedDirectionalLightPso = defferedPointSpotLightPso;
+    defferedDirectionalLightPso.InputLayout = { mInputLayoutLight.data(), (UINT)mInputLayoutLight.size() };
+    defferedDirectionalLightPso.pRootSignature = mRootSignatureLight.Get();
+    defferedDirectionalLightPso.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["defferedDirectionalVS"]->GetBufferPointer()),
+        mShaders["defferedDirectionalVS"]->GetBufferSize()
+    };
+    defferedDirectionalLightPso.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["defferedDirectionalPS"]->GetBufferPointer()),
+        mShaders["defferedDirectionalPS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedDirectionalLightPso, IID_PPV_ARGS(&mPSOs["defferedDirectional"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -6834,6 +7020,36 @@ void Engine::DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const 
     }
 }
 
+void Engine::DrawDefferedPointSpotScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightObjectConstants));
+
+    auto objectCB = mCurrFrameResource->LightObjectCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + (ri->ObjCBIndex - 751) * objCBByteSize;
+            CD3DX12_GPU_DESCRIPTOR_HANDLE srvs(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            srvs.Offset(11, mCbvSrvDescriptorSize);
+
+            cmdList->SetGraphicsRootDescriptorTable(0, srvs);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
 void Engine::DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -7912,15 +8128,14 @@ void Engine::RenderUI()
             ImGui::Text("");
             ImGui::Text("Rendering Techniques");
             ImGui::RadioButton("Forward", &selectedRenderTechScene10, 0);
-            ImGui::RadioButton("Deferred", &selectedRenderTechScene10, 1);
-            ImGui::RadioButton("Deferred+", &selectedRenderTechScene10, 2);
-            ImGui::RadioButton("Forward+", &selectedRenderTechScene10, 3);
+            ImGui::RadioButton("Deffered", &selectedRenderTechScene10, 1);
+            ImGui::RadioButton("Deffered + Light Volumes", &selectedRenderTechScene10, 2);
 
             if (selectedRenderTechScene10 == 1 || selectedRenderTechScene10 == 2)
             {
                 ImGui::Text("");
                 ImGui::Text("Other settings");
-                ImGui::Checkbox("Deferred Render Info", &deferredRenderDisplayInfoScene10);
+                ImGui::Checkbox("Deffered Render Info", &deferredRenderDisplayInfoScene10);
             }
 
             ImGui::Text("");

@@ -71,6 +71,14 @@ struct ObjectConstants
     float scale = 1.0f;
 };
 
+struct LightObjectConstants
+{
+    DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
+    float scale = 1.0f;
+    UINT lightTypeID;
+    UINT lightID;
+};
+
 struct PassConstants
 {
     DirectX::XMFLOAT4X4 View = MathHelper::Identity4x4();
@@ -102,7 +110,7 @@ struct PassConstants
 
     float isNegative = 0.0f;
     UINT lightingID = 1;
-    DirectX::XMFLOAT2 cbPad;
+    DirectX::XMFLOAT2 Resolution;
 
     // Indices [0, NUM_DIR_LIGHTS) are directional lights;
     // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -208,6 +216,7 @@ public:
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> ShadowPassCBParticles = nullptr;
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
+    std::unique_ptr<UploadBuffer<LightObjectConstants>> LightObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> EmitterCB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter2CB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter3CB = nullptr;
