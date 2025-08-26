@@ -515,6 +515,7 @@ BuildScene3Geometry();
 BuildScene4Geometry();
 BuildScene5Geometry();
 BuildScene6Geometry();
+BuildScene7Geometry();
 BuildModelsGeometry();
 BuildScene10DebugGeometry();
 BuildSponzaGeometryAndTextures();

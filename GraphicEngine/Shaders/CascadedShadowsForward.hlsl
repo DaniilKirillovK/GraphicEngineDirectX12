@@ -110,11 +110,11 @@ float CalcShadowFactor(float4 shadowPosH, float4 posH)
     uint width, height, numMips;
     
     int cascadedMapID = 0;
-    if (depthCascade > 0.03)
+    if (depthCascade > 0.070)
         cascadedMapID = 3;
-    else if (depthCascade > 0.025)
+    else if (depthCascade > 0.050)
         cascadedMapID = 2;
-    else if (depthCascade > 0.020)
+    else if (depthCascade > 0.025)
         cascadedMapID = 1;
     else
         cascadedMapID = 0;

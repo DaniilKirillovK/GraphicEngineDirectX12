@@ -168,6 +168,7 @@ private:
     virtual void BuildScene4Geometry() override;
     virtual void BuildScene5Geometry() override;
     virtual void BuildScene6Geometry() override;
+    virtual void BuildScene7Geometry() override;
     virtual void BuildModelsGeometry() override;
     virtual void BuildScene10DebugGeometry() override;
     virtual void BuildSponzaGeometryAndTextures() override;
@@ -315,7 +316,7 @@ private:
     DirectX::XMFLOAT3 mBaseLightDirections[3] = 
     {
         DirectX::XMFLOAT3(0.57735f, -0.57735f, 0.57735f),
-        DirectX::XMFLOAT3(-0.57735f, -0.57735f, 0.57735f),
+        DirectX::XMFLOAT3(0.0f, -0.9999f, -0.0141f),
         DirectX::XMFLOAT3(0.0f, -0.707f, -0.707f)
     };
     DirectX::XMFLOAT3 mRotatedLightDirections[3];
@@ -495,6 +496,8 @@ int shadowTextureIDScene7 = 1;
 bool isUsingCascadedShadowsScene7 = false;
 int shadowSizeIDScene7 = 3;
 int shadowFilteringIDScene7 = 2;
+bool isVerticalLightScene7 = false;
+bool isObjectsActiveScene7 = false;
 
 int lightingIDScene6 = 1;
 
@@ -620,6 +623,11 @@ void Engine::Update(const GameTimer& gt)
         DirectX::XMVECTOR lightDir = XMLoadFloat3(&mBaseLightDirections[i]);
         lightDir = XMVector3TransformNormal(lightDir, R);
         XMStoreFloat3(&mRotatedLightDirections[i], lightDir);
+    }
+    if (isVerticalLightScene7)
+    {
+        DirectX::XMVECTOR lightDir = XMLoadFloat3(&mBaseLightDirections[1]);
+        XMStoreFloat3(&mRotatedLightDirections[0], lightDir);
     }
 
     if (isAnimateMaterialScene4)
@@ -1796,6 +1804,36 @@ void Engine::Draw(const GameTimer& gt)
         DrawDebugGeometryScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10DebugGeometry]);
     }
 
+    // SkyBox
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignatureSkyBox.Get());
+
+        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetPipelineState(mPSOs["skyboxPSO"].Get());
+
+        passCB = mCurrFrameResource->PassCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+        DrawSkybox(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        mCommandList->ResourceBarrier(1, &barrier1);
+    }
+
     if (activeSceneID == 8)
     {
         // Noise compute
@@ -1853,36 +1891,6 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->SetPipelineState(mPSOs["postProcessing_Noise"].Get());
 
         DrawScreenQuadPostProcessing(mCommandList.Get());
-    }
-
-    // SkyBox
-    {
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
-
-        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        mCommandList->ResourceBarrier(1, &backBuffer);
-
-        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-        mCommandList->SetGraphicsRootSignature(mRootSignatureSkyBox.Get());
-
-        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
-
-        mCommandList->RSSetViewports(1, &viewports[4]);
-        mCommandList->RSSetScissorRects(1, &rects[4]);
-
-        mCommandList->SetPipelineState(mPSOs["skyboxPSO"].Get());
-
-        passCB = mCurrFrameResource->PassCB->Resource();
-        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
-
-        DrawSkybox(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
-
-        // Indicate a state transition on the resource usage.
-        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-        mCommandList->ResourceBarrier(1, &barrier1);
     }
 
     mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
@@ -2125,7 +2133,7 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 mAllRitems[i]->Mat->TilesCount = tilesCountScene4;
                 mAllRitems[i]->Mat->NumFramesDirty = gNumFrameResources;
             }
-            else if (activeSceneID == 10)
+            if (activeSceneID == 10)
             {
                 if (i == 751)
                 {
@@ -2149,6 +2157,24 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                         * DirectX::XMMatrixRotationRollPitchYaw(spotLight1DirectionScene10[0], spotLight1DirectionScene10[1], spotLight1DirectionScene10[2])
                         * DirectX::XMMatrixTranslation(lightPosSpot1Scene10[0], lightPosSpot1Scene10[1], lightPosSpot1Scene10[2]);
                     objConstants.scale = light1SpotDistanceScene10;
+                }
+            }
+            else if (activeSceneID == 7)
+            {
+                if (i == 755)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 1.0f, 0.0f, 0.0f }, gt.TotalTime())
+                        * DirectX::XMMatrixTranslation(10.0f, 5.0f, 0.f);
+                }
+                else if (i == 756)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 1.0f, 0.0f }, gt.TotalTime())
+                        * DirectX::XMMatrixTranslation(0.0f, 5.0f, 0.f);
+                }
+                else if (i == 757)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixRotationAxis(DirectX::FXMVECTOR{ 0.0f, 0.0f, 1.0f }, gt.TotalTime())
+                        * DirectX::XMMatrixTranslation(-10.0f, 5.0f, 0.f);
                 }
             }
 
@@ -4779,6 +4805,99 @@ void Engine::BuildScene6Geometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
+void Engine::BuildScene7Geometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData boxMesh1 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
+    GeometryGenerator::MeshData boxMesh2 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
+    GeometryGenerator::MeshData boxMesh3 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry box1Submesh;
+    box1Submesh.IndexCount = (UINT)boxMesh1.Indices32.size();
+    box1Submesh.StartIndexLocation = totalIndexCount;
+    box1Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += box1Submesh.IndexCount;
+    totalVertexCount += boxMesh1.Vertices.size();
+    SubmeshGeometry box2Submesh;
+    box2Submesh.IndexCount = (UINT)boxMesh2.Indices32.size();
+    box2Submesh.StartIndexLocation = totalIndexCount;
+    box2Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += box2Submesh.IndexCount;
+    totalVertexCount += boxMesh2.Vertices.size();
+    SubmeshGeometry box3Submesh;
+    box3Submesh.IndexCount = (UINT)boxMesh3.Indices32.size();
+    box3Submesh.StartIndexLocation = totalIndexCount;
+    box3Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += box3Submesh.IndexCount;
+    totalVertexCount += boxMesh3.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < boxMesh1.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = boxMesh1.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = boxMesh1.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = boxMesh1.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = boxMesh1.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += boxMesh1.Vertices.size();
+    for (size_t i = 0; i < boxMesh2.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = boxMesh2.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = boxMesh2.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = boxMesh2.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = boxMesh2.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += boxMesh2.Vertices.size();
+    for (size_t i = 0; i < boxMesh3.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = boxMesh3.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = boxMesh3.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = boxMesh3.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = boxMesh3.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += boxMesh3.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(boxMesh1.GetIndices16()), std::end(boxMesh1.GetIndices16()));
+    indices.insert(indices.end(), std::begin(boxMesh2.GetIndices16()), std::end(boxMesh2.GetIndices16()));
+    indices.insert(indices.end(), std::begin(boxMesh3.GetIndices16()), std::end(boxMesh3.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene7Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["box1"] = box1Submesh;
+    geo->DrawArgs["box2"] = box1Submesh;
+    geo->DrawArgs["box3"] = box1Submesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
 void Engine::BuildModelsGeometry()
 {
     std::vector<Vertex> vertices;
@@ -5907,7 +6026,6 @@ void Engine::BuildRenderItems()
     boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
     boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
     boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
-    mRitemLayer[(int)RenderLayer::Scene7].push_back(boxRitem.get());
     mAllRitems.push_back(std::move(boxRitem));
 
     auto boxTileRitem = std::make_unique<RenderItem>();
@@ -5919,7 +6037,6 @@ void Engine::BuildRenderItems()
     boxTileRitem->IndexCount = boxTileRitem->Geo->DrawArgs["box2"].IndexCount;
     boxTileRitem->StartIndexLocation = boxTileRitem->Geo->DrawArgs["box2"].StartIndexLocation;
     boxTileRitem->BaseVertexLocation = boxTileRitem->Geo->DrawArgs["box2"].BaseVertexLocation;
-    mRitemLayer[(int)RenderLayer::Scene7].push_back(boxTileRitem.get());
     mAllRitems.push_back(std::move(boxTileRitem));
 
 
@@ -5934,7 +6051,6 @@ void Engine::BuildRenderItems()
     stoneTessellationRitem->StartIndexLocation = stoneTessellationRitem->Geo->DrawArgs["box3"].StartIndexLocation;
     stoneTessellationRitem->BaseVertexLocation = stoneTessellationRitem->Geo->DrawArgs["box3"].BaseVertexLocation;
     mRitemLayer[(int)RenderLayer::Scene11].push_back(stoneTessellationRitem.get());
-    mRitemLayer[(int)RenderLayer::Scene7].push_back(stoneTessellationRitem.get());
     mAllRitems.push_back(std::move(stoneTessellationRitem));
 
 
@@ -6141,24 +6257,11 @@ void Engine::BuildRenderItems()
     mRitemLayer[(int)RenderLayer::Particles2].push_back(particle2Ritem.get());
     mAllRitems.push_back(std::move(particle2Ritem));
 
-    /*auto fishRitem = std::make_unique<RenderItem>();
-    fishRitem->World = MathHelper::Identity4x4();
-    fishRitem->ObjCBIndex = 747;
-    fishRitem->Mat = mMaterials["stoneMaterial"].get();
-    fishRitem->Geo = mGeometries["ModelsGeo"].get();
-    fishRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-    fishRitem->IndexCount = fishRitem->Geo->DrawArgs["Fish"].IndexCount;
-    fishRitem->StartIndexLocation = fishRitem->Geo->DrawArgs["Fish"].StartIndexLocation;
-    fishRitem->BaseVertexLocation = fishRitem->Geo->DrawArgs["Fish"].BaseVertexLocation;
-
-    mRitemLayer[(int)RenderLayer::Scene10].push_back(fishRitem.get());
-    mAllRitems.push_back(std::move(fishRitem));*/
-
     auto sponzaRitem = std::make_unique<RenderItem>();
     sponzaRitem->World = MathHelper::Identity4x4();
     sponzaRitem->ObjCBIndex = 747;
     sponzaRitem->Mat = mMaterials["stoneMaterial"].get();
-    sponzaRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    sponzaRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
     mAllRitems.push_back(std::move(sponzaRitem));
 
     auto bonfireRitem = std::make_unique<RenderItem>();
@@ -6255,6 +6358,48 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::Scene10DebugGeometry].push_back(coneLightScene10Ritem.get());
     mAllRitems.push_back(std::move(coneLightScene10Ritem));
+
+    auto box1Scene7Ritem = std::make_unique<RenderItem>();
+    box1Scene7Ritem->ObjCBIndex = 755;
+    box1Scene7Ritem->World = MathHelper::Identity4x4();
+    box1Scene7Ritem->TexTransform = MathHelper::Identity4x4();
+    box1Scene7Ritem->Mat = mMaterials["metalAnimate"].get();
+    box1Scene7Ritem->Geo = mGeometries["scene7Geo"].get();
+    box1Scene7Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    box1Scene7Ritem->IndexCount = box1Scene7Ritem->Geo->DrawArgs["box1"].IndexCount;
+    box1Scene7Ritem->StartIndexLocation = box1Scene7Ritem->Geo->DrawArgs["box1"].StartIndexLocation;
+    box1Scene7Ritem->BaseVertexLocation = box1Scene7Ritem->Geo->DrawArgs["box1"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene7].push_back(box1Scene7Ritem.get());
+    mAllRitems.push_back(std::move(box1Scene7Ritem));
+
+    auto box2Scene7Ritem = std::make_unique<RenderItem>();
+    box2Scene7Ritem->ObjCBIndex = 756;
+    box2Scene7Ritem->World = MathHelper::Identity4x4();
+    box2Scene7Ritem->TexTransform = MathHelper::Identity4x4();
+    box2Scene7Ritem->Mat = mMaterials["stoneMaterial"].get();
+    box2Scene7Ritem->Geo = mGeometries["scene7Geo"].get();
+    box2Scene7Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    box2Scene7Ritem->IndexCount = box2Scene7Ritem->Geo->DrawArgs["box2"].IndexCount;
+    box2Scene7Ritem->StartIndexLocation = box2Scene7Ritem->Geo->DrawArgs["box2"].StartIndexLocation;
+    box2Scene7Ritem->BaseVertexLocation = box2Scene7Ritem->Geo->DrawArgs["box2"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene7].push_back(box2Scene7Ritem.get());
+    mAllRitems.push_back(std::move(box2Scene7Ritem));
+
+    auto box3Scene7Ritem = std::make_unique<RenderItem>();
+    box3Scene7Ritem->ObjCBIndex = 757;
+    box3Scene7Ritem->World = MathHelper::Identity4x4();
+    box3Scene7Ritem->TexTransform = MathHelper::Identity4x4();
+    box3Scene7Ritem->Mat = mMaterials["planetMaterial"].get();
+    box3Scene7Ritem->Geo = mGeometries["scene7Geo"].get();
+    box3Scene7Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    box3Scene7Ritem->IndexCount = box3Scene7Ritem->Geo->DrawArgs["box3"].IndexCount;
+    box3Scene7Ritem->StartIndexLocation = box3Scene7Ritem->Geo->DrawArgs["box3"].StartIndexLocation;
+    box3Scene7Ritem->BaseVertexLocation = box3Scene7Ritem->Geo->DrawArgs["box3"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene7].push_back(box3Scene7Ritem.get());
+    mAllRitems.push_back(std::move(box3Scene7Ritem));
 
 
     for (int i = 0; i < mAllRitems.size(); ++i)
@@ -7066,6 +7211,35 @@ void Engine::DrawRenderItemsScene7(ID3D12GraphicsCommandList* cmdList, const std
 
         cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
     }
+
+    if (isObjectsActiveScene7)
+    {
+        for (size_t i = 0; i < ritems.size(); ++i)
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE shadowMap(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            shadowMap.Offset(24, mCbvSrvDescriptorSize);
+            cmdList->SetGraphicsRootDescriptorTable(0, shadowMap);
+            cmdList->SetGraphicsRootDescriptorTable(1, tex);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, 0, 0, 0);
+        }
+    }
 }
 
 void Engine::DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
@@ -7106,6 +7280,35 @@ void Engine::DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, c
             cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
         }
     }
+
+    if (isObjectsActiveScene7)
+    {
+        for (size_t i = 0; i < ritems.size(); ++i)
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE shadowMap(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            shadowMap.Offset(24, mCbvSrvDescriptorSize);
+            cmdList->SetGraphicsRootDescriptorTable(0, shadowMap);
+            cmdList->SetGraphicsRootDescriptorTable(1, tex);
+            cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, 0, 0, 0);
+        }
+    }
 }
 
 void Engine::DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
@@ -7137,6 +7340,32 @@ void Engine::DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, co
         cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
         cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
+    }
+
+    if (isObjectsActiveScene7)
+    {
+        for (size_t i = 0; i < ritems.size(); ++i)
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, 0, 0, 0);
+        }
     }
 }
 
@@ -8211,7 +8440,9 @@ void Engine::RenderUI()
         {
             ImGui::Text("");
             ImGui::Text("Directional Light");
-            ImGui::SliderFloat("Position", &directionalLightPositionScene7, 0.0f, 10.0f);
+            ImGui::Checkbox("Vertical Light", &isVerticalLightScene7);
+            if (!isVerticalLightScene7)
+                ImGui::SliderFloat("Position", &directionalLightPositionScene7, 0.0f, 10.0f);
 
             ImGui::Text("");
             ImGui::Text("Shadow Texturing");
@@ -8240,6 +8471,13 @@ void Engine::RenderUI()
             ImGui::RadioButton("Point", &shadowFilteringIDScene7, 0);
             ImGui::RadioButton("Linear", &shadowFilteringIDScene7, 1);
             ImGui::RadioButton("Anisotropic", &shadowFilteringIDScene7, 2);
+
+            ImGui::Text("");
+            ImGui::Checkbox("Objects is active", &isObjectsActiveScene7);
+
+            mAllRitems[755]->NumFramesDirty = 1;
+            mAllRitems[756]->NumFramesDirty = 1;
+            mAllRitems[757]->NumFramesDirty = 1;
         }
         else if (activeSceneID == 8)
         {
