@@ -64,10 +64,11 @@ enum class RenderLayer : int
     Particles3 = 9,
     Scene6_3 = 10,
     Scene7 = 11,
-    Scene10 = 12,
-    Scene10DebugGeometry = 13,
-    Scene11 = 14,
-    Sky = 15,
+    Scene9 = 12,
+    Scene10 = 13,
+    Scene10DebugGeometry = 14,
+    Scene11 = 15,
+    Sky = 16,
     Count
 };
 
@@ -169,6 +170,7 @@ private:
     virtual void BuildScene5Geometry() override;
     virtual void BuildScene6Geometry() override;
     virtual void BuildScene7Geometry() override;
+    virtual void BuildScene8Geometry() override;
     virtual void BuildModelsGeometry() override;
     virtual void BuildScene10DebugGeometry() override;
     virtual void BuildSponzaGeometryAndTextures() override;
@@ -204,6 +206,7 @@ private:
     void DrawRenderItemsScene7(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene9(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDefferedPointSpotScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -250,6 +253,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebugGeometry = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDefferedPointSpotDirectional = nullptr;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureSkyBox = nullptr;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignaturePBR = nullptr;
 
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
@@ -500,6 +504,8 @@ bool isVerticalLightScene7 = false;
 bool isObjectsActiveScene7 = false;
 
 int lightingIDScene6 = 1;
+
+int PBRShaderScene9 = 1;
 
 
 
@@ -1553,6 +1559,44 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->ResourceBarrier(6, barriersClose);
     }
 
+    else if (activeSceneID == 9)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignaturePBR.Get());
+
+        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        if (PBRShaderScene9 == 0)
+            mCommandList->SetPipelineState(mPSOs["StandartPBRPSO"].Get());
+        else if (PBRShaderScene9 == 1)
+            mCommandList->SetPipelineState(mPSOs["PBRPSO"].Get());
+        else if (PBRShaderScene9 == 2)
+            mCommandList->SetPipelineState(mPSOs["IBLPSO"].Get());
+
+        passCB = mCurrFrameResource->PassCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        tex.Offset(48, mCbvSrvDescriptorSize);
+        mCommandList->SetGraphicsRootDescriptorTable(4, tex);
+
+        DrawRenderItemsScene9(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene9]);
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        mCommandList->ResourceBarrier(1, &barrier1);
+    }
+
     else if (activeSceneID == 10)
     {
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
@@ -1736,7 +1780,7 @@ void Engine::Draw(const GameTimer& gt)
 
     // Draw screen quad
     if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
-        && !(activeSceneID == 10 && selectedRenderTechScene10 == 2))
+        && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -2177,6 +2221,29 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                         * DirectX::XMMatrixTranslation(-10.0f, 5.0f, 0.f);
                 }
             }
+            else if (activeSceneID == 9)
+            {
+                if (i == 758)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(10.0f, 0.0f, 0.0f);
+                }
+                else if (i == 759)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(5.0f, 0.0f, 0.0f);
+                }
+                else if (i == 760)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, 0.0f);
+                }
+                else if (i == 761)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(-5.0f, 0.0f, 0.0f);
+                }
+                else if (i == 762)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(-10.0f, 0.0f, 0.0f);
+                }
+            }
 
             DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
 
@@ -2274,6 +2341,8 @@ void Engine::UpdateMaterialCBs(const GameTimer& gt)
             matConstants.FresnelR0 = mat->FresnelR0;
             matConstants.Roughness = mat->Roughness;
             matConstants.TilesCount = mat->TilesCount;
+            if (mat->IsMetallic == 1)
+                mat->TilesCount = 2;
             XMStoreFloat4x4(&matConstants.MatTransform, XMMatrixTranspose(matTransform));
 
             currMaterialCB->CopyData(mat->MatCBIndex, matConstants);
@@ -3221,6 +3290,230 @@ void Engine::LoadTextures()
         mCommandList.Get(), skyboxTex->Filename.c_str(),
         skyboxTex->Resource, skyboxTex->UploadHeap), true);
     mTextures[skyboxTex->Name] = std::move(skyboxTex);
+
+    auto PBR1Tex = std::make_unique<Texture>();
+    PBR1Tex->Name = "PBR1Tex";
+    PBR1Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR1Tex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR1Tex->Filename.c_str(),
+        PBR1Tex->Resource, PBR1Tex->UploadHeap), true);
+    mTextures[PBR1Tex->Name] = std::move(PBR1Tex);
+
+    auto PBR1Norm = std::make_unique<Texture>();
+    PBR1Norm->Name = "PBR1Norm";
+    PBR1Norm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR1Norm.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR1Norm->Filename.c_str(),
+        PBR1Norm->Resource, PBR1Norm->UploadHeap), true);
+    mTextures[PBR1Norm->Name] = std::move(PBR1Norm);
+
+    auto PBR1AO = std::make_unique<Texture>();
+    PBR1AO->Name = "PBR1AO";
+    PBR1AO->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR1AO.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR1AO->Filename.c_str(),
+        PBR1AO->Resource, PBR1AO->UploadHeap), true);
+    mTextures[PBR1AO->Name] = std::move(PBR1AO);
+
+    auto PBR1Metallic = std::make_unique<Texture>();
+    PBR1Metallic->Name = "PBR1Metallic";
+    PBR1Metallic->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR1Metallic.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR1Metallic->Filename.c_str(),
+        PBR1Metallic->Resource, PBR1Metallic->UploadHeap), true);
+    mTextures[PBR1Metallic->Name] = std::move(PBR1Metallic);
+
+    auto PBR1Roughness = std::make_unique<Texture>();
+    PBR1Roughness->Name = "PBR1Roughness";
+    PBR1Roughness->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR1Roughness.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR1Roughness->Filename.c_str(),
+        PBR1Roughness->Resource, PBR1Roughness->UploadHeap), true);
+    mTextures[PBR1Roughness->Name] = std::move(PBR1Roughness);
+
+    auto PBR2Tex = std::make_unique<Texture>();
+    PBR2Tex->Name = "PBR2Tex";
+    PBR2Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR2Tex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR2Tex->Filename.c_str(),
+        PBR2Tex->Resource, PBR2Tex->UploadHeap), true);
+    mTextures[PBR2Tex->Name] = std::move(PBR2Tex);
+
+    auto PBR2Norm = std::make_unique<Texture>();
+    PBR2Norm->Name = "PBR2Norm";
+    PBR2Norm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR2Norm.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR2Norm->Filename.c_str(),
+        PBR2Norm->Resource, PBR2Norm->UploadHeap), true);
+    mTextures[PBR2Norm->Name] = std::move(PBR2Norm);
+
+    auto PBR2AO = std::make_unique<Texture>();
+    PBR2AO->Name = "PBR2AO";
+    PBR2AO->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR2AO.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR2AO->Filename.c_str(),
+        PBR2AO->Resource, PBR2AO->UploadHeap), true);
+    mTextures[PBR2AO->Name] = std::move(PBR2AO);
+
+    auto PBR2Metallic = std::make_unique<Texture>();
+    PBR2Metallic->Name = "PBR2Metallic";
+    PBR2Metallic->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR2Metallic.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR2Metallic->Filename.c_str(),
+        PBR2Metallic->Resource, PBR2Metallic->UploadHeap), true);
+    mTextures[PBR2Metallic->Name] = std::move(PBR2Metallic);
+
+    auto PBR2Roughness = std::make_unique<Texture>();
+    PBR2Roughness->Name = "PBR2Roughness";
+    PBR2Roughness->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR2Roughness.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR2Roughness->Filename.c_str(),
+        PBR2Roughness->Resource, PBR2Roughness->UploadHeap), true);
+    mTextures[PBR2Roughness->Name] = std::move(PBR2Roughness);
+
+    auto PBR3Tex = std::make_unique<Texture>();
+    PBR3Tex->Name = "PBR3Tex";
+    PBR3Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR3Tex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR3Tex->Filename.c_str(),
+        PBR3Tex->Resource, PBR3Tex->UploadHeap), true);
+    mTextures[PBR3Tex->Name] = std::move(PBR3Tex);
+
+    auto PBR3Norm = std::make_unique<Texture>();
+    PBR3Norm->Name = "PBR3Norm";
+    PBR3Norm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR3Norm.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR3Norm->Filename.c_str(),
+        PBR3Norm->Resource, PBR3Norm->UploadHeap), true);
+    mTextures[PBR3Norm->Name] = std::move(PBR3Norm);
+
+    auto PBR3AO = std::make_unique<Texture>();
+    PBR3AO->Name = "PBR3AO";
+    PBR3AO->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR3AO.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR3AO->Filename.c_str(),
+        PBR3AO->Resource, PBR3AO->UploadHeap), true);
+    mTextures[PBR3AO->Name] = std::move(PBR3AO);
+
+    auto PBR3Metallic = std::make_unique<Texture>();
+    PBR3Metallic->Name = "PBR3Metallic";
+    PBR3Metallic->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR3Metallic.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR3Metallic->Filename.c_str(),
+        PBR3Metallic->Resource, PBR3Metallic->UploadHeap), true);
+    mTextures[PBR3Metallic->Name] = std::move(PBR3Metallic);
+
+    auto PBR3Roughness = std::make_unique<Texture>();
+    PBR3Roughness->Name = "PBR3Roughness";
+    PBR3Roughness->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR3Roughness.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR3Roughness->Filename.c_str(),
+        PBR3Roughness->Resource, PBR3Roughness->UploadHeap), true);
+    mTextures[PBR3Roughness->Name] = std::move(PBR3Roughness);
+
+    auto PBR4Tex = std::make_unique<Texture>();
+    PBR4Tex->Name = "PBR4Tex";
+    PBR4Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR4Tex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR4Tex->Filename.c_str(),
+        PBR4Tex->Resource, PBR4Tex->UploadHeap), true);
+    mTextures[PBR4Tex->Name] = std::move(PBR4Tex);
+
+    auto PBR4Norm = std::make_unique<Texture>();
+    PBR4Norm->Name = "PBR4Norm";
+    PBR4Norm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR4Norm.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR4Norm->Filename.c_str(),
+        PBR4Norm->Resource, PBR4Norm->UploadHeap), true);
+    mTextures[PBR4Norm->Name] = std::move(PBR4Norm);
+
+    auto PBR4AO = std::make_unique<Texture>();
+    PBR4AO->Name = "PBR4AO";
+    PBR4AO->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR4AO.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR4AO->Filename.c_str(),
+        PBR4AO->Resource, PBR4AO->UploadHeap), true);
+    mTextures[PBR4AO->Name] = std::move(PBR4AO);
+
+    auto PBR4Metallic = std::make_unique<Texture>();
+    PBR4Metallic->Name = "PBR4Metallic";
+    PBR4Metallic->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR4Metallic.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR4Metallic->Filename.c_str(),
+        PBR4Metallic->Resource, PBR4Metallic->UploadHeap), true);
+    mTextures[PBR4Metallic->Name] = std::move(PBR4Metallic);
+
+    auto PBR4Roughness = std::make_unique<Texture>();
+    PBR4Roughness->Name = "PBR4Roughness";
+    PBR4Roughness->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR4Roughness.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR4Roughness->Filename.c_str(),
+        PBR4Roughness->Resource, PBR4Roughness->UploadHeap), true);
+    mTextures[PBR4Roughness->Name] = std::move(PBR4Roughness);
+
+    auto PBR5Tex = std::make_unique<Texture>();
+    PBR5Tex->Name = "PBR5Tex";
+    PBR5Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR5Tex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR5Tex->Filename.c_str(),
+        PBR5Tex->Resource, PBR5Tex->UploadHeap), true);
+    mTextures[PBR5Tex->Name] = std::move(PBR5Tex);
+
+    auto PBR5Norm = std::make_unique<Texture>();
+    PBR5Norm->Name = "PBR5Norm";
+    PBR5Norm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR5Norm.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR5Norm->Filename.c_str(),
+        PBR5Norm->Resource, PBR5Norm->UploadHeap), true);
+    mTextures[PBR5Norm->Name] = std::move(PBR5Norm);
+
+    auto PBR5AO = std::make_unique<Texture>();
+    PBR5AO->Name = "PBR5AO";
+    PBR5AO->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR5AO.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR5AO->Filename.c_str(),
+        PBR5AO->Resource, PBR5AO->UploadHeap), true);
+    mTextures[PBR5AO->Name] = std::move(PBR5AO);
+
+    auto PBR5Metallic = std::make_unique<Texture>();
+    PBR5Metallic->Name = "PBR5Metallic";
+    PBR5Metallic->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR5Metallic.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR5Metallic->Filename.c_str(),
+        PBR5Metallic->Resource, PBR5Metallic->UploadHeap), true);
+    mTextures[PBR5Metallic->Name] = std::move(PBR5Metallic);
+
+    auto PBR5Roughness = std::make_unique<Texture>();
+    PBR5Roughness->Name = "PBR5Roughness";
+    PBR5Roughness->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PBR5Roughness.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PBR5Roughness->Filename.c_str(),
+        PBR5Roughness->Resource, PBR5Roughness->UploadHeap), true);
+    mTextures[PBR5Roughness->Name] = std::move(PBR5Roughness);
+
+    auto IrradianceMap = std::make_unique<Texture>();
+    IrradianceMap->Name = "IrradianceMap";
+    IrradianceMap->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\IrradianceMap.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), IrradianceMap->Filename.c_str(),
+        IrradianceMap->Resource, IrradianceMap->UploadHeap), true);
+    mTextures[IrradianceMap->Name] = std::move(IrradianceMap);
+
+    auto PreFilteredEnvMap = std::make_unique<Texture>();
+    PreFilteredEnvMap->Name = "PreFilteredEnvMap";
+    PreFilteredEnvMap->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\PreFilteredEnvMap.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), PreFilteredEnvMap->Filename.c_str(),
+        PreFilteredEnvMap->Resource, PreFilteredEnvMap->UploadHeap), true);
+    mTextures[PreFilteredEnvMap->Name] = std::move(PreFilteredEnvMap);
+
+    auto IntegrationMap = std::make_unique<Texture>();
+    IntegrationMap->Name = "IntegrationMap";
+    IntegrationMap->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\IntegrationMap.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), IntegrationMap->Filename.c_str(),
+        IntegrationMap->Resource, IntegrationMap->UploadHeap), true);
+    mTextures[IntegrationMap->Name] = std::move(IntegrationMap);
 }
 
 void Engine::BuildShadowMaps()
@@ -3239,7 +3532,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 23;
+    srvHeapDesc.NumDescriptors = 55;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -3443,7 +3736,7 @@ void Engine::UploadTextures2()
     srvDesc1.Texture2D.MipLevels = SkyboxTex->GetDesc().MipLevels;
     md3dDevice->CreateShaderResourceView(SkyboxTex.Get(), &srvDesc1, hDescriptor);
 
-    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+    hDescriptor.Offset(5, mCbvSrvDescriptorSize);
 
     auto ParticleTex = mTextures["ParticleTex"]->Resource;
 
@@ -3501,7 +3794,313 @@ void Engine::UploadTextures2()
     srvDesc1.Texture2D.MipLevels = -1;
     md3dDevice->CreateShaderResourceView(GrassTex.Get(), &srvDesc1, hDescriptorParticles);
 
-    hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
+    auto PBR1Tex = mTextures["PBR1Tex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR1Tex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR1Tex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR1Norm = mTextures["PBR1Norm"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR1Norm->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR1Norm.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR1Metallic = mTextures["PBR1Metallic"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR1Metallic->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR1Metallic.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR1Roughness = mTextures["PBR1Roughness"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR1Roughness->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR1Roughness.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR1AO = mTextures["PBR1AO"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR1AO->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR1AO.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR2Tex = mTextures["PBR2Tex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR2Tex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR2Tex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR2Norm = mTextures["PBR2Norm"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR2Norm->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR2Norm.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR2Metallic = mTextures["PBR2Metallic"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR2Metallic->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR2Metallic.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR2Roughness = mTextures["PBR2Roughness"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR2Roughness->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR2Roughness.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR2AO = mTextures["PBR2AO"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR2AO->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR2AO.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR3Tex = mTextures["PBR3Tex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR3Tex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR3Tex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR3Norm = mTextures["PBR3Norm"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR3Norm->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR3Norm.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR3Metallic = mTextures["PBR3Metallic"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR3Metallic->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR3Metallic.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR3Roughness = mTextures["PBR3Roughness"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR3Roughness->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR3Roughness.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR3AO = mTextures["PBR3AO"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR3AO->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR3AO.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR4Tex = mTextures["PBR4Tex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR4Tex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR4Tex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR4Norm = mTextures["PBR4Norm"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR4Norm->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR4Norm.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR4Metallic = mTextures["PBR4Metallic"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR4Metallic->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR4Metallic.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR4Roughness = mTextures["PBR4Roughness"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR4Roughness->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR4Roughness.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR4AO = mTextures["PBR4AO"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR4AO->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR4AO.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR5Tex = mTextures["PBR5Tex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR5Tex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR5Tex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR5Norm = mTextures["PBR5Norm"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR5Norm->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR5Norm.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR5Metallic = mTextures["PBR5Metallic"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR5Metallic->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR5Metallic.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR5Roughness = mTextures["PBR5Roughness"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR5Roughness->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR5Roughness.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PBR5AO = mTextures["PBR5AO"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PBR5AO->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PBR5AO.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto IrradianceMap = mTextures["IrradianceMap"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = IrradianceMap->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(IrradianceMap.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto PreFilteredEnvMap = mTextures["PreFilteredEnvMap"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = PreFilteredEnvMap->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(PreFilteredEnvMap.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto IntegrationMap = mTextures["IntegrationMap"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = IntegrationMap->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(IntegrationMap.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 }
 
 
@@ -3556,6 +4155,11 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableSkyBox;
     texTableSkyBox.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
+    CD3DX12_DESCRIPTOR_RANGE texTablePBR;
+    texTablePBR.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTablePBR2;
+    texTablePBR2.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 1);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -3585,6 +4189,8 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterShadowsParticlesForward[5];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterSkybox[3];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterPBR[5];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -3682,6 +4288,12 @@ void Engine::BuildRootSignature()
     slotRootParameterSkybox[1].InitAsConstantBufferView(0);
     slotRootParameterSkybox[2].InitAsConstantBufferView(1);
 
+    slotRootParameterPBR[0].InitAsDescriptorTable(1, &texTablePBR);
+    slotRootParameterPBR[1].InitAsConstantBufferView(0);
+    slotRootParameterPBR[2].InitAsConstantBufferView(1);
+    slotRootParameterPBR[3].InitAsConstantBufferView(2);
+    slotRootParameterPBR[4].InitAsDescriptorTable(1, &texTablePBR2);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -3761,6 +4373,10 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSigDescSkybox(3, slotRootParameterSkybox,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescPBR(5, slotRootParameterPBR,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -4088,6 +4704,23 @@ void Engine::BuildRootSignature()
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignatureSkyBox.GetAddressOf())));
+
+    errorBlob = nullptr;
+    serializedRootSig = nullptr;
+    hr = D3D12SerializeRootSignature(&rootSigDescPBR, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(mRootSignaturePBR.GetAddressOf())));
 }
 
 
@@ -4172,6 +4805,15 @@ void Engine::BuildShadersAndInputLayout()
 
     mShaders["skyboxVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\SkyBox.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["skyboxPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\SkyBox.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["PBR_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PBR.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["PBR_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PBR.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["StandartPBR_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\StandartPBR.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["StandartPBR_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\StandartPBR.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["IBL_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\IBL.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["IBL_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\IBL.hlsl", nullptr, "PS", "ps_5_1");
 
     mInputLayout =
     {
@@ -4892,8 +5534,135 @@ void Engine::BuildScene7Geometry()
     geo->IndexBufferByteSize = ibByteSize;
 
     geo->DrawArgs["box1"] = box1Submesh;
-    geo->DrawArgs["box2"] = box1Submesh;
-    geo->DrawArgs["box3"] = box1Submesh;
+    geo->DrawArgs["box2"] = box2Submesh;
+    geo->DrawArgs["box3"] = box3Submesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
+void Engine::BuildScene8Geometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData sphereMesh1 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
+    GeometryGenerator::MeshData sphereMesh2 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
+    GeometryGenerator::MeshData sphereMesh3 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
+    GeometryGenerator::MeshData sphereMesh4 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
+    GeometryGenerator::MeshData sphereMesh5 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry sphere1Submesh;
+    sphere1Submesh.IndexCount = (UINT)sphereMesh1.Indices32.size();
+    sphere1Submesh.StartIndexLocation = totalIndexCount;
+    sphere1Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphere1Submesh.IndexCount;
+    totalVertexCount += sphereMesh1.Vertices.size();
+    SubmeshGeometry sphere2Submesh;
+    sphere2Submesh.IndexCount = (UINT)sphereMesh2.Indices32.size();
+    sphere2Submesh.StartIndexLocation = totalIndexCount;
+    sphere2Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphere2Submesh.IndexCount;
+    totalVertexCount += sphereMesh2.Vertices.size();
+    SubmeshGeometry sphere3Submesh;
+    sphere3Submesh.IndexCount = (UINT)sphereMesh3.Indices32.size();
+    sphere3Submesh.StartIndexLocation = totalIndexCount;
+    sphere3Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphere3Submesh.IndexCount;
+    totalVertexCount += sphereMesh3.Vertices.size();
+    SubmeshGeometry sphere4Submesh;
+    sphere4Submesh.IndexCount = (UINT)sphereMesh4.Indices32.size();
+    sphere4Submesh.StartIndexLocation = totalIndexCount;
+    sphere4Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphere4Submesh.IndexCount;
+    totalVertexCount += sphereMesh4.Vertices.size();
+    SubmeshGeometry sphere5Submesh;
+    sphere5Submesh.IndexCount = (UINT)sphereMesh5.Indices32.size();
+    sphere5Submesh.StartIndexLocation = totalIndexCount;
+    sphere5Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphere5Submesh.IndexCount;
+    totalVertexCount += sphereMesh5.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < sphereMesh1.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereMesh1.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereMesh1.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereMesh1.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereMesh1.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereMesh1.Vertices.size();
+    for (size_t i = 0; i < sphereMesh2.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereMesh2.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereMesh2.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereMesh2.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereMesh2.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereMesh2.Vertices.size();
+    for (size_t i = 0; i < sphereMesh3.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereMesh3.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereMesh3.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereMesh3.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereMesh3.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereMesh3.Vertices.size();
+    for (size_t i = 0; i < sphereMesh4.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereMesh4.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereMesh4.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereMesh4.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereMesh4.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereMesh4.Vertices.size();
+    for (size_t i = 0; i < sphereMesh5.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereMesh5.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereMesh5.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereMesh5.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereMesh5.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereMesh5.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(sphereMesh1.GetIndices16()), std::end(sphereMesh1.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphereMesh2.GetIndices16()), std::end(sphereMesh2.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphereMesh3.GetIndices16()), std::end(sphereMesh3.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphereMesh4.GetIndices16()), std::end(sphereMesh4.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphereMesh5.GetIndices16()), std::end(sphereMesh5.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene9Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["sphere1"] = sphere1Submesh;
+    geo->DrawArgs["sphere2"] = sphere2Submesh;
+    geo->DrawArgs["sphere3"] = sphere3Submesh;
+    geo->DrawArgs["sphere4"] = sphere4Submesh;
+    geo->DrawArgs["sphere5"] = sphere5Submesh;
 
     mGeometries[geo->Name] = std::move(geo);
 }
@@ -5815,6 +6584,53 @@ void Engine::BuildPSOs()
     skyboxPsoDesc.SampleDesc.Quality = 0;
     skyboxPsoDesc.DSVFormat = mDepthStencilFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyboxPsoDesc, IID_PPV_ARGS(&mPSOs["skyboxPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC PBRPsoDesc;
+    ZeroMemory(&PBRPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    PBRPsoDesc = forwardRTPsoDesc;
+    PBRPsoDesc.pRootSignature = mRootSignaturePBR.Get();
+    PBRPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PBR_VS"]->GetBufferPointer()),
+        mShaders["PBR_VS"]->GetBufferSize()
+    };
+    PBRPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["PBR_PS"]->GetBufferPointer()),
+        mShaders["PBR_PS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&PBRPsoDesc, IID_PPV_ARGS(&mPSOs["PBRPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC StandartPBRPsoDesc;
+    ZeroMemory(&StandartPBRPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    StandartPBRPsoDesc = PBRPsoDesc;
+    StandartPBRPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["StandartPBR_VS"]->GetBufferPointer()),
+        mShaders["StandartPBR_VS"]->GetBufferSize()
+    };
+    StandartPBRPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["StandartPBR_PS"]->GetBufferPointer()),
+        mShaders["StandartPBR_PS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&StandartPBRPsoDesc, IID_PPV_ARGS(&mPSOs["StandartPBRPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC IBLPsoDesc;
+    ZeroMemory(&IBLPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    IBLPsoDesc = forwardRTPsoDesc;
+    IBLPsoDesc.pRootSignature = mRootSignaturePBR.Get();
+    IBLPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["IBL_VS"]->GetBufferPointer()),
+        mShaders["IBL_VS"]->GetBufferSize()
+    };
+    IBLPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["IBL_PS"]->GetBufferPointer()),
+        mShaders["IBL_PS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&IBLPsoDesc, IID_PPV_ARGS(&mPSOs["IBLPSO"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -6013,6 +6829,58 @@ void Engine::BuildMaterials()
     grassMat->Roughness = 0.125f;
 
     mMaterials["grassMaterial"] = std::move(grassMat);
+
+    auto PBR1Mat = std::make_unique<Material>();
+    PBR1Mat->Name = "PBR1Material";
+    PBR1Mat->MatCBIndex = 9;
+    PBR1Mat->DiffuseSrvHeapIndex = 23;
+    PBR1Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    PBR1Mat->FresnelR0 = DirectX::XMFLOAT3(0.8f, 0.8f, 0.8f);
+    PBR1Mat->Roughness = 0.125f;
+    PBR1Mat->IsMetallic = 1;
+
+    mMaterials["PBR1Material"] = std::move(PBR1Mat);
+
+    auto PBR2Mat = std::make_unique<Material>();
+    PBR2Mat->Name = "PBR2Material";
+    PBR2Mat->MatCBIndex = 10;
+    PBR2Mat->DiffuseSrvHeapIndex = 28;
+    PBR2Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    PBR2Mat->FresnelR0 = DirectX::XMFLOAT3(0.8f, 0.8f, 0.8f);
+    PBR2Mat->Roughness = 0.125f;
+    PBR2Mat->IsMetallic = 1;
+
+    mMaterials["PBR2Material"] = std::move(PBR2Mat);
+
+    auto PBR3Mat = std::make_unique<Material>();
+    PBR3Mat->Name = "PBR3Material";
+    PBR3Mat->MatCBIndex = 11;
+    PBR3Mat->DiffuseSrvHeapIndex = 33;
+    PBR3Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    PBR3Mat->FresnelR0 = DirectX::XMFLOAT3(0.04f, 0.04f, 0.04f);
+    PBR3Mat->Roughness = 0.125f;
+
+    mMaterials["PBR3Material"] = std::move(PBR3Mat);
+
+    auto PBR4Mat = std::make_unique<Material>();
+    PBR4Mat->Name = "PBR4Material";
+    PBR4Mat->MatCBIndex = 12;
+    PBR4Mat->DiffuseSrvHeapIndex = 38;
+    PBR4Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    PBR4Mat->FresnelR0 = DirectX::XMFLOAT3(0.04f, 0.04f, 0.04f);
+    PBR4Mat->Roughness = 0.125f;
+
+    mMaterials["PBR4Material"] = std::move(PBR4Mat);
+
+    auto PBR5Mat = std::make_unique<Material>();
+    PBR5Mat->Name = "PBR5Material";
+    PBR5Mat->MatCBIndex = 13;
+    PBR5Mat->DiffuseSrvHeapIndex = 43;
+    PBR5Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    PBR5Mat->FresnelR0 = DirectX::XMFLOAT3(0.04f, 0.04f, 0.04f);
+    PBR5Mat->Roughness = 0.125f;
+
+    mMaterials["PBR5Material"] = std::move(PBR5Mat);
 }
 
 void Engine::BuildRenderItems()
@@ -6400,6 +7268,76 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::Scene7].push_back(box3Scene7Ritem.get());
     mAllRitems.push_back(std::move(box3Scene7Ritem));
+
+    auto PBR1Scene9Ritem = std::make_unique<RenderItem>();
+    PBR1Scene9Ritem->ObjCBIndex = 758;
+    PBR1Scene9Ritem->World = MathHelper::Identity4x4();
+    PBR1Scene9Ritem->TexTransform = MathHelper::Identity4x4();
+    PBR1Scene9Ritem->Mat = mMaterials["PBR1Material"].get();
+    PBR1Scene9Ritem->Geo = mGeometries["scene9Geo"].get();
+    PBR1Scene9Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    PBR1Scene9Ritem->IndexCount = PBR1Scene9Ritem->Geo->DrawArgs["sphere1"].IndexCount;
+    PBR1Scene9Ritem->StartIndexLocation = PBR1Scene9Ritem->Geo->DrawArgs["sphere1"].StartIndexLocation;
+    PBR1Scene9Ritem->BaseVertexLocation = PBR1Scene9Ritem->Geo->DrawArgs["sphere1"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene9].push_back(PBR1Scene9Ritem.get());
+    mAllRitems.push_back(std::move(PBR1Scene9Ritem));
+
+    auto PBR2Scene9Ritem = std::make_unique<RenderItem>();
+    PBR2Scene9Ritem->ObjCBIndex = 759;
+    PBR2Scene9Ritem->World = MathHelper::Identity4x4();
+    PBR2Scene9Ritem->TexTransform = MathHelper::Identity4x4();
+    PBR2Scene9Ritem->Mat = mMaterials["PBR2Material"].get();
+    PBR2Scene9Ritem->Geo = mGeometries["scene9Geo"].get();
+    PBR2Scene9Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    PBR2Scene9Ritem->IndexCount = PBR2Scene9Ritem->Geo->DrawArgs["sphere2"].IndexCount;
+    PBR2Scene9Ritem->StartIndexLocation = PBR2Scene9Ritem->Geo->DrawArgs["sphere2"].StartIndexLocation;
+    PBR2Scene9Ritem->BaseVertexLocation = PBR2Scene9Ritem->Geo->DrawArgs["sphere2"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene9].push_back(PBR2Scene9Ritem.get());
+    mAllRitems.push_back(std::move(PBR2Scene9Ritem));
+
+    auto PBR3Scene9Ritem = std::make_unique<RenderItem>();
+    PBR3Scene9Ritem->ObjCBIndex = 760;
+    PBR3Scene9Ritem->World = MathHelper::Identity4x4();
+    PBR3Scene9Ritem->TexTransform = MathHelper::Identity4x4();
+    PBR3Scene9Ritem->Mat = mMaterials["PBR3Material"].get();
+    PBR3Scene9Ritem->Geo = mGeometries["scene9Geo"].get();
+    PBR3Scene9Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    PBR3Scene9Ritem->IndexCount = PBR3Scene9Ritem->Geo->DrawArgs["sphere3"].IndexCount;
+    PBR3Scene9Ritem->StartIndexLocation = PBR3Scene9Ritem->Geo->DrawArgs["sphere3"].StartIndexLocation;
+    PBR3Scene9Ritem->BaseVertexLocation = PBR3Scene9Ritem->Geo->DrawArgs["sphere3"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene9].push_back(PBR3Scene9Ritem.get());
+    mAllRitems.push_back(std::move(PBR3Scene9Ritem));
+
+    auto PBR4Scene9Ritem = std::make_unique<RenderItem>();
+    PBR4Scene9Ritem->ObjCBIndex = 761;
+    PBR4Scene9Ritem->World = MathHelper::Identity4x4();
+    PBR4Scene9Ritem->TexTransform = MathHelper::Identity4x4();
+    PBR4Scene9Ritem->Mat = mMaterials["PBR4Material"].get();
+    PBR4Scene9Ritem->Geo = mGeometries["scene9Geo"].get();
+    PBR4Scene9Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    PBR4Scene9Ritem->IndexCount = PBR4Scene9Ritem->Geo->DrawArgs["sphere4"].IndexCount;
+    PBR4Scene9Ritem->StartIndexLocation = PBR4Scene9Ritem->Geo->DrawArgs["sphere4"].StartIndexLocation;
+    PBR4Scene9Ritem->BaseVertexLocation = PBR4Scene9Ritem->Geo->DrawArgs["sphere4"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene9].push_back(PBR4Scene9Ritem.get());
+    mAllRitems.push_back(std::move(PBR4Scene9Ritem));
+
+    auto PBR5Scene9Ritem = std::make_unique<RenderItem>();
+    PBR5Scene9Ritem->ObjCBIndex = 762;
+    PBR5Scene9Ritem->World = MathHelper::Identity4x4();
+    PBR5Scene9Ritem->TexTransform = MathHelper::Identity4x4();
+    PBR5Scene9Ritem->Mat = mMaterials["PBR5Material"].get();
+    PBR5Scene9Ritem->Geo = mGeometries["scene9Geo"].get();
+    PBR5Scene9Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    PBR5Scene9Ritem->IndexCount = PBR5Scene9Ritem->Geo->DrawArgs["sphere5"].IndexCount;
+    PBR5Scene9Ritem->StartIndexLocation = PBR5Scene9Ritem->Geo->DrawArgs["sphere5"].StartIndexLocation;
+    PBR5Scene9Ritem->BaseVertexLocation = PBR5Scene9Ritem->Geo->DrawArgs["sphere5"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene9].push_back(PBR5Scene9Ritem.get());
+    mAllRitems.push_back(std::move(PBR5Scene9Ritem));
 
 
     for (int i = 0; i < mAllRitems.size(); ++i)
@@ -7365,6 +8303,41 @@ void Engine::DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, co
             cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
             cmdList->DrawIndexedInstanced(ri->IndexCount, 1, 0, 0, 0);
+        }
+    }
+}
+
+void Engine::DrawRenderItemsScene9(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
     }
 }
@@ -8545,7 +9518,17 @@ void Engine::RenderUI()
         }
         else if (activeSceneID == 9)
         {
+            ImGui::RadioButton("Standart Render", &PBRShaderScene9, 0);
+            ImGui::RadioButton("PBR", &PBRShaderScene9, 1);
+            ImGui::RadioButton("IBR", &PBRShaderScene9, 2);
 
+            mAllRitems[758]->NumFramesDirty = 1;
+            mAllRitems[759]->NumFramesDirty = 1;
+            mAllRitems[760]->NumFramesDirty = 1;
+            mAllRitems[761]->NumFramesDirty = 1;
+            mAllRitems[762]->NumFramesDirty = 1;
+            mMaterials["PBR1Material"]->NumFramesDirty = gNumFrameResources;
+            mMaterials["PBR2Material"]->NumFramesDirty = gNumFrameResources;
         }
         else if (activeSceneID == 10)
         {

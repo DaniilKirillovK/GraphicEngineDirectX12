@@ -278,6 +278,7 @@ struct Material
     float Roughness = .25f;
     DirectX::XMFLOAT4X4 MatTransform = MathHelper::Identity4x4();
     float TilesCount = 1.0f;
+    float IsMetallic = 0;
 };
 
 struct Texture

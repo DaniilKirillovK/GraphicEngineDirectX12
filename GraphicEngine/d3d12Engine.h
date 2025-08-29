@@ -113,6 +113,7 @@ protected:
     virtual void BuildScene5Geometry() {}
     virtual void BuildScene6Geometry() {}
     virtual void BuildScene7Geometry() {}
+    virtual void BuildScene8Geometry() {}
     virtual void BuildModelsGeometry() {}
     virtual void BuildScene10DebugGeometry() {}
     virtual void BuildSponzaGeometryAndTextures() {}
