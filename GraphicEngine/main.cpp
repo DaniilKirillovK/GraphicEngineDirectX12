@@ -192,6 +192,8 @@ private:
 
     virtual void InitInstanceBuffer() override;
     virtual void InitParticleSystem() override;
+
+    void CreateRootSignature(CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc, std::string rootSigName);
     
 
     void RenderUI();
@@ -234,32 +236,12 @@ private:
     FrameResource* mCurrFrameResource = nullptr;
     int mCurrFrameResourceIndex = 0;
 
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDefaultForward = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDefaultForwardFrustumCulling = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureLight = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebug = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureBillboard = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesCompute = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureParticlesRender = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignaturePostProcessing = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureComputeNoise = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureMoreSamplers = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureTess = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureRT = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadows = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsForward = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureShadowsParticlesForward = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDebugGeometry = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureDefferedPointSpotDirectional = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignatureSkyBox = nullptr;
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> mRootSignaturePBR = nullptr;
-
     std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
     std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
     std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3DBlob>> mShaders;
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>> mPSOs;
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> mRootSignatures;
 
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayoutLight;
@@ -457,7 +439,7 @@ float vRoundnessScene8 = 1.0f;
 float nIntensityScene8 = 0.5f;
 float nSizeScene8 = 2.f;
 
-int selectedRenderTechScene10 = 0;
+int selectedRenderTechScene10 = 2;
 bool deferredRenderDisplayInfoScene10 = false;
 bool isDebugLayerActiveScene10 = false;
 float col1Scene10[3] = { 0.0f, 0.0f, 1.0f };
@@ -825,7 +807,7 @@ void Engine::Draw(const GameTimer& gt)
         {
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureDebug.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDebug"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
 
@@ -860,7 +842,7 @@ void Engine::Draw(const GameTimer& gt)
         {
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureBillboard.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureBillboard"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
@@ -879,7 +861,7 @@ void Engine::Draw(const GameTimer& gt)
         {
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignature"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
@@ -921,7 +903,7 @@ void Engine::Draw(const GameTimer& gt)
         {
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignature"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
@@ -980,7 +962,7 @@ void Engine::Draw(const GameTimer& gt)
 
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDefaultForward"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCBCamera2->GetGPUVirtualAddress());
             auto LODCB = mCurrFrameResource->LODCB->Resource();
@@ -1012,7 +994,7 @@ void Engine::Draw(const GameTimer& gt)
 
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForwardFrustumCulling.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDefaultForwardFrustumCulling"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCBCamera2->GetGPUVirtualAddress());
             auto LODCB = mCurrFrameResource->LODCB->Resource();
@@ -1045,7 +1027,7 @@ void Engine::Draw(const GameTimer& gt)
 
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDefaultForward"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
             auto LODCB = mCurrFrameResource->LODCB->Resource();
@@ -1075,7 +1057,7 @@ void Engine::Draw(const GameTimer& gt)
 
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForwardFrustumCulling.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDefaultForwardFrustumCulling"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
             auto LODCB = mCurrFrameResource->LODCB->Resource();
@@ -1105,7 +1087,7 @@ void Engine::Draw(const GameTimer& gt)
 
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureDefaultForward.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDefaultForward"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
             auto LODCB = mCurrFrameResource->LODCB->Resource();
@@ -1136,7 +1118,7 @@ void Engine::Draw(const GameTimer& gt)
         {
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureMoreSamplers.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureMoreSamplers"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
             auto samplersCB = mCurrFrameResource->SamplersCB->Resource();
@@ -1191,7 +1173,7 @@ void Engine::Draw(const GameTimer& gt)
         {
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignature"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
@@ -1242,7 +1224,7 @@ void Engine::Draw(const GameTimer& gt)
 
                 auto emitterCB = mCurrFrameResource->EmitterCB->Resource();
 
-                mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
+                mCommandList->SetComputeRootSignature(mRootSignatures["mRootSignatureParticlesCompute"].Get());
 
                 mCommandList->SetComputeRootUnorderedAccessView(0, particleBuffers[1 - currParticleReadBuffer]->GetGPUVirtualAddress());
                 mCommandList->SetComputeRootShaderResourceView(1, particleBuffers[currParticleReadBuffer]->GetGPUVirtualAddress());
@@ -1268,7 +1250,7 @@ void Engine::Draw(const GameTimer& gt)
                 ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
                 mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
 
-                mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureParticlesRender"].Get());
 
                 mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
                 CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
@@ -1300,7 +1282,7 @@ void Engine::Draw(const GameTimer& gt)
 
                 auto emitterCB = mCurrFrameResource->Emitter2CB->Resource();
 
-                mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
+                mCommandList->SetComputeRootSignature(mRootSignatures["mRootSignatureParticlesCompute"].Get());
 
                 mCommandList->SetComputeRootUnorderedAccessView(0, particle2Buffers[1 - currParticle2ReadBuffer]->GetGPUVirtualAddress());
                 mCommandList->SetComputeRootShaderResourceView(1, particle2Buffers[currParticle2ReadBuffer]->GetGPUVirtualAddress());
@@ -1326,7 +1308,7 @@ void Engine::Draw(const GameTimer& gt)
                 ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
                 mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
 
-                mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureParticlesRender"].Get());
 
                 mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
                 CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
@@ -1358,7 +1340,7 @@ void Engine::Draw(const GameTimer& gt)
 
                 auto emitterCB = mCurrFrameResource->Emitter3CB->Resource();
 
-                mCommandList->SetComputeRootSignature(mRootSignatureParticlesCompute.Get());
+                mCommandList->SetComputeRootSignature(mRootSignatures["mRootSignatureParticlesCompute"].Get());
 
                 mCommandList->SetComputeRootUnorderedAccessView(0, particleSmokeBuffers[1 - currParticleSmokeReadBuffer]->GetGPUVirtualAddress());
                 mCommandList->SetComputeRootShaderResourceView(1, particleSmokeBuffers[currParticleSmokeReadBuffer]->GetGPUVirtualAddress());
@@ -1383,7 +1365,7 @@ void Engine::Draw(const GameTimer& gt)
                 ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
                 mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
 
-                mCommandList->SetGraphicsRootSignature(mRootSignatureShadows.Get());
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureShadows"].Get());
 
                 auto passCB = mCurrFrameResource->ShadowPassCBParticles->Resource();
                 mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
@@ -1402,7 +1384,7 @@ void Engine::Draw(const GameTimer& gt)
                  mCommandList->RSSetViewports(1, &viewports[4]);
                 mCommandList->RSSetScissorRects(1, &rects[4]);
 
-                mCommandList->SetGraphicsRootSignature(mRootSignatureShadowsParticlesForward.Get());
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureShadowsParticlesForward"].Get());
 
                 auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                     D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1424,7 +1406,7 @@ void Engine::Draw(const GameTimer& gt)
                 ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
                 mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
 
-                mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureParticlesRender"].Get());
 
                 auto passCB = mCurrFrameResource->PassCB->Resource();
                 mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
@@ -1458,7 +1440,7 @@ void Engine::Draw(const GameTimer& gt)
 
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureShadows.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureShadows"].Get());
 
         auto passCB = mCurrFrameResource->ShadowPassCB->Resource();
         mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
@@ -1475,7 +1457,7 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureShadowsForward.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureShadowsForward"].Get());
 
         auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
             D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1513,7 +1495,7 @@ void Engine::Draw(const GameTimer& gt)
     {
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignature"].Get());
 
         mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
@@ -1569,7 +1551,7 @@ void Engine::Draw(const GameTimer& gt)
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignaturePBR.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignaturePBR"].Get());
 
         mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
 
@@ -1601,7 +1583,7 @@ void Engine::Draw(const GameTimer& gt)
     {
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureRT.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureRT"].Get());
 
         mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
@@ -1689,7 +1671,7 @@ void Engine::Draw(const GameTimer& gt)
 
             D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatureDefferedPointSpotDirectional.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDefferedPointSpotDirectional"].Get());
 
             mCommandList->OMSetRenderTargets(1, &rtvs2, false, nullptr);
 
@@ -1705,7 +1687,7 @@ void Engine::Draw(const GameTimer& gt)
             DrawDefferedPointSpotScene10(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene10DebugGeometry]);
 
             // Directional & ambient light
-            mCommandList->SetGraphicsRootSignature(mRootSignatureLight.Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureLight"].Get());
 
             mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
 
@@ -1719,7 +1701,10 @@ void Engine::Draw(const GameTimer& gt)
 
             auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-            mCommandList->ResourceBarrier(1, &barrier1);
+            auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(mDepthStencilBuffer.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            CD3DX12_RESOURCE_BARRIER barriers[] = { barrier1, barrier2 };
+            mCommandList->ResourceBarrier(2, barriers);
         }
     }
 
@@ -1727,7 +1712,7 @@ void Engine::Draw(const GameTimer& gt)
     {
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureTess.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureTess"].Get());
 
         mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
         auto tessCB = mCurrFrameResource->TessCB->Resource();
@@ -1794,7 +1779,7 @@ void Engine::Draw(const GameTimer& gt)
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureLight.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureLight"].Get());
 
         mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
 
@@ -1828,7 +1813,7 @@ void Engine::Draw(const GameTimer& gt)
         D3D12_RESOURCE_BARRIER barrierOpen[] = { depthOpen };
         mCommandList->ResourceBarrier(1, barrierOpen);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureDebugGeometry.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDebugGeometry"].Get());
 
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
 
@@ -1858,7 +1843,7 @@ void Engine::Draw(const GameTimer& gt)
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatureSkyBox.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureSkyBox"].Get());
 
         mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
 
@@ -1885,7 +1870,7 @@ void Engine::Draw(const GameTimer& gt)
         {
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-            mCommandList->SetComputeRootSignature(mRootSignatureComputeNoise.Get());
+            mCommandList->SetComputeRootSignature(mRootSignatures["mRootSignatureComputeNoise"].Get());
 
             CD3DX12_GPU_DESCRIPTOR_HANDLE uav(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
             uav.Offset(21, mCbvSrvDescriptorSize);
@@ -1905,7 +1890,7 @@ void Engine::Draw(const GameTimer& gt)
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->SetGraphicsRootSignature(mRootSignaturePostProcessing.Get());
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignaturePostProcessing"].Get());
 
         auto postProcessingPassCB = mCurrFrameResource->PostProcessingCB->Resource();
 
@@ -4381,346 +4366,27 @@ void Engine::BuildRootSignature()
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
-    Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig = nullptr;
-    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob = nullptr;
-    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignature.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDesc2, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureLight.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescMoreSamplers, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureMoreSamplers.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescDefaultForward, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureDefaultForward.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescDefaultForwardFrustumCulling, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureDefaultForwardFrustumCulling.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescDebug, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureDebug.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescBillboard, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureBillboard.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescParticlesRender, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureParticlesRender.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescParticlesCompute, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureParticlesCompute.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescPostProcessing, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignaturePostProcessing.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescComputeNoise, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureComputeNoise.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescTess, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureTess.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescRT, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureRT.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescShadowsPass, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureShadows.GetAddressOf())));
-
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescShadowsForward, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureShadowsForward.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescShadowsParticlesForward, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureShadowsParticlesForward.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescDebugLayer, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureDebugGeometry.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescDefferedPointSpot, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureDefferedPointSpotDirectional.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescSkybox, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignatureSkyBox.GetAddressOf())));
-
-    errorBlob = nullptr;
-    serializedRootSig = nullptr;
-    hr = D3D12SerializeRootSignature(&rootSigDescPBR, D3D_ROOT_SIGNATURE_VERSION_1,
-        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
-
-    if (errorBlob != nullptr)
-    {
-        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
-    }
-    ThrowIfFailed(hr);
-
-    ThrowIfFailed(md3dDevice->CreateRootSignature(
-        0,
-        serializedRootSig->GetBufferPointer(),
-        serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(mRootSignaturePBR.GetAddressOf())));
+    CreateRootSignature(rootSigDesc, "mRootSignature");
+    CreateRootSignature(rootSigDesc2, "mRootSignatureLight");
+    CreateRootSignature(rootSigDescMoreSamplers, "mRootSignatureMoreSamplers");
+    CreateRootSignature(rootSigDescDefaultForward, "mRootSignatureDefaultForward");
+    CreateRootSignature(rootSigDescDefaultForwardFrustumCulling, "mRootSignatureDefaultForwardFrustumCulling");
+    CreateRootSignature(rootSigDescDebug, "mRootSignatureDebug");
+    CreateRootSignature(rootSigDescBillboard, "mRootSignatureBillboard");
+    CreateRootSignature(rootSigDescDebug, "mRootSignatureDebug");
+    CreateRootSignature(rootSigDescParticlesRender, "mRootSignatureParticlesRender");
+    CreateRootSignature(rootSigDescParticlesCompute, "mRootSignatureParticlesCompute");
+    CreateRootSignature(rootSigDescPostProcessing, "mRootSignaturePostProcessing");
+    CreateRootSignature(rootSigDescComputeNoise, "mRootSignatureComputeNoise");
+    CreateRootSignature(rootSigDescTess, "mRootSignatureTess");
+    CreateRootSignature(rootSigDescRT, "mRootSignatureRT");
+    CreateRootSignature(rootSigDescShadowsPass, "mRootSignatureShadows");
+    CreateRootSignature(rootSigDescShadowsForward, "mRootSignatureShadowsForward");
+    CreateRootSignature(rootSigDescShadowsParticlesForward, "mRootSignatureShadowsParticlesForward");
+    CreateRootSignature(rootSigDescDebugLayer, "mRootSignatureDebugGeometry");
+    CreateRootSignature(rootSigDescDefferedPointSpot, "mRootSignatureDefferedPointSpotDirectional");
+    CreateRootSignature(rootSigDescSkybox, "mRootSignatureSkyBox");
+    CreateRootSignature(rootSigDescPBR, "mRootSignaturePBR");
 }
 
 
@@ -5832,7 +5498,7 @@ void Engine::BuildPSOs()
     //
     ZeroMemory(&defaultForwardPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     defaultForwardPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    defaultForwardPsoDesc.pRootSignature = mRootSignatureDefaultForward.Get();
+    defaultForwardPsoDesc.pRootSignature = mRootSignatures["mRootSignatureDefaultForward"].Get();
     defaultForwardPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["forwardVS"]->GetBufferPointer()),
@@ -5861,7 +5527,7 @@ void Engine::BuildPSOs()
     // PSO for default forward rendering with frustum culling
     //
     defaultForwardFrustumCullingPsoDesc = defaultForwardPsoDesc;
-    defaultForwardFrustumCullingPsoDesc.pRootSignature = mRootSignatureDefaultForwardFrustumCulling.Get();
+    defaultForwardFrustumCullingPsoDesc.pRootSignature = mRootSignatures["mRootSignatureDefaultForwardFrustumCulling"].Get();
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defaultForwardFrustumCullingPsoDesc, IID_PPV_ARGS(&mPSOs["forwardDefaultFrustumCulling"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
@@ -5871,7 +5537,7 @@ void Engine::BuildPSOs()
     //
     ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    opaquePsoDesc.pRootSignature = mRootSignature.Get();
+    opaquePsoDesc.pRootSignature = mRootSignatures["mRootSignature"].Get();
     opaquePsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["tessVS"]->GetBufferPointer()),
@@ -5909,7 +5575,7 @@ void Engine::BuildPSOs()
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueSolid"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC moreSamplersPsoDesc = opaquePsoDesc;
-    moreSamplersPsoDesc.pRootSignature = mRootSignatureMoreSamplers.Get();
+    moreSamplersPsoDesc.pRootSignature = mRootSignatures["mRootSignatureMoreSamplers"].Get();
     moreSamplersPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["moreSamplersVS"]->GetBufferPointer()),
@@ -5939,7 +5605,7 @@ void Engine::BuildPSOs()
     //
     ZeroMemory(&opaqueWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     opaqueWireframePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    opaqueWireframePsoDesc.pRootSignature = mRootSignature.Get();
+    opaqueWireframePsoDesc.pRootSignature = mRootSignatures["mRootSignature"].Get();
     opaqueWireframePsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["tessVS"]->GetBufferPointer()),
@@ -5994,7 +5660,7 @@ void Engine::BuildPSOs()
     //
     ZeroMemory(&debugPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     debugPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    debugPsoDesc.pRootSignature = mRootSignatureDebug.Get();
+    debugPsoDesc.pRootSignature = mRootSignatures["mRootSignatureDebug"].Get();
     debugPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["debugVS"]->GetBufferPointer()),
@@ -6025,7 +5691,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPsoDesc;
     ZeroMemory(&lightPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     lightPsoDesc.InputLayout = { mInputLayoutLight.data(), (UINT)mInputLayoutLight.size() };
-    lightPsoDesc.pRootSignature = mRootSignatureLight.Get();
+    lightPsoDesc.pRootSignature = mRootSignatures["mRootSignatureLight"].Get();
     lightPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["DeferredVSLighting"]->GetBufferPointer()),
@@ -6055,7 +5721,7 @@ void Engine::BuildPSOs()
     //
     D3D12_GRAPHICS_PIPELINE_STATE_DESC billboardSpritePsoDesc;
     ZeroMemory(&billboardSpritePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-    billboardSpritePsoDesc.pRootSignature = mRootSignatureBillboard.Get();
+    billboardSpritePsoDesc.pRootSignature = mRootSignatures["mRootSignatureBillboard"].Get();
     billboardSpritePsoDesc.InputLayout = { mBillboardSpriteInputLayout.data(), (UINT)mBillboardSpriteInputLayout.size() };
     billboardSpritePsoDesc.VS =
     {
@@ -6096,7 +5762,7 @@ void Engine::BuildPSOs()
     D3D12_COMPUTE_PIPELINE_STATE_DESC particlesComputePsoDesc;
     ZeroMemory(&particlesComputePsoDesc, sizeof(D3D12_COMPUTE_PIPELINE_STATE_DESC));
 
-    particlesComputePsoDesc.pRootSignature = mRootSignatureParticlesCompute.Get();
+    particlesComputePsoDesc.pRootSignature = mRootSignatures["mRootSignatureParticlesCompute"].Get();
     particlesComputePsoDesc.CS = {
         reinterpret_cast<BYTE*>(mShaders["particlesCS"]->GetBufferPointer()),
         mShaders["particlesCS"]->GetBufferSize()
@@ -6113,7 +5779,7 @@ void Engine::BuildPSOs()
     //
     D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesPsoDesc;
     ZeroMemory(&particlesPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-    particlesPsoDesc.pRootSignature = mRootSignatureParticlesRender.Get();
+    particlesPsoDesc.pRootSignature = mRootSignatures["mRootSignatureParticlesRender"].Get();
     particlesPsoDesc.InputLayout = { mParticlesInputLayout.data(), (UINT)mParticlesInputLayout.size() };
     particlesPsoDesc.VS =
     {
@@ -6185,7 +5851,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingGCPsoDesc;
     ZeroMemory(&postProcessingGCPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     postProcessingGCPsoDesc.InputLayout = { mPostProcessingInputLayout.data(), (UINT)mPostProcessingInputLayout.size() };
-    postProcessingGCPsoDesc.pRootSignature = mRootSignaturePostProcessing.Get();
+    postProcessingGCPsoDesc.pRootSignature = mRootSignatures["mRootSignaturePostProcessing"].Get();
     postProcessingGCPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["PostProcessingVS"]->GetBufferPointer()),
@@ -6256,7 +5922,7 @@ void Engine::BuildPSOs()
     D3D12_COMPUTE_PIPELINE_STATE_DESC noiseComputePsoDesc;
     ZeroMemory(&noiseComputePsoDesc, sizeof(D3D12_COMPUTE_PIPELINE_STATE_DESC));
 
-    noiseComputePsoDesc.pRootSignature = mRootSignatureComputeNoise.Get();
+    noiseComputePsoDesc.pRootSignature = mRootSignatures["mRootSignatureComputeNoise"].Get();
     noiseComputePsoDesc.CS = {
         reinterpret_cast<BYTE*>(mShaders["noiseCS"]->GetBufferPointer()),
         mShaders["noiseCS"]->GetBufferSize()
@@ -6270,7 +5936,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC forwardRTPsoDesc;
     ZeroMemory(&forwardRTPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     forwardRTPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    forwardRTPsoDesc.pRootSignature = mRootSignatureRT.Get();
+    forwardRTPsoDesc.pRootSignature = mRootSignatures["mRootSignatureRT"].Get();
     forwardRTPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["forwardRT_VS"]->GetBufferPointer()),
@@ -6298,7 +5964,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedRTPsoDesc;
     ZeroMemory(&defferedRTPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     defferedRTPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    defferedRTPsoDesc.pRootSignature = mRootSignatureRT.Get();
+    defferedRTPsoDesc.pRootSignature = mRootSignatures["mRootSignatureRT"].Get();
     defferedRTPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["defferedRT_VS"]->GetBufferPointer()),
@@ -6329,7 +5995,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC decalsTessPsoDesc;
     ZeroMemory(&decalsTessPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     decalsTessPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    decalsTessPsoDesc.pRootSignature = mRootSignatureTess.Get();
+    decalsTessPsoDesc.pRootSignature = mRootSignatures["mRootSignatureTess"].Get();
     decalsTessPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["decalsTessVS"]->GetBufferPointer()),
@@ -6382,7 +6048,7 @@ void Engine::BuildPSOs()
     smapPsoDesc.RasterizerState.DepthBias = 100000;
     smapPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
     smapPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
-    smapPsoDesc.pRootSignature = mRootSignatureShadows.Get();
+    smapPsoDesc.pRootSignature = mRootSignatures["mRootSignatureShadows"].Get();
     smapPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
@@ -6409,7 +6075,7 @@ void Engine::BuildPSOs()
     smapParticlesPsoDesc.RasterizerState.DepthBias = 100000;
     smapParticlesPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
     smapParticlesPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
-    smapParticlesPsoDesc.pRootSignature = mRootSignatureParticlesRender.Get();
+    smapParticlesPsoDesc.pRootSignature = mRootSignatures["mRootSignatureParticlesRender"].Get();
     smapParticlesPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["shadowParticlesVS"]->GetBufferPointer()),
@@ -6438,7 +6104,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC smapForwardPsoDesc;
     ZeroMemory(&smapForwardPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     smapForwardPsoDesc = forwardRTPsoDesc;
-    smapForwardPsoDesc.pRootSignature = mRootSignatureShadowsForward.Get();
+    smapForwardPsoDesc.pRootSignature = mRootSignatures["mRootSignatureShadowsForward"].Get();
     smapForwardPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["cascadedShadowsForwardVS"]->GetBufferPointer()),
@@ -6457,7 +6123,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC smapForwardParticlesPsoDesc;
     ZeroMemory(&smapForwardParticlesPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     smapForwardParticlesPsoDesc = forwardRTPsoDesc;
-    smapForwardParticlesPsoDesc.pRootSignature = mRootSignatureShadowsParticlesForward.Get();
+    smapForwardParticlesPsoDesc.pRootSignature = mRootSignatures["mRootSignatureShadowsParticlesForward"].Get();
     smapForwardParticlesPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["shadowsForwardVS"]->GetBufferPointer()),
@@ -6473,7 +6139,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC debugGeometryPsoDesc;
     ZeroMemory(&debugGeometryPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     debugGeometryPsoDesc.InputLayout = { mDebugInputLayout.data(), (UINT)mDebugInputLayout.size() };
-    debugGeometryPsoDesc.pRootSignature = mRootSignatureDebugGeometry.Get();
+    debugGeometryPsoDesc.pRootSignature = mRootSignatures["mRootSignatureDebugGeometry"].Get();
     debugGeometryPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["debugGeometryVS"]->GetBufferPointer()),
@@ -6504,7 +6170,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedPointSpotLightPso;
     ZeroMemory(&defferedPointSpotLightPso, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     defferedPointSpotLightPso.InputLayout = { mDebugInputLayout.data(), (UINT)mDebugInputLayout.size() };
-    defferedPointSpotLightPso.pRootSignature = mRootSignatureDefferedPointSpotDirectional.Get();
+    defferedPointSpotLightPso.pRootSignature = mRootSignatures["mRootSignatureDefferedPointSpotDirectional"].Get();
     defferedPointSpotLightPso.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["defferedPointSpotVS"]->GetBufferPointer()),
@@ -6542,7 +6208,7 @@ void Engine::BuildPSOs()
     ZeroMemory(&defferedDirectionalLightPso, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     defferedDirectionalLightPso = defferedPointSpotLightPso;
     defferedDirectionalLightPso.InputLayout = { mInputLayoutLight.data(), (UINT)mInputLayoutLight.size() };
-    defferedDirectionalLightPso.pRootSignature = mRootSignatureLight.Get();
+    defferedDirectionalLightPso.pRootSignature = mRootSignatures["mRootSignatureLight"].Get();
     defferedDirectionalLightPso.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["defferedDirectionalVS"]->GetBufferPointer()),
@@ -6559,7 +6225,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC skyboxPsoDesc;
     ZeroMemory(&skyboxPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     skyboxPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-    skyboxPsoDesc.pRootSignature = mRootSignatureSkyBox.Get();
+    skyboxPsoDesc.pRootSignature = mRootSignatures["mRootSignatureSkyBox"].Get();
     skyboxPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["skyboxVS"]->GetBufferPointer()),
@@ -6588,7 +6254,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC PBRPsoDesc;
     ZeroMemory(&PBRPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     PBRPsoDesc = forwardRTPsoDesc;
-    PBRPsoDesc.pRootSignature = mRootSignaturePBR.Get();
+    PBRPsoDesc.pRootSignature = mRootSignatures["mRootSignaturePBR"].Get();
     PBRPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["PBR_VS"]->GetBufferPointer()),
@@ -6619,7 +6285,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC IBLPsoDesc;
     ZeroMemory(&IBLPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     IBLPsoDesc = forwardRTPsoDesc;
-    IBLPsoDesc.pRootSignature = mRootSignaturePBR.Get();
+    IBLPsoDesc.pRootSignature = mRootSignatures["mRootSignaturePBR"].Get();
     IBLPsoDesc.VS =
     {
         reinterpret_cast<BYTE*>(mShaders["IBL_VS"]->GetBufferPointer()),
@@ -7790,6 +7456,26 @@ void Engine::InitParticleSystem()
         mCommandList);
 }
 
+void Engine::CreateRootSignature(CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc, std::string rootSigName)
+{
+    Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig = nullptr;
+    Microsoft::WRL::ComPtr<ID3DBlob> errorBlob = nullptr;
+    HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+        serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+    if (errorBlob != nullptr)
+    {
+        ::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+    }
+    ThrowIfFailed(hr);
+
+    ThrowIfFailed(md3dDevice->CreateRootSignature(
+        0,
+        serializedRootSig->GetBufferPointer(),
+        serializedRootSig->GetBufferSize(),
+        IID_PPV_ARGS(&mRootSignatures[rootSigName])));
+}
+
 void Engine::DrawSkybox(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -8748,7 +8434,7 @@ void Engine::DrawParticlesSceneToShadowMap()
     ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
     mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
 
-    mCommandList->SetGraphicsRootSignature(mRootSignatureParticlesRender.Get());
+    mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureParticlesRender"].Get());
 
     auto passCB = mCurrFrameResource->ShadowPassCBParticles->Resource();
     mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());

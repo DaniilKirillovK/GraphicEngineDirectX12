@@ -250,7 +250,7 @@ DomainOut DS(PatchTess patchTess,
         barycentric.y * tri[1].Color +
         barycentric.z * tri[2].Color;
 
-    float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
+    float displacement = gTextures[2].SampleLevel(gsamLevel3, texCoord, 0).r;
     float displacementScale = 0.1f * displacementLevel;
     if (isTesselationNeeded == 0.f)
         displacementScale = 0.0f;
@@ -290,7 +290,7 @@ GBuffer PS(DomainOut pin)
     float4 normalMap = gTextures[1].Sample(selectedSampler, texCoord);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
     
-    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
+    gBuffer.Normal = float4(normalize(bumpedNormalW), 1.0f);
     
     float3 Roughness = gTextures[3].Sample(selectedSampler, texCoord);
     float3 AO = gTextures[4].Sample(selectedSampler, texCoord);

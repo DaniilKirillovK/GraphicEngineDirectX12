@@ -303,7 +303,7 @@ GBuffer PSPixel(DomainOut pin)
     float4 normalMap = gTextures[1].Sample(gsamLinearWrap, pixelatedUV);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
     
-    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
+    gBuffer.Normal = float4(normalize(bumpedNormalW), 1.0f);
     
     float3 Roughness = gTextures[3].Sample(gsamLinearWrap, pixelatedUV);
     float3 AO = gTextures[4].Sample(gsamLinearWrap, pixelatedUV);

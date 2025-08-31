@@ -136,7 +136,7 @@ float4 PS(VertexOut pin) : SV_Target
     float2 texCoord = pin.TexC;
     float4 albedo = gAlbedoTex.Sample(gsamLinearWrap, texCoord) * gDiffuseAlbedo;
 
-    float3 normal = pin.NormalW;
+    float3 normal = normalize(pin.NormalW);
     
     float3 toEyeW = normalize(gEyePosW - position);
 

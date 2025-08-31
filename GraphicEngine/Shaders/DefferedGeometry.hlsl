@@ -124,9 +124,9 @@ GBuffer PS(VertexOut pin)
     gBuffer.Position = float4(pin.PosW, 1.0f);
     
     float2 texCoord = pin.TexC;
-    gBuffer.Albedo = float4((gTextures[0].Sample(gsamLinearWrap, texCoord) * gDiffuseAlbedo * pin.Color).xyz, 1.0f);
+    gBuffer.Albedo = float4((gTextures[0].Sample(gsamLinearWrap, texCoord)).xyz, 1.0f);
     
-    float3 normalMap = pin.NormalW;
+    float3 normalMap = normalize(pin.NormalW);
     
     gBuffer.Normal = float4(normalMap, 1.0f);
     

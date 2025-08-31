@@ -363,7 +363,7 @@ GBuffer PS(DomainOut pin)
     float4 normalMap = gTextures[1].Sample(gsamLinearWrap, texCoord);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMap.rgb, pin.NormalW, pin.TangentW);
     
-    gBuffer.Normal = float4(bumpedNormalW, 1.0f);
+    gBuffer.Normal = float4(normalize(bumpedNormalW), 1.0f);
     
     float3 Roughness = gTextures[3].Sample(gsamLinearWrap, texCoord);
     float3 AO = gTextures[4].Sample(gsamLinearWrap, texCoord);
