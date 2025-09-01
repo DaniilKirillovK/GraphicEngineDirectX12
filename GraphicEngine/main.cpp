@@ -460,6 +460,7 @@ float light1SpotStrengthScene10 = 5.0f;
 float light1SpotDistanceScene10 = 18.0f;
 float spotLight1PowerScene10 = 64.f;
 float colSpot1Scene10[3] = { 1.0f, 1.0f, 0.0f };
+bool isUsingPositionBufferScene10 = true;
 
 bool isWireframeScene11 = false;
 float tessFactorScene11 = 1.0f;
@@ -1608,7 +1609,9 @@ void Engine::Draw(const GameTimer& gt)
 
             mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
-            mCommandList->SetPipelineState(mPSOs["defferedRT"].Get());
+            if (isUsingPositionBufferScene10 || selectedRenderTechScene10 == 2)
+                mCommandList->SetPipelineState(mPSOs["defferedRT"].Get());
+            else mCommandList->SetPipelineState(mPSOs["defferedRTNoPos"].Get());
 
             ID3D12DescriptorHeap* descriptorHeapSponza[] = { mSponzaSrvHeap.Get() };
             mCommandList->SetDescriptorHeaps(_countof(descriptorHeapSponza), descriptorHeapSponza);
@@ -1788,7 +1791,9 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
 
-        mCommandList->SetPipelineState(mPSOs["deferredLighting"].Get());
+        if (!(activeSceneID == 10 && !isUsingPositionBufferScene10))
+            mCommandList->SetPipelineState(mPSOs["deferredLighting"].Get());
+        else mCommandList->SetPipelineState(mPSOs["deferredLightingNoPos"].Get());
 
         DrawScreenQuad(mCommandList.Get());
 
@@ -4445,6 +4450,12 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["defferedRT_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedGeometry.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["defferedRT_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedGeometry.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["defferedNoPosRT_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedGeometryNoPos.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["defferedNoPosRT_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedGeometryNoPos.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["DefferedLightingNoPosRT_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedLightingNoPos.hlsl", nullptr, "VSMain", "vs_5_1");
+    mShaders["DefferedLightingNoPosRT_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedLightingNoPos.hlsl", nullptr, "PSMain", "ps_5_1");
+
     mShaders["defferedPointSpotVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedSpotAndPoint.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["defferedPointSpotPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\DefferedSpotAndPoint.hlsl", nullptr, "PS", "ps_5_1");
 
@@ -5716,6 +5727,21 @@ void Engine::BuildPSOs()
     lightPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLighting"])));
 
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedLightingNoPosPsoDesc;
+    ZeroMemory(&defferedLightingNoPosPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    defferedLightingNoPosPsoDesc = lightPsoDesc;
+    defferedLightingNoPosPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["DefferedLightingNoPosRT_VS"]->GetBufferPointer()),
+        mShaders["DefferedLightingNoPosRT_VS"]->GetBufferSize()
+    };
+    defferedLightingNoPosPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["DefferedLightingNoPosRT_PS"]->GetBufferPointer()),
+        mShaders["DefferedLightingNoPosRT_PS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedLightingNoPosPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLightingNoPos"])));
+
     //
     // PSO for billboard sprites
     //
@@ -5991,6 +6017,20 @@ void Engine::BuildPSOs()
     defferedRTPsoDesc.DSVFormat = mDepthStencilFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedRTPsoDesc, IID_PPV_ARGS(&mPSOs["defferedRT"])));
 
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedRTNoPosPsoDesc;
+    ZeroMemory(&defferedRTNoPosPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    defferedRTNoPosPsoDesc = defferedRTPsoDesc;
+    defferedRTNoPosPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["defferedNoPosRT_VS"]->GetBufferPointer()),
+        mShaders["defferedNoPosRT_VS"]->GetBufferSize()
+    };
+    defferedRTNoPosPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["defferedNoPosRT_PS"]->GetBufferPointer()),
+        mShaders["defferedNoPosRT_PS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedRTNoPosPsoDesc, IID_PPV_ARGS(&mPSOs["defferedRTNoPos"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC decalsTessPsoDesc;
     ZeroMemory(&decalsTessPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -9229,6 +9269,10 @@ void Engine::RenderUI()
                 ImGui::Text("");
                 ImGui::Text("Other settings");
                 ImGui::Checkbox("Deffered Render Info", &deferredRenderDisplayInfoScene10);
+            }
+            if (selectedRenderTechScene10 == 1)
+            {
+                ImGui::Checkbox("Using Position Buffer", &isUsingPositionBufferScene10);
             }
 
             ImGui::Text("");

@@ -1,5 +1,18 @@
+#ifndef NUM_DIR_LIGHTS
+    #define NUM_DIR_LIGHTS 3
+#endif
+
+#ifndef NUM_POINT_LIGHTS
+    #define NUM_POINT_LIGHTS 3
+#endif
+
+#ifndef NUM_SPOT_LIGHTS
+    #define NUM_SPOT_LIGHTS 2
+#endif
+
 #include "LightingUtil.hlsl"
 #include "Common.hlsl"
+
 
 Texture2D<float4> gAlbedo : register(t0, space0);
 Texture2D<float4> gPosition : register(t1, space0);
@@ -13,6 +26,7 @@ SamplerState gsamLinearWrap : register(s2);
 SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
+
 
 // Constant data that varies per frame.
 cbuffer cbPass : register(b0)
@@ -44,8 +58,7 @@ cbuffer cbPass : register(b0)
     float displacementLevel;
     
     float isNegative;
-    float pad0;
-    float2 gResolution;
+    float3 cbPad;
 
 	// Indices [0, NUM_DIR_LIGHTS) are directional lights;
 	// indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
@@ -66,7 +79,7 @@ struct VertexOut
     float2 uv : TEXCOORD;
 };
 
-VertexOut VS(uint vertexID : SV_VertexID, VertexIn vIn)
+VertexOut VSMain(uint vertexID : SV_VertexID, VertexIn vIn)
 {
     VertexOut vOut = (VertexOut) 0.0f;
     
@@ -78,11 +91,27 @@ VertexOut VS(uint vertexID : SV_VertexID, VertexIn vIn)
     return vOut;
 }
 
+float3 ReconstructWorldPosition(float2 screenCoord, float depthValue)
+{
+    float2 ndcCoord;
+    ndcCoord.x = (2.0f * screenCoord.x / 1280) - 1.0f;
+    ndcCoord.y = 1.0f - (2.0f * screenCoord.y / 800);
+    
+    float4 clipSpacePos = float4(ndcCoord, depthValue, 1.0f);
+    
+    float4 viewSpacePos = mul(clipSpacePos, gInvProj);
+    
+    viewSpacePos /= viewSpacePos.w;
+    
+    float4 worldSpacePos = mul(viewSpacePos, gInvView);
+    
+    return worldSpacePos.xyz;
+}
 
-float4 PS(VertexOut vOut) : SV_TARGET
+float4 PSMain(VertexOut vOut) : SV_TARGET
 {
     float4 albedo = gAlbedo.Sample(gsamPointWrap, vOut.uv);
-    float3 worldPos = gPosition.Sample(gsamPointWrap, vOut.uv).xyz;
+    
     float3 normal = gNormal.Sample(gsamPointWrap, vOut.uv).xyz;
     float3 normalResult = normalize(normal.rgb * 2.0 - 1.0);
     
@@ -90,6 +119,8 @@ float4 PS(VertexOut vOut) : SV_TARGET
     float AO = gSpecular.Sample(gsamPointWrap, vOut.uv).w;
     
     float depth = gDepth.Sample(gsamPointWrap, vOut.uv).r;
+    
+    float3 worldPos = ReconstructWorldPosition(vOut.position.xy, depth);
     
     float3 toEyeW = normalize(gEyePosW - worldPos);
 
@@ -101,15 +132,11 @@ float4 PS(VertexOut vOut) : SV_TARGET
     const float shininess = 1.0f - Roughness;
     Material mat = { albedo, gFresnelR0, shininess };
     float3 shadowFactor = float3(AO, AO, AO);
+    float4 directLight = ComputeLighting(gLights, mat, worldPos,
+        normal, toEyeW, shadowFactor);
     
-    float3 directLight = float3(ComputeDirectionalLight(gLights[0], mat,
-        normal, toEyeW) * shadowFactor);
-    directLight += float3(ComputeDirectionalLight(gLights[1], mat,
-        normal, toEyeW) * shadowFactor);
-    directLight += float3(ComputeDirectionalLight(gLights[2], mat,
-        normal, toEyeW) * shadowFactor);
-    
-    float4 litColor = ambient + float4(directLight, 1.0f);
+    float4 litColor = ambient + directLight;
     
     return litColor;
 }
+
