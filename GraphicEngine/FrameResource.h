@@ -213,6 +213,7 @@ public:
     std::unique_ptr<UploadBuffer<PassConstants>> PassCBScene3Camera2 = nullptr;
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> PassCBShadows = nullptr;
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> ShadowPassCB = nullptr;
+    std::unique_ptr<UploadBuffer<PassConstantsShadows>> ShadowPassCBCascaded = nullptr;
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> ShadowPassCBParticles = nullptr;
     std::unique_ptr<UploadBuffer<MaterialConstants>> MaterialCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;

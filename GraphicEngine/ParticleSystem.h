@@ -16,6 +16,14 @@ struct Particle
 	float LifeTime;
 };
 
+struct DrawInstancedArgs 
+{
+	UINT VertexCountPerInstance; 
+	UINT InstanceCount;          
+	UINT StartVertexLocation;    
+	UINT StartInstanceLocation;
+};
+
 class ParticleSystem
 {
 public:
@@ -35,6 +43,7 @@ public:
 
 	virtual void InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> device,
 		Microsoft::WRL::ComPtr<ID3D12Resource> particleSRVBuffers[2],
+		Microsoft::WRL::ComPtr<ID3D12Resource> particleArgsBuffers[2],
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvUavHeap,
 		UINT srvDescriptorSize,
 		UINT offset);

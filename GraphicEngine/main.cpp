@@ -69,6 +69,7 @@ enum class RenderLayer : int
     Scene10DebugGeometry = 14,
     Scene11 = 15,
     Sky = 16,
+    Scene3LOD = 17,
     Count
 };
 
@@ -143,8 +144,8 @@ private:
     void UpdateMainPassCBParticles(const GameTimer& gt);
     void UpdateMainPassCBScene3Camera2(const GameTimer& gt);
     void UpdateMainPassCBShadows(const GameTimer& gt);
-    void UpdateMainPassCBShadowsCascade(const GameTimer& gt);
     void UpdateShadowPassCB(const GameTimer& gt);
+    void UpdateShadowPassCBCascaded(const GameTimer& gt);
     void UpdateShadowPassCBParticles(const GameTimer& gt);
     void UpdateShadowTransform(const GameTimer& gt);
     void UpdateParticleEmitterCB(const GameTimer& gt);
@@ -155,6 +156,8 @@ private:
     void UpdateSamplersCB(const GameTimer& gt);
     void UpdateLODCB(const GameTimer& gt);
     void UpdateTessCB();
+    
+    void UpdateLODScene3();
 
     void ChangeTileObjectTiles();
 
@@ -166,6 +169,7 @@ private:
     virtual void BuildSkyboxGeometry() override;
     virtual void BuildShapeGeometry() override;
     virtual void BuildScene3Geometry() override;
+    virtual void BuildScene3LODGeometry() override;
     virtual void BuildScene4Geometry() override;
     virtual void BuildScene5Geometry() override;
     virtual void BuildScene6Geometry() override;
@@ -201,6 +205,7 @@ private:
     void DrawSkybox(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene3LOD(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene4(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene5(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene6(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -224,11 +229,14 @@ private:
     void DrawSceneToShadowMapCascaded(int cascadedMapID);
 
     bool IsInCameraView(Camera camera, DirectX::XMMATRIX objectPosition, DirectX::BoundingBox itemBox);
+    std::vector<DirectX::XMFLOAT4> GetFrustumCornersWorldSpace(const DirectX::XMMATRIX& view, const DirectX::XMMATRIX& proj);
+    void CalculateCascadedShadowsCameras();
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> GetStaticSamplers();
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetMoreStaticSamplers();
     std::array<CD3DX12_STATIC_SAMPLER_DESC, 4> GetLODStaticSamplers();
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 9> GetLODStaticSamplersShadow();
+
 
 private:
 
@@ -276,6 +284,16 @@ private:
     Camera mCamera;
     Camera mCamera2Scene3;
 
+    Camera mCameraFrustum3;
+    Camera mCameraFrustum2;
+    Camera mCameraFrustum1;
+    Camera mCameraFrustum0;
+
+    Camera mCameraShadowMap256;
+    Camera mCameraShadowMap512;
+    Camera mCameraShadowMap1024;
+    Camera mCameraShadowMap2048;
+
     Model Sponza;
 
     float tilesCount = 1.0f;
@@ -306,6 +324,8 @@ private:
         DirectX::XMFLOAT3(0.0f, -0.707f, -0.707f)
     };
     DirectX::XMFLOAT3 mRotatedLightDirections[3];
+
+    int LODScene3 = 3;
 };
 
 bool isFirstExecution = true;
@@ -313,7 +333,7 @@ bool isFirstExecution = true;
 // Imgui Variables
 bool opened = true;
 
-int activeSceneID = 10;
+int activeSceneID = 4;
 
 bool isDebug = true;
 bool gridIsActive = false;
@@ -392,6 +412,7 @@ float colSpot2[3] = { 1.0f, 1.0f, 1.0f };
 bool isFrustumCullingScene3 = false;
 bool isDisplayingFrustumCullingInfoScene3 = false;
 bool isUsingInstancingScene3 = true;
+bool isUsingManualLODScene3 = true;
 int levelOfDetailsScene3 = 2;
 
 bool isAnimateMaterialScene4 = false;
@@ -569,6 +590,15 @@ Engine::~Engine()
 bool Engine::Initialize()
 {
     mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 100.0f);
+    mCameraFrustum0.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 30.0f, 100.0f);
+    mCameraFrustum1.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 20.0f, 30.0f);
+    mCameraFrustum2.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 10.0f, 20.0f);
+    mCameraFrustum3.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 10.0f);
+
+    mCameraShadowMap256.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    mCameraShadowMap512.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    mCameraShadowMap1024.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    mCameraShadowMap2048.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 
     mCamera2Scene3.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
     SetCamera2Scene3();
@@ -658,6 +688,11 @@ void Engine::Update(const GameTimer& gt)
         UpdateMainPassCBShadows(gt);
         UpdateShadowPassCB(gt);
         UpdateShadowTransform(gt);
+        if (isUsingCascadedShadowsScene7)
+        {
+            CalculateCascadedShadowsCameras();
+            UpdateShadowPassCBCascaded(gt);
+        }
     }
     if (activeSceneID == 8)
     {
@@ -731,6 +766,12 @@ void Engine::Draw(const GameTimer& gt)
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
     CD3DX12_RESOURCE_BARRIER barriersClearOpen[] = { barrier1Clear, barrier2Clear, barrier3Clear, barrier4Clear, barrier5Clear };
     mCommandList->ResourceBarrier(5, barriersClearOpen);
+    if (activeSceneID == 3)
+    {
+        auto barrierClear = CD3DX12_RESOURCE_BARRIER::Transition(Scene3RenderTargetBuffer(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &barrierClear);
+    }
 
     
     mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
@@ -823,10 +864,8 @@ void Engine::Draw(const GameTimer& gt)
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
             auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
-            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
-            mCommandList->ResourceBarrier(6, barriers);
+            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular};
+            mCommandList->ResourceBarrier(5, barriers);
 
             mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
@@ -880,8 +919,6 @@ void Engine::Draw(const GameTimer& gt)
 
 
             // Indicate a state transition on the resource usage.
-            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
             auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
@@ -892,8 +929,8 @@ void Engine::Draw(const GameTimer& gt)
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
                 D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
-            mCommandList->ResourceBarrier(6, barriersClose);
+            CD3DX12_RESOURCE_BARRIER barriersClose[] = {  barrier2, barrier3, barrier4, barrier5, barrier6 };
+            mCommandList->ResourceBarrier(5, barriersClose);
         }
     }
 
@@ -1112,6 +1149,40 @@ void Engine::Draw(const GameTimer& gt)
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
             mCommandList->ResourceBarrier(1, &barrier1);
         }
+
+        // LOD
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureDefaultForward"].Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+            UINT LODCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LODConstants));
+            auto LODCB = mCurrFrameResource->LODCB->Resource();
+            D3D12_GPU_VIRTUAL_ADDRESS lodCBAddress = LODCB->GetGPUVirtualAddress() + LODCBByteSize;
+            mCommandList->SetGraphicsRootConstantBufferView(5, lodCBAddress);
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["forwardDefault"].Get());
+
+            UpdateLODScene3();
+            DrawRenderItemsScene3LOD(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene3LOD]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
     }
     else if (activeSceneID == 4)
     {
@@ -1136,10 +1207,8 @@ void Engine::Draw(const GameTimer& gt)
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
             auto specular = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferSpecular.Get(),
                 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            auto depth = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
-                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
-            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular, depth };
-            mCommandList->ResourceBarrier(6, barriers);
+            D3D12_RESOURCE_BARRIER barriers[] = { backBuffer, albedo, position, normal, specular };
+            mCommandList->ResourceBarrier(5, barriers);
 
             mCommandList->OMSetRenderTargets(4, rtvs, false, &dsv);
 
@@ -1150,10 +1219,7 @@ void Engine::Draw(const GameTimer& gt)
 
             DrawRenderItemsScene4(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene4]);
 
-
             // Indicate a state transition on the resource usage.
-            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
             auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferAlbedo.Get(),
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             auto barrier3 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferPosition.Get(),
@@ -1164,8 +1230,8 @@ void Engine::Draw(const GameTimer& gt)
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
             auto barrier6 = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
                 D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
-            mCommandList->ResourceBarrier(6, barriersClose);
+            CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier2, barrier3, barrier4, barrier5, barrier6 };
+            mCommandList->ResourceBarrier(5, barriersClose);
         }
     }
     else if (activeSceneID == 5)
@@ -1186,9 +1252,7 @@ void Engine::Draw(const GameTimer& gt)
             if (isSolidScene5) mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
             else mCommandList->SetPipelineState(mPSOs["opaqueWireframe"].Get());
 
-
             DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene5]);
-
 
             // Indicate a state transition on the resource usage.
             auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -1233,7 +1297,7 @@ void Engine::Draw(const GameTimer& gt)
 
                 mCommandList->SetPipelineState(mPSOs["computeParticles"].Get());
 
-                UINT threadGroupCount = 1;
+                UINT threadGroupCount = 8;
                 mCommandList->Dispatch(threadGroupCount, 1, 1);
 
                 CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -1422,7 +1486,9 @@ void Engine::Draw(const GameTimer& gt)
                 mCommandList->RSSetViewports(1, &viewports[4]);
                 mCommandList->RSSetScissorRects(1, &rects[4]);
 
-                mCommandList->SetPipelineState(mPSOs["renderParticlesForward"].Get());
+                if (lightingIDScene6 == 2)
+                    mCommandList->SetPipelineState(mPSOs["renderParticlesForward"].Get());
+                else mCommandList->SetPipelineState(mPSOs["renderParticlesForwardVertexLighting"].Get());
 
                 DrawParticles(*mParticleSystemSmoke, RenderLayer::Particles3);
 
@@ -1443,17 +1509,36 @@ void Engine::Draw(const GameTimer& gt)
 
         mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureShadows"].Get());
 
+        UINT shadowCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstantsShadows));
+        auto shadowCB = mCurrFrameResource->ShadowPassCBCascaded->Resource();
+
         auto passCB = mCurrFrameResource->ShadowPassCB->Resource();
         mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
         if (isUsingCascadedShadowsScene7)
         {
+            /*D3D12_GPU_VIRTUAL_ADDRESS shadowCBAddress = shadowCB->GetGPUVirtualAddress() + 0 * shadowCBByteSize;
+            mCommandList->SetGraphicsRootConstantBufferView(2, shadowCBAddress);*/
             DrawSceneToShadowMapCascaded(0);
+
+            /*shadowCBAddress = shadowCB->GetGPUVirtualAddress() + 1 * shadowCBByteSize;
+            mCommandList->SetGraphicsRootConstantBufferView(2, shadowCBAddress);*/
             DrawSceneToShadowMapCascaded(1);
+
+            /*shadowCBAddress = shadowCB->GetGPUVirtualAddress() + 2 * shadowCBByteSize;
+            mCommandList->SetGraphicsRootConstantBufferView(2, shadowCBAddress);*/
             DrawSceneToShadowMapCascaded(2);
+
+            /*shadowCBAddress = shadowCB->GetGPUVirtualAddress() + 3 * shadowCBByteSize;
+            mCommandList->SetGraphicsRootConstantBufferView(2, shadowCBAddress);*/
             DrawSceneToShadowMapCascaded(3);
         }
-        else DrawSceneToShadowMap();
+        else
+        {
+            /*auto passCB = mCurrFrameResource->ShadowPassCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());*/
+            DrawSceneToShadowMap();
+        }
 
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -1494,11 +1579,9 @@ void Engine::Draw(const GameTimer& gt)
 
     else if (activeSceneID == 8)
     {
-        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureRT"].Get());
 
-        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignature"].Get());
-
-        mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
+        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
         // Indicate a state transition on the resource usage.
         auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -1521,9 +1604,11 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
 
-        mCommandList->SetPipelineState(mPSOs["opaqueSolid"].Get());
+        mCommandList->SetPipelineState(mPSOs["defferedRT"].Get());
 
-        DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+        ID3D12DescriptorHeap* descriptorHeapSponza[] = { mSponzaSrvHeap.Get() };
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeapSponza), descriptorHeapSponza);
+        DrawSponzaScene(mCommandList.Get());
 
         // Indicate a state transition on the resource usage.
         auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -1842,10 +1927,6 @@ void Engine::Draw(const GameTimer& gt)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
 
-        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        mCommandList->ResourceBarrier(1, &backBuffer);
-
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
         mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureSkyBox"].Get());
@@ -1998,6 +2079,13 @@ void Engine::OnMouseMove(WPARAM btnState, int x, int y)
 
             mCamera.Pitch(dy);
             mCamera.RotateY(dx);
+            if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
+            {
+                mCameraFrustum0.Pitch(dy);
+                mCameraFrustum1.Pitch(dy);
+                mCameraFrustum2.Pitch(dy);
+                mCameraFrustum3.Pitch(dy);
+            }
 
         }
 
@@ -2013,24 +2101,59 @@ void Engine::OnKeyboardInput(const GameTimer& gt)
     if (GetAsyncKeyState('W') & 0x8000)
     {
         mCamera.Walk(10.0f * dt);
+        if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
+        {
+            mCameraFrustum0.Walk(10.0f * dt);
+            mCameraFrustum1.Walk(10.0f * dt);
+            mCameraFrustum2.Walk(10.0f * dt);
+            mCameraFrustum3.Walk(10.0f * dt);
+        }
     }
 
     if (GetAsyncKeyState('S') & 0x8000)
     {
         mCamera.Walk(-10.0f * dt);
+        if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
+        {
+            mCameraFrustum0.Walk(-10.0f * dt);
+            mCameraFrustum1.Walk(-10.0f * dt);
+            mCameraFrustum2.Walk(-10.0f * dt);
+            mCameraFrustum3.Walk(-10.0f * dt);
+        }
     }
 
     if (GetAsyncKeyState('A') & 0x8000)
     {
         mCamera.Strafe(-10.0f * dt);
+        if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
+        {
+            mCameraFrustum0.Strafe(-10.0f * dt);
+            mCameraFrustum1.Strafe(-10.0f * dt);
+            mCameraFrustum2.Strafe(-10.0f * dt);
+            mCameraFrustum3.Strafe(-10.0f * dt);
+        }
     }
 
     if (GetAsyncKeyState('D') & 0x8000)
     {
         mCamera.Strafe(10.0f * dt);
+        if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
+        {
+            mCameraFrustum0.Strafe(10.0f * dt);
+            mCameraFrustum1.Strafe(10.0f * dt);
+            mCameraFrustum2.Strafe(10.0f * dt);
+            mCameraFrustum3.Strafe(10.0f * dt);
+        }
     }
 
     mCamera.UpdateViewMatrix();
+    if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
+    {
+        mCameraFrustum0.UpdateViewMatrix();
+        mCameraFrustum1.UpdateViewMatrix();
+        mCameraFrustum2.UpdateViewMatrix();
+        mCameraFrustum3.UpdateViewMatrix();
+    }
 }
 
 void Engine::UpdateCamera(const GameTimer& gt)
@@ -2232,6 +2355,25 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 else if (i == 762)
                 {
                     world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(-10.0f, 0.0f, 0.0f);
+                }
+            }
+            else if (activeSceneID == 3)
+            {
+                if (i == 763)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, -10.0f);
+                }
+                else if (i == 764)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, -10.0f);
+                }
+                else if (i == 765)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, -10.0f);
+                }
+                else if (i == 766)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 0.0f, -10.0f);
                 }
             }
 
@@ -2762,64 +2904,6 @@ void Engine::UpdateMainPassCBShadows(const GameTimer& gt)
     currPassCB->CopyData(0, mMainPassCBShadows);
 }
 
-void Engine::UpdateMainPassCBShadowsCascade(const GameTimer& gt)
-{
-    DirectX::XMMATRIX view = mCamera.GetView();
-    DirectX::XMMATRIX proj = mCamera.GetProj();
-
-    DirectX::XMMATRIX viewMain = mCamera.GetView();
-    DirectX::XMMATRIX projMain = mCamera.GetProj();
-
-    auto tmp1 = XMMatrixDeterminant(view);
-    auto tmp2 = XMMatrixDeterminant(proj);
-    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-    auto tmp3 = XMMatrixDeterminant(viewProj);
-    DirectX::XMMATRIX invView = XMMatrixInverse(&tmp1, view);
-    DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
-    DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
-    DirectX::XMMATRIX shadowTransform = XMLoadFloat4x4(&mShadowTransform);
-
-    XMStoreFloat4x4(&mMainPassCBShadows.MainView, XMMatrixTranspose(viewMain));
-    XMStoreFloat4x4(&mMainPassCBShadows.MainProj, XMMatrixTranspose(projMain));
-
-    XMStoreFloat4x4(&mMainPassCBShadows.View, XMMatrixTranspose(view));
-    XMStoreFloat4x4(&mMainPassCBShadows.InvView, XMMatrixTranspose(invView));
-    XMStoreFloat4x4(&mMainPassCBShadows.Proj, XMMatrixTranspose(proj));
-    XMStoreFloat4x4(&mMainPassCBShadows.InvProj, XMMatrixTranspose(invProj));
-    XMStoreFloat4x4(&mMainPassCBShadows.ViewProj, XMMatrixTranspose(viewProj));
-    XMStoreFloat4x4(&mMainPassCBShadows.InvViewProj, XMMatrixTranspose(invViewProj));
-    XMStoreFloat4x4(&mMainPassCBShadows.ShadowTransform, XMMatrixTranspose(shadowTransform));
-    mMainPassCBShadows.EyePosW = mCamera.GetPosition3f();
-    mMainPassCBShadows.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
-    mMainPassCBShadows.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
-    mMainPassCBShadows.NearZ = 1.0f;
-    mMainPassCBShadows.FarZ = 1000.0f;
-    mMainPassCBShadows.TotalTime = gt.TotalTime();
-    mMainPassCBShadows.DeltaTime = gt.DeltaTime();
-    mMainPassCBShadows.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
-
-    // Directional lights
-    mMainPassCBShadows.Lights[0].Direction = mRotatedLightDirections[0];
-    mMainPassCBShadows.Lights[0].Strength = { 1.0f, 1.0f, 1.0f };
-
-    mMainPassCBShadows.Lights[1].Direction = mRotatedLightDirections[1];
-    mMainPassCBShadows.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
-
-    mMainPassCBShadows.Lights[2].Direction = mRotatedLightDirections[2];
-    mMainPassCBShadows.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
-
-    mMainPassCBShadows.ShadowTextureID = shadowTextureIDScene7;
-    if (isTexturedShadowsScene7)
-        mMainPassCBShadows.BIsTexturedShadows = 1;
-    else mMainPassCBShadows.BIsTexturedShadows = 0;
-
-    mMainPassCBShadows.ShadowSizeID = shadowSizeIDScene7;
-    if (isUsingCascadedShadowsScene7)
-        mMainPassCBShadows.BIsCascadedShadows = 1;
-    else mMainPassCBShadows.BIsCascadedShadows = 0;
-    mMainPassCBShadows.ShadowFilteringID = shadowFilteringIDScene7;
-}
-
 void Engine::UpdateShadowPassCB(const GameTimer& gt)
 {
     DirectX::XMMATRIX view = DirectX::XMLoadFloat4x4(&mLightView);
@@ -2874,6 +2958,111 @@ void Engine::UpdateShadowPassCB(const GameTimer& gt)
 
     auto currPassCB = mCurrFrameResource->ShadowPassCB.get();
     currPassCB->CopyData(0, mShadowPassCB);
+}
+
+void Engine::UpdateShadowPassCBCascaded(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCameraShadowMap256.GetView();
+    DirectX::XMMATRIX proj = mCameraShadowMap256.GetProj();
+
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+
+    DirectX::XMMATRIX viewProj = DirectX::XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invView = DirectX::XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = DirectX::XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX invViewProj = DirectX::XMMatrixInverse(&tmp3, viewProj);
+
+    UINT w = mShadowMap256->Width();
+    UINT h = mShadowMap256->Height();
+
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mShadowPassCB.EyePosW = mLightPosW;
+    mShadowPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)w, (float)h);
+    mShadowPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / w, 1.0f / h);
+    mShadowPassCB.NearZ = mLightNearZ;
+    mShadowPassCB.FarZ = mLightFarZ;
+
+    auto currPassCB = mCurrFrameResource->ShadowPassCBCascaded.get();
+    currPassCB->CopyData(0, mShadowPassCB);
+
+
+    view = mCameraShadowMap512.GetView();
+    proj = mCameraShadowMap512.GetProj();
+    tmp1 = XMMatrixDeterminant(view);
+    tmp2 = XMMatrixDeterminant(proj);
+    viewProj = DirectX::XMMatrixMultiply(view, proj);
+    tmp3 = XMMatrixDeterminant(viewProj);
+    invView = DirectX::XMMatrixInverse(&tmp1, view);
+    invProj = DirectX::XMMatrixInverse(&tmp2, proj);
+    invViewProj = DirectX::XMMatrixInverse(&tmp3, viewProj);
+    w = mShadowMap512->Width();
+    h = mShadowMap512->Height();
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mShadowPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)w, (float)h);
+    mShadowPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / w, 1.0f / h);
+
+    currPassCB = mCurrFrameResource->ShadowPassCBCascaded.get();
+    currPassCB->CopyData(1, mShadowPassCB);
+
+
+    view = mCameraShadowMap1024.GetView();
+    proj = mCameraShadowMap1024.GetProj();
+    tmp1 = XMMatrixDeterminant(view);
+    tmp2 = XMMatrixDeterminant(proj);
+    viewProj = DirectX::XMMatrixMultiply(view, proj);
+    tmp3 = XMMatrixDeterminant(viewProj);
+    invView = DirectX::XMMatrixInverse(&tmp1, view);
+    invProj = DirectX::XMMatrixInverse(&tmp2, proj);
+    invViewProj = DirectX::XMMatrixInverse(&tmp3, viewProj);
+    w = mShadowMap1024->Width();
+    h = mShadowMap1024->Height();
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mShadowPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)w, (float)h);
+    mShadowPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / w, 1.0f / h);
+
+    currPassCB = mCurrFrameResource->ShadowPassCBCascaded.get();
+    currPassCB->CopyData(2, mShadowPassCB);
+
+
+    view = mCameraShadowMap2048.GetView();
+    proj = mCameraShadowMap2048.GetProj();
+    tmp1 = XMMatrixDeterminant(view);
+    tmp2 = XMMatrixDeterminant(proj);
+    viewProj = DirectX::XMMatrixMultiply(view, proj);
+    tmp3 = XMMatrixDeterminant(viewProj);
+    invView = DirectX::XMMatrixInverse(&tmp1, view);
+    invProj = DirectX::XMMatrixInverse(&tmp2, proj);
+    invViewProj = DirectX::XMMatrixInverse(&tmp3, viewProj);
+    w = mShadowMap2048->Width();
+    h = mShadowMap2048->Height();
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    DirectX::XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mShadowPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)w, (float)h);
+    mShadowPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / w, 1.0f / h);
+
+    currPassCB = mCurrFrameResource->ShadowPassCBCascaded.get();
+    currPassCB->CopyData(3, mShadowPassCB);
 }
 
 void Engine::UpdateShadowPassCBParticles(const GameTimer& gt)
@@ -3058,10 +3247,19 @@ void Engine::UpdateLODCB(const GameTimer& gt)
 {
     LODConstants LODConst;
 
-    LODConst.LevelOfDetail = levelOfDetailsScene3;
+    if (isUsingManualLODScene3)
+        LODConst.LevelOfDetail = levelOfDetailsScene3;
+    else LODConst.LevelOfDetail = 3;
 
     auto currPassCB = mCurrFrameResource->LODCB.get();
     currPassCB->CopyData(0, LODConst);
+
+    if (isUsingManualLODScene3)
+        LODConst.LevelOfDetail = levelOfDetailsScene3;
+    else LODConst.LevelOfDetail = LODScene3;
+
+    currPassCB = mCurrFrameResource->LODCB.get();
+    currPassCB->CopyData(1, LODConst);
 }
 
 void Engine::UpdateTessCB()
@@ -3096,6 +3294,37 @@ void Engine::UpdateTessCB()
 
     auto currPassCB = mCurrFrameResource->TessCB.get();
     currPassCB->CopyData(0, tessConst);
+}
+
+void Engine::UpdateLODScene3()
+{
+    float distance;
+    DirectX::XMFLOAT3 cameraPosition = mCamera.GetPosition3f();
+    DirectX::XMFLOAT3 objectPosition = DirectX::XMFLOAT3(0.0f, 0.0f, -10.0f);
+    distance = sqrt((cameraPosition.x - objectPosition.x) * (cameraPosition.x - objectPosition.x)
+        + (cameraPosition.y - objectPosition.y) * (cameraPosition.y - objectPosition.y)
+        + (cameraPosition.z - objectPosition.z) * (cameraPosition.z - objectPosition.z));
+
+    if (!isUsingManualLODScene3)
+    {
+        if (distance < 15.f)
+        {
+            LODScene3 = 3;
+        }
+        else if (distance < 35.f)
+        {
+            LODScene3 = 2;
+        }
+        else if (distance < 60.f)
+        {
+            LODScene3 = 1;
+        }
+        else
+        {
+            LODScene3 = 0;
+        }
+    }
+    else LODScene3 = levelOfDetailsScene3;
 }
 
 void Engine::ChangeTileObjectTiles()
@@ -4427,6 +4656,10 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["particlesForwardGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForward.hlsl", nullptr, "GS", "gs_5_1");
     mShaders["particlesForwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForward.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["particlesForwardVertexLightingVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForwardVertexLighting.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["particlesForwardVertexLightingGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForwardVertexLighting.hlsl", nullptr, "GS", "gs_5_1");
+    mShaders["particlesForwardVertexLightingPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForwardVertexLighting.hlsl", nullptr, "PS", "ps_5_1");
+
     mShaders["particlesCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeParticles.hlsl", nullptr, "CS_UpdateParticles", "cs_5_1");
 
     mShaders["PostProcessingVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PostProcessing.hlsl", nullptr, "VS", "vs_5_1");
@@ -4927,6 +5160,119 @@ void Engine::BuildScene3Geometry()
 
         instanceDataScene3[index] = DirectX::XMMatrixTranslation((float)x * 2, 0, (float)y * 2);
     }
+}
+
+void Engine::BuildScene3LODGeometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData sphereLOD3 = geoGen.CreateSphere(3.0f, 20, 20, 0, 0, 0);
+    GeometryGenerator::MeshData sphereLOD2 = geoGen.CreateSphere(3.0f, 12, 12, 0, 0, 0);
+    GeometryGenerator::MeshData sphereLOD1 = geoGen.CreateSphere(3.0f, 7, 7, 0, 0, 0);
+    GeometryGenerator::MeshData sphereLOD0 = geoGen.CreateSphere(3.0f, 3, 3, 0, 0, 0);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry sphereLOD3Submesh;
+    sphereLOD3Submesh.IndexCount = (UINT)sphereLOD3.Indices32.size();
+    sphereLOD3Submesh.StartIndexLocation = totalIndexCount;
+    sphereLOD3Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphereLOD3Submesh.IndexCount;
+    totalVertexCount += sphereLOD3.Vertices.size();
+
+    SubmeshGeometry sphereLOD2Submesh;
+    sphereLOD2Submesh.IndexCount = (UINT)sphereLOD2.Indices32.size();
+    sphereLOD2Submesh.StartIndexLocation = totalIndexCount;
+    sphereLOD2Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphereLOD2Submesh.IndexCount;
+    totalVertexCount += sphereLOD2.Vertices.size();
+
+    SubmeshGeometry sphereLOD1Submesh;
+    sphereLOD1Submesh.IndexCount = (UINT)sphereLOD1.Indices32.size();
+    sphereLOD1Submesh.StartIndexLocation = totalIndexCount;
+    sphereLOD1Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphereLOD1Submesh.IndexCount;
+    totalVertexCount += sphereLOD1.Vertices.size();
+
+    SubmeshGeometry sphereLOD0Submesh;
+    sphereLOD0Submesh.IndexCount = (UINT)sphereLOD0.Indices32.size();
+    sphereLOD0Submesh.StartIndexLocation = totalIndexCount;
+    sphereLOD0Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += sphereLOD0Submesh.IndexCount;
+    totalVertexCount += sphereLOD0.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < sphereLOD3.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereLOD3.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereLOD3.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereLOD3.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereLOD3.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereLOD3.Vertices.size();
+    for (size_t i = 0; i < sphereLOD2.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereLOD2.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereLOD2.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereLOD2.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereLOD2.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereLOD2.Vertices.size();
+    for (size_t i = 0; i < sphereLOD1.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereLOD1.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereLOD1.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereLOD1.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereLOD1.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereLOD1.Vertices.size();
+    for (size_t i = 0; i < sphereLOD0.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = sphereLOD0.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = sphereLOD0.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = sphereLOD0.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = sphereLOD0.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += sphereLOD0.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(sphereLOD3.GetIndices16()), std::end(sphereLOD3.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphereLOD2.GetIndices16()), std::end(sphereLOD2.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphereLOD1.GetIndices16()), std::end(sphereLOD1.GetIndices16()));
+    indices.insert(indices.end(), std::begin(sphereLOD0.GetIndices16()), std::end(sphereLOD0.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene3LODGeo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["sphereLOD3"] = sphereLOD3Submesh;
+    geo->DrawArgs["sphereLOD2"] = sphereLOD2Submesh;
+    geo->DrawArgs["sphereLOD1"] = sphereLOD1Submesh;
+    geo->DrawArgs["sphereLOD0"] = sphereLOD0Submesh;
+
+    mGeometries[geo->Name] = std::move(geo);
 }
 
 void Engine::BuildScene4Geometry()
@@ -5527,7 +5873,7 @@ void Engine::BuildPSOs()
     defaultForwardPsoDesc.SampleMask = UINT_MAX;
     defaultForwardPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     defaultForwardPsoDesc.NumRenderTargets = 1;
-    defaultForwardPsoDesc.RTVFormats[0] = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    defaultForwardPsoDesc.RTVFormats[0] = mBackBufferFormat;
     defaultForwardPsoDesc.SampleDesc.Count = 1;
     defaultForwardPsoDesc.SampleDesc.Quality = 0;
     defaultForwardPsoDesc.DSVFormat = mDepthStencilFormat;
@@ -5871,6 +6217,27 @@ void Engine::BuildPSOs()
     particlesForwardPsoDesc.RTVFormats[3] = DXGI_FORMAT_UNKNOWN;
 
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticlesForward"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesForwardVertexLightingPsoDesc;
+    ZeroMemory(&particlesForwardVertexLightingPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    particlesForwardVertexLightingPsoDesc = particlesForwardPsoDesc;
+    particlesForwardVertexLightingPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesForwardVertexLightingVS"]->GetBufferPointer()),
+        mShaders["particlesForwardVertexLightingVS"]->GetBufferSize()
+    };
+    particlesForwardVertexLightingPsoDesc.GS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesForwardVertexLightingGS"]->GetBufferPointer()),
+        mShaders["particlesForwardVertexLightingGS"]->GetBufferSize()
+    };
+    particlesForwardVertexLightingPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesForwardVertexLightingPS"]->GetBufferPointer()),
+        mShaders["particlesForwardVertexLightingPS"]->GetBufferSize()
+    };
+
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardVertexLightingPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticlesForwardVertexLighting"])));
 
 
     // Post Processing PSOs
@@ -7045,6 +7412,62 @@ void Engine::BuildRenderItems()
     mRitemLayer[(int)RenderLayer::Scene9].push_back(PBR5Scene9Ritem.get());
     mAllRitems.push_back(std::move(PBR5Scene9Ritem));
 
+    auto sphere0LOD = std::make_unique<RenderItem>();
+    sphere0LOD->ObjCBIndex = 763;
+    sphere0LOD->World = MathHelper::Identity4x4();
+    sphere0LOD->TexTransform = MathHelper::Identity4x4();
+    sphere0LOD->Mat = mMaterials["PBR3Material"].get();
+    sphere0LOD->Geo = mGeometries["scene3LODGeo"].get();
+    sphere0LOD->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    sphere0LOD->IndexCount = sphere0LOD->Geo->DrawArgs["sphereLOD0"].IndexCount;
+    sphere0LOD->StartIndexLocation = sphere0LOD->Geo->DrawArgs["sphereLOD0"].StartIndexLocation;
+    sphere0LOD->BaseVertexLocation = sphere0LOD->Geo->DrawArgs["sphereLOD0"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene3LOD].push_back(sphere0LOD.get());
+    mAllRitems.push_back(std::move(sphere0LOD));
+
+    auto sphere1LOD = std::make_unique<RenderItem>();
+    sphere1LOD->ObjCBIndex = 764;
+    sphere1LOD->World = MathHelper::Identity4x4();
+    sphere1LOD->TexTransform = MathHelper::Identity4x4();
+    sphere1LOD->Mat = mMaterials["PBR3Material"].get();
+    sphere1LOD->Geo = mGeometries["scene3LODGeo"].get();
+    sphere1LOD->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    sphere1LOD->IndexCount = sphere1LOD->Geo->DrawArgs["sphereLOD1"].IndexCount;
+    sphere1LOD->StartIndexLocation = sphere1LOD->Geo->DrawArgs["sphereLOD1"].StartIndexLocation;
+    sphere1LOD->BaseVertexLocation = sphere1LOD->Geo->DrawArgs["sphereLOD1"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene3LOD].push_back(sphere1LOD.get());
+    mAllRitems.push_back(std::move(sphere1LOD));
+
+    auto sphere2LOD = std::make_unique<RenderItem>();
+    sphere2LOD->ObjCBIndex = 765;
+    sphere2LOD->World = MathHelper::Identity4x4();
+    sphere2LOD->TexTransform = MathHelper::Identity4x4();
+    sphere2LOD->Mat = mMaterials["PBR3Material"].get();
+    sphere2LOD->Geo = mGeometries["scene3LODGeo"].get();
+    sphere2LOD->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    sphere2LOD->IndexCount = sphere2LOD->Geo->DrawArgs["sphereLOD2"].IndexCount;
+    sphere2LOD->StartIndexLocation = sphere2LOD->Geo->DrawArgs["sphereLOD2"].StartIndexLocation;
+    sphere2LOD->BaseVertexLocation = sphere2LOD->Geo->DrawArgs["sphereLOD2"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene3LOD].push_back(sphere2LOD.get());
+    mAllRitems.push_back(std::move(sphere2LOD));
+
+    auto sphere3LOD = std::make_unique<RenderItem>();
+    sphere3LOD->ObjCBIndex = 766;
+    sphere3LOD->World = MathHelper::Identity4x4();
+    sphere3LOD->TexTransform = MathHelper::Identity4x4();
+    sphere3LOD->Mat = mMaterials["PBR3Material"].get();
+    sphere3LOD->Geo = mGeometries["scene3LODGeo"].get();
+    sphere3LOD->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    sphere3LOD->IndexCount = sphere3LOD->Geo->DrawArgs["sphereLOD3"].IndexCount;
+    sphere3LOD->StartIndexLocation = sphere3LOD->Geo->DrawArgs["sphereLOD3"].StartIndexLocation;
+    sphere3LOD->BaseVertexLocation = sphere3LOD->Geo->DrawArgs["sphereLOD3"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene3LOD].push_back(sphere3LOD.get());
+    mAllRitems.push_back(std::move(sphere3LOD));
+
 
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
@@ -7462,6 +7885,7 @@ void Engine::InitParticleSystem()
 
     mParticleSystem->InitializeSystem(md3dDevice,
         particleBuffers,
+        particleArgsBuffers,
         mParticlesSrvUavHeap,
         mCbvSrvUavDescriptorSize,
         0);
@@ -7475,6 +7899,7 @@ void Engine::InitParticleSystem()
 
     mParticleSystem2->InitializeSystem(md3dDevice,
         particle2Buffers,
+        particle2ArgsBuffers,
         mParticlesSrvUavHeap,
         mCbvSrvUavDescriptorSize, 
         1);
@@ -7487,6 +7912,7 @@ void Engine::InitParticleSystem()
 
     mParticleSystemSmoke->InitializeSystem(md3dDevice,
         particleSmokeBuffers,
+        particleSmokeArgsBuffers,
         mParticlesSrvUavHeap,
         mCbvSrvUavDescriptorSize,
         2);
@@ -7688,6 +8114,41 @@ void Engine::DrawRenderItemsScene3(ID3D12GraphicsCommandList* cmdList, const std
                     cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
             }
         }
+    }
+}
+
+void Engine::DrawRenderItemsScene3LOD(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    {
+        auto ri = ritems[LODScene3];
+
+        auto tmp1 = ri->Geo->VertexBufferView();
+        auto tmp2 = ri->Geo->IndexBufferView();
+        cmdList->IASetVertexBuffers(0, 1, &tmp1);
+        cmdList->IASetIndexBuffer(&tmp2);
+        cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+        D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+        D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+        CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        instanceTableHandle.Offset(16, mCbvSrvDescriptorSize);
+
+        cmdList->SetGraphicsRootDescriptorTable(0, tex);
+        cmdList->SetGraphicsRootDescriptorTable(1, instanceTableHandle);
+        cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
+        cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
+
+        cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
     }
 }
 
@@ -7982,6 +8443,7 @@ void Engine::DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, co
 
     auto objectCB = mCurrFrameResource->ObjectCB->Resource();
     auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
 
     for (int i = 0; i < Sponza.meshes.size(); ++i)
     {
@@ -8604,6 +9066,201 @@ bool Engine::IsInCameraView(Camera camera, DirectX::XMMATRIX objectPosition, Dir
     }
 }
 
+std::vector<DirectX::XMFLOAT4> Engine::GetFrustumCornersWorldSpace(const DirectX::XMMATRIX& view, const DirectX::XMMATRIX& proj)
+{
+    const auto viewProj = view * proj;
+    auto det = XMMatrixDeterminant(viewProj);
+    const auto inv = DirectX::XMMatrixInverse(&det, viewProj);
+
+    std::vector<DirectX::XMFLOAT4> frustumCorners;
+    frustumCorners.reserve(8);
+    for (int x = 0; x < 2; ++x)
+    {
+        for (int y = 0; y < 2; ++y)
+        {
+            for (int z = 0; z < 2; ++z)
+            {
+                const DirectX::XMFLOAT4 point(2.0f * x - 1.0f, 2.0f * y - 1.0f, z, 1.0f);
+                DirectX::XMVECTOR pt = DirectX::XMLoadFloat4(&point);
+                pt = DirectX::XMVector4Transform(pt, inv);
+                DirectX::XMFLOAT4 resultPoint;
+                DirectX::XMStoreFloat4(&resultPoint, pt);
+                resultPoint = DirectX::XMFLOAT4(resultPoint.x / resultPoint.w, resultPoint.y / resultPoint.w, resultPoint.z / resultPoint.w, resultPoint.w / resultPoint.w);
+                frustumCorners.push_back(resultPoint);
+            }
+        }
+    }
+
+    return frustumCorners;
+}
+
+void Engine::CalculateCascadedShadowsCameras()
+{
+    DirectX::XMFLOAT3 center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    std::vector<DirectX::XMFLOAT4> corners = GetFrustumCornersWorldSpace(mCameraFrustum0.GetView(), mCameraFrustum0.GetProj());
+    for (const auto& v : corners)
+    {
+        center = DirectX::XMFLOAT3(center.x + v.x, center.y + v.y, center.z + v.z);
+    }
+    center = DirectX::XMFLOAT3(center.x / corners.size(), center.y / corners.size(), center.z / corners.size());
+
+    float sceneRadius = 50.f;
+    // Only the first "main" light casts a shadow.
+    DirectX::XMVECTOR lightDir = DirectX::XMLoadFloat3(&mRotatedLightDirections[0]);
+    DirectX::XMVECTOR lightPos = DirectX::XMVectorScale(lightDir, -2.0f * sceneRadius);
+    DirectX::XMVECTOR targetPos = DirectX::XMLoadFloat3(&center);
+    DirectX::XMFLOAT3 lightPosition;
+    DirectX::XMStoreFloat3(&lightPosition, lightPos);
+    DirectX::XMFLOAT3 targetPosition;
+    DirectX::XMStoreFloat3(&targetPosition, targetPos);
+
+    mCameraShadowMap256.LookAt(lightPosition, targetPosition, DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f));
+    mCameraShadowMap256.UpdateViewMatrix();
+    float minX = std::numeric_limits<float>::infinity();
+    float maxX = std::numeric_limits<float>::lowest();
+    float minY = std::numeric_limits<float>::infinity();
+    float maxY = std::numeric_limits<float>::lowest();
+    float minZ = std::numeric_limits<float>::infinity();
+    float maxZ = std::numeric_limits<float>::lowest();
+    for (const auto& v : corners)
+    {
+        DirectX::XMVECTOR pt = DirectX::XMLoadFloat4(&v);
+        pt = DirectX::XMVector4Transform(pt, mCameraShadowMap256.GetView());
+        DirectX::XMFLOAT4 resultPoint;
+        DirectX::XMStoreFloat4(&resultPoint, pt);
+
+        minX = std::min<float>(minX, resultPoint.x);
+        maxX = std::max<float>(maxX, resultPoint.x);
+        minY = std::min<float>(minY, resultPoint.y);
+        maxY = std::max<float>(maxY, resultPoint.y);
+        minZ = std::min<float>(minZ, resultPoint.z);
+        maxZ = std::max<float>(maxZ, resultPoint.z);
+    }
+
+    /*float zMult = 10.0f;
+    minZ = (minZ < 0) ? minZ * zMult : minZ / zMult;
+    maxZ = (maxZ < 0) ? maxZ * zMult : maxZ / zMult;*/
+
+    mCameraShadowMap256.SetLensFromCoords(minX, maxX, minY, maxY, minZ, maxZ);
+
+    center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    corners = GetFrustumCornersWorldSpace(mCameraFrustum1.GetView(), mCameraFrustum1.GetProj());
+    for (const auto& v : corners)
+    {
+        center = DirectX::XMFLOAT3(center.x + v.x, center.y + v.y, center.z + v.z);
+    }
+    center = DirectX::XMFLOAT3(center.x / corners.size(), center.y / corners.size(), center.z / corners.size());
+    targetPos = DirectX::XMLoadFloat3(&center);
+    DirectX::XMStoreFloat3(&targetPosition, targetPos);
+
+    mCameraShadowMap512.LookAt(lightPosition, targetPosition, DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f));
+    mCameraShadowMap512.UpdateViewMatrix();
+    minX = std::numeric_limits<float>::infinity();
+    maxX = std::numeric_limits<float>::lowest();
+    minY = std::numeric_limits<float>::infinity();
+    maxY = std::numeric_limits<float>::lowest();
+    minZ = std::numeric_limits<float>::infinity();
+    maxZ = std::numeric_limits<float>::lowest();
+    for (const auto& v : corners)
+    {
+        DirectX::XMVECTOR pt = DirectX::XMLoadFloat4(&v);
+        pt = DirectX::XMVector4Transform(pt, mCameraShadowMap512.GetView());
+        DirectX::XMFLOAT4 resultPoint;
+        DirectX::XMStoreFloat4(&resultPoint, pt);
+
+        minX = std::min<float>(minX, resultPoint.x);
+        maxX = std::max<float>(maxX, resultPoint.x);
+        minY = std::min<float>(minY, resultPoint.y);
+        maxY = std::max<float>(maxY, resultPoint.y);
+        minZ = std::min<float>(minZ, resultPoint.z);
+        maxZ = std::max<float>(maxZ, resultPoint.z);
+    }
+
+    /*zMult = 10.0f;
+    minZ = (minZ < 0) ? minZ * zMult : minZ / zMult;
+    maxZ = (maxZ < 0) ? maxZ * zMult : maxZ / zMult;*/
+
+    mCameraShadowMap512.SetLensFromCoords(minX, maxX, minY, maxY, minZ, maxZ);
+
+    center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    corners = GetFrustumCornersWorldSpace(mCameraFrustum2.GetView(), mCameraFrustum2.GetProj());
+    for (const auto& v : corners)
+    {
+        center = DirectX::XMFLOAT3(center.x + v.x, center.y + v.y, center.z + v.z);
+    }
+    center = DirectX::XMFLOAT3(center.x / corners.size(), center.y / corners.size(), center.z / corners.size());
+    targetPos = DirectX::XMLoadFloat3(&center);
+    DirectX::XMStoreFloat3(&targetPosition, targetPos);
+
+    mCameraShadowMap1024.LookAt(lightPosition, targetPosition, DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f));
+    mCameraShadowMap1024.UpdateViewMatrix();
+    minX = std::numeric_limits<float>::infinity();
+    maxX = std::numeric_limits<float>::lowest();
+    minY = std::numeric_limits<float>::infinity();
+    maxY = std::numeric_limits<float>::lowest();
+    minZ = std::numeric_limits<float>::infinity();
+    maxZ = std::numeric_limits<float>::lowest();
+    for (const auto& v : corners)
+    {
+        DirectX::XMVECTOR pt = DirectX::XMLoadFloat4(&v);
+        pt = DirectX::XMVector4Transform(pt, mCameraShadowMap1024.GetView());
+        DirectX::XMFLOAT4 resultPoint;
+        DirectX::XMStoreFloat4(&resultPoint, pt);
+
+        minX = std::min<float>(minX, resultPoint.x);
+        maxX = std::max<float>(maxX, resultPoint.x);
+        minY = std::min<float>(minY, resultPoint.y);
+        maxY = std::max<float>(maxY, resultPoint.y);
+        minZ = std::min<float>(minZ, resultPoint.z);
+        maxZ = std::max<float>(maxZ, resultPoint.z);
+    }
+
+    /*zMult = 10.0f;
+    minZ = (minZ < 0) ? minZ * zMult : minZ / zMult;
+    maxZ = (maxZ < 0) ? maxZ * zMult : maxZ / zMult;*/
+
+    mCameraShadowMap1024.SetLensFromCoords(minX, maxX, minY, maxY, minZ, maxZ);
+
+    center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+    corners = GetFrustumCornersWorldSpace(mCameraFrustum3.GetView(), mCameraFrustum3.GetProj());
+    for (const auto& v : corners)
+    {
+        center = DirectX::XMFLOAT3(center.x + v.x, center.y + v.y, center.z + v.z);
+    }
+    center = DirectX::XMFLOAT3(center.x / corners.size(), center.y / corners.size(), center.z / corners.size());
+    targetPos = DirectX::XMLoadFloat3(&center);
+    DirectX::XMStoreFloat3(&targetPosition, targetPos);
+
+    mCameraShadowMap2048.LookAt(lightPosition, targetPosition, DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f));
+    mCameraShadowMap2048.UpdateViewMatrix();
+    minX = std::numeric_limits<float>::infinity();
+    maxX = std::numeric_limits<float>::lowest();
+    minY = std::numeric_limits<float>::infinity();
+    maxY = std::numeric_limits<float>::lowest();
+    minZ = std::numeric_limits<float>::infinity();
+    maxZ = std::numeric_limits<float>::lowest();
+    for (const auto& v : corners)
+    {
+        DirectX::XMVECTOR pt = DirectX::XMLoadFloat4(&v);
+        pt = DirectX::XMVector4Transform(pt, mCameraShadowMap2048.GetView());
+        DirectX::XMFLOAT4 resultPoint;
+        DirectX::XMStoreFloat4(&resultPoint, pt);
+
+        minX = std::min<float>(minX, resultPoint.x);
+        maxX = std::max<float>(maxX, resultPoint.x);
+        minY = std::min<float>(minY, resultPoint.y);
+        maxY = std::max<float>(maxY, resultPoint.y);
+        minZ = std::min<float>(minZ, resultPoint.z);
+        maxZ = std::max<float>(maxZ, resultPoint.z);
+    }
+
+    /*zMult = 10.0f;
+    minZ = (minZ < 0) ? minZ * zMult : minZ / zMult;
+    maxZ = (maxZ < 0) ? maxZ * zMult : maxZ / zMult;*/
+
+    mCameraShadowMap2048.SetLensFromCoords(minX, maxX, minY, maxY, minZ, maxZ);
+}
+
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 6> Engine::GetStaticSamplers()
 {
@@ -8854,10 +9511,10 @@ void Engine::RenderUI()
     if (ImGui::Begin("Info Panel", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings))
     {
         ImGui::Text("Scene 1: Sandbox");
-        ImGui::Text("Scene 2: Day/night scene");
+        ImGui::Text("Scene 2: None");
         ImGui::Text("Scene 3: Instancing/frumstum culling scene");
         ImGui::Text("Scene 4: Texture animation & Tiling scene");
-        ImGui::Text("Scene 5: Tessellation scene");
+        ImGui::Text("Scene 5: Tessellation scene (old)");
         ImGui::Text("Scene 6: Particles scene");
         ImGui::Text("Scene 7: Shadows scene");
         ImGui::Text("Scene 8: Post-processing scene");
@@ -9039,7 +9696,15 @@ void Engine::RenderUI()
             ImGui::Checkbox("Instancing Active", &isUsingInstancingScene3);
 
             ImGui::Text("");
-            ImGui::SliderInt("Level Of Details", &levelOfDetailsScene3, 0, 3);
+            ImGui::Text("LOD");
+            ImGui::Checkbox("Manual LOD", &isUsingManualLODScene3);
+            if (isUsingManualLODScene3)
+                ImGui::SliderInt("Manual Level Of Details", &levelOfDetailsScene3, 0, 3);
+
+            mAllRitems[763]->NumFramesDirty = 1;
+            mAllRitems[764]->NumFramesDirty = 1;
+            mAllRitems[765]->NumFramesDirty = 1;
+            mAllRitems[766]->NumFramesDirty = 1;
         }
         else if (activeSceneID == 4)
         {
@@ -9132,7 +9797,8 @@ void Engine::RenderUI()
             {
                 ImGui::Text("");
                 ImGui::Text("Lighting Technique");
-                ImGui::RadioButton("Vertex Shaders", &lightingIDScene6, 1);
+                ImGui::RadioButton("Vertex Shader", &lightingIDScene6, 1);
+                ImGui::RadioButton("Domain Shader", &lightingIDScene6, 2);
             }
         }
         else if (activeSceneID == 7)

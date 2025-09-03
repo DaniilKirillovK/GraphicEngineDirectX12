@@ -88,6 +88,7 @@ void ParticleSystem::Render(ID3D12GraphicsCommandList* cmdList,
 
 void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> device,
     Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2],
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleArgsBuffers[2],
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvUavHeap,
     UINT srvDescriptorSize, 
     UINT offset)
@@ -95,6 +96,8 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
     D3D12_RESOURCE_DESC particleBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(
         sizeof(Particle) * emitterData.MaxParticles,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+    D3D12_RESOURCE_DESC particleArgsBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(DrawInstancedArgs));
 
     auto heapProp = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
 
@@ -114,8 +117,25 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
         nullptr,
         IID_PPV_ARGS(&particleBuffers[1]));
 
+    device->CreateCommittedResource(
+        &heapProp,
+        D3D12_HEAP_FLAG_NONE,
+        &particleArgsBufferDesc,
+        D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+        nullptr,
+        IID_PPV_ARGS(&particleArgsBuffers[0]));
 
-    for (int i = 0; i < 2; i++) {
+    device->CreateCommittedResource(
+        &heapProp,
+        D3D12_HEAP_FLAG_NONE,
+        &particleArgsBufferDesc,
+        D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+        nullptr,
+        IID_PPV_ARGS(&particleArgsBuffers[1]));
+
+
+    for (int i = 0; i < 2; i++) 
+    {
         D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
         uavDesc.Format = DXGI_FORMAT_UNKNOWN;
         uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;

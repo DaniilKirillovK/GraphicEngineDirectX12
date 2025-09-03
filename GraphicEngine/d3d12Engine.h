@@ -109,6 +109,7 @@ protected:
     virtual void BuildShadersAndInputLayout() {}
     virtual void BuildShapeGeometry() {}
     virtual void BuildScene3Geometry() {}
+    virtual void BuildScene3LODGeometry() {}
     virtual void BuildScene4Geometry() {}
     virtual void BuildScene5Geometry() {}
     virtual void BuildScene6Geometry() {}
@@ -201,10 +202,13 @@ protected:
     D3D12_VERTEX_BUFFER_VIEW instanceVertexBufferView;
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceUploadBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2];
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleArgsBuffers[2];
     UINT currParticleReadBuffer = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> particle2Buffers[2];
+    Microsoft::WRL::ComPtr<ID3D12Resource> particle2ArgsBuffers[2];
     UINT currParticle2ReadBuffer = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> particleSmokeBuffers[2];
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleSmokeArgsBuffers[2];
     UINT currParticleSmokeReadBuffer = 0;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> postProcessingBuffer;

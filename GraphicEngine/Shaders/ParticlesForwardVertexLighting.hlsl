@@ -179,6 +179,9 @@ void GS(point VertexOut gin[1],
     const float shininess = 1.0f - Roughness.x;
     Material mat = { float4(1.0f, 1.0f, 1.0f, 1.0f), gFresnelR0, shininess };
     float3 shadowFactor = float3(AO.x, AO.x, AO.x);
+    
+    float4 Color = ComputeLighting(gLights, mat, position,
+        normal, toEyeW, shadowFactor);
 	
     GeoOut gout;
 	[unroll]
@@ -189,8 +192,6 @@ void GS(point VertexOut gin[1],
         gout.NormalW = look;
         gout.TexC = texC[i];
         gout.PrimID = primID;
-        float4 Color = ComputeLighting(gLights, mat, v[i].xyz,
-        normal, toEyeW, shadowFactor);
         gout.Color = Color;
 		
         triStream.Append(gout);

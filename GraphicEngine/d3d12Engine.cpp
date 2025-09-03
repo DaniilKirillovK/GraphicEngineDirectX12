@@ -512,6 +512,7 @@ BuildShadersAndInputLayout();
 BuildSkyboxGeometry();
 BuildShapeGeometry();
 BuildScene3Geometry();
+BuildScene3LODGeometry();
 BuildScene4Geometry();
 BuildScene5Geometry();
 BuildScene6Geometry();

@@ -11,6 +11,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     PassCBScene3Camera2 = std::make_unique<UploadBuffer<PassConstants>>(device, 1, true);
     PassCBShadows = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);
     ShadowPassCB = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);
+    ShadowPassCBCascaded = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 4, true);
     ShadowPassCBParticles = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);
     MaterialCB = std::make_unique<UploadBuffer<MaterialConstants>>(device, materialCount, true);
     ObjectCB = std::make_unique<UploadBuffer<ObjectConstants>>(device, objectCount, true);
@@ -22,7 +23,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     PostProcessingCB = std::make_unique<UploadBuffer<PostProcessingConstants>>(device, 1, true);
     NoiseCB = std::make_unique<UploadBuffer<NoiseComputeConstants>>(device, 1, true);
     SamplersCB = std::make_unique<UploadBuffer<MoreSamplersConstants>>(device, 1, true);
-    LODCB = std::make_unique<UploadBuffer<LODConstants>>(device, 1, true);
+    LODCB = std::make_unique<UploadBuffer<LODConstants>>(device, 2, true);
     TessCB = std::make_unique<UploadBuffer<TessConstants>>(device, 1, true);
 }
 
