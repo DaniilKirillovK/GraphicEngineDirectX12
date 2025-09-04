@@ -221,15 +221,22 @@ float4 PS(VertexOut pin) : SV_Target
     shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH, pin.PosH);
     shadowFactor[1] = shadowFactor[0];
     shadowFactor[2] = shadowFactor[0];
-	
-    // Dynamically look up the texture in the array.
     if (isTexturedShadows)
     {
         if (shadowFactor.r != 1.0f)
-            diffuseAlbedo *= gShadowTextures[shadowTextureID - 1].Sample(gsamAnisotropicWrap, pin.TexC);
-        else diffuseAlbedo *= gTextures[0].Sample(gsamAnisotropicWrap, pin.TexC);
+        {
+            shadowFactor = (1.0f - gShadowTextures[shadowTextureID - 1].Sample(gsamAnisotropicWrap, pin.TexC).r) / 2.f;
+        }
     }
-    else diffuseAlbedo *= gTextures[0].Sample(gsamAnisotropicWrap, pin.TexC);
+	
+    // Dynamically look up the texture in the array.
+    //if (isTexturedShadows)
+    //{
+    //    if (shadowFactor.r != 1.0f)
+    //        diffuseAlbedo *= gShadowTextures[shadowTextureID - 1].Sample(gsamAnisotropicWrap, pin.TexC);
+    //    else diffuseAlbedo *= gTextures[0].Sample(gsamAnisotropicWrap, pin.TexC);
+    //}
+    diffuseAlbedo *= gTextures[0].Sample(gsamAnisotropicWrap, pin.TexC);
 
 	// Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);
