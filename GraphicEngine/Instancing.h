@@ -10,3 +10,10 @@ struct alignas(16) InstanceData
 	DirectX::XMFLOAT4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
+struct InstanceDataRMDemo
+{
+	DirectX::XMFLOAT4X4 WorldMatrix;
+	float Roughness;
+	float Metallic;
+};
+

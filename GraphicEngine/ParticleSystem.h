@@ -41,9 +41,17 @@ public:
 		FrameResource* currFrameResource,
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvHeap);
 
+	virtual void RenderGPU(ID3D12GraphicsCommandList* cmdList,
+		const std::vector<RenderItem*>& ritems,
+		UINT srvDescriptorSize,
+		FrameResource* currFrameResource,
+		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvHeap,
+		UINT ParticlesID, std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> mRootSignatures,
+		UINT CB1, UINT SRV1, Microsoft::WRL::ComPtr<ID3D12Device> device, Microsoft::WRL::ComPtr<ID3D12Resource> texResource);
+
 	virtual void InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> device,
 		Microsoft::WRL::ComPtr<ID3D12Resource> particleSRVBuffers[2],
-		Microsoft::WRL::ComPtr<ID3D12Resource> particleArgsBuffers[2],
+		Microsoft::WRL::ComPtr<ID3D12Resource>& particleArgsBuffer,
 		Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvUavHeap,
 		UINT srvDescriptorSize,
 		UINT offset);

@@ -10,6 +10,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     PassCB = std::make_unique<UploadBuffer<PassConstants>>(device, passCount, true);
     PassCBScene3Camera2 = std::make_unique<UploadBuffer<PassConstants>>(device, 1, true);
     PassCBShadows = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);
+    PassCBShadowsCascaded = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 4, true);
     ShadowPassCB = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);
     ShadowPassCBCascaded = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 4, true);
     ShadowPassCBParticles = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);

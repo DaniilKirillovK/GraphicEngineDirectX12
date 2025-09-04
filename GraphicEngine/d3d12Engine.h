@@ -114,7 +114,8 @@ protected:
     virtual void BuildScene5Geometry() {}
     virtual void BuildScene6Geometry() {}
     virtual void BuildScene7Geometry() {}
-    virtual void BuildScene8Geometry() {}
+    virtual void BuildScene9Geometry() {}
+    virtual void BuildScene9RMDemoGeometry() {}
     virtual void BuildModelsGeometry() {}
     virtual void BuildScene10DebugGeometry() {}
     virtual void BuildSponzaGeometryAndTextures() {}
@@ -122,6 +123,7 @@ protected:
     virtual void InitGBuffer() {}
     virtual void CreateScene3RTV() {}
     virtual void InitInstanceBuffer() {}
+    virtual void InitInstanceBufferRMDemo() {}
     virtual void InitParticleSystem() {}
     virtual void BuildPostProcessingResources() {}
     virtual void CreateNoiseTexture() {}
@@ -189,6 +191,7 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> mCommandQueue;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mDirectCmdListAlloc;
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandList;
+    Microsoft::WRL::ComPtr<ID3D12CommandSignature> mCommandSignature;
 
     static const int SwapChainBufferCount = 2;
     int mCurrBackBuffer = 0;
@@ -201,14 +204,20 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceBuffer;
     D3D12_VERTEX_BUFFER_VIEW instanceVertexBufferView;
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceUploadBuffer;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> instanceRMDemoBuffer;
+    D3D12_VERTEX_BUFFER_VIEW instanceRMDemoVertexBufferView;
+    Microsoft::WRL::ComPtr<ID3D12Resource> instanceRMDemoUploadBuffer;
+
+
     Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2];
-    Microsoft::WRL::ComPtr<ID3D12Resource> particleArgsBuffers[2];
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleArgsBuffer;
     UINT currParticleReadBuffer = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> particle2Buffers[2];
-    Microsoft::WRL::ComPtr<ID3D12Resource> particle2ArgsBuffers[2];
+    Microsoft::WRL::ComPtr<ID3D12Resource> particle2ArgsBuffer;
     UINT currParticle2ReadBuffer = 0;
     Microsoft::WRL::ComPtr<ID3D12Resource> particleSmokeBuffers[2];
-    Microsoft::WRL::ComPtr<ID3D12Resource> particleSmokeArgsBuffers[2];
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleSmokeArgsBuffer;
     UINT currParticleSmokeReadBuffer = 0;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> postProcessingBuffer;

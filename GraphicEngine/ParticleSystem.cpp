@@ -86,9 +86,95 @@ void ParticleSystem::Render(ID3D12GraphicsCommandList* cmdList,
     }
 }
 
+void ParticleSystem::RenderGPU(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems, UINT srvDescriptorSize,
+    FrameResource* currFrameResource, Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvHeap, UINT ParticlesID,
+    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> mRootSignatures, UINT CB1, UINT SRV1,
+    Microsoft::WRL::ComPtr<ID3D12Device> device, Microsoft::WRL::ComPtr<ID3D12Resource> texResource)
+{
+    struct IndirectDrawArgs 
+    {
+        UINT64 ShaderResourceView0Address;
+        UINT64 ShaderResourceView1Address;
+
+        UINT64 ConstantBufferView0Address;
+        UINT64 ConstantBufferView1Address;
+        UINT64 ConstantBufferView2Address;
+
+        DrawInstancedArgs DrawArgs;
+    };
+
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+    auto matCB = currFrameResource->MaterialCB->Resource();
+
+    D3D12_INDIRECT_ARGUMENT_DESC arguments[6] = {};
+
+    // Shader Resource View 0 (root parameter index 0)
+    arguments[0].Type = D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW;
+    arguments[0].ShaderResourceView.RootParameterIndex = 0;
+
+    // Shader Resource View 1 (root parameter index 1)  
+    arguments[1].Type = D3D12_INDIRECT_ARGUMENT_TYPE_SHADER_RESOURCE_VIEW;
+    arguments[1].ShaderResourceView.RootParameterIndex = 1;
+
+    // Constant Buffer View 0 (root parameter index 2)
+    arguments[2].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW;
+    arguments[2].ConstantBufferView.RootParameterIndex = 2;
+
+    // Constant Buffer View 1 (root parameter index 3)
+    arguments[3].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW;
+    arguments[3].ConstantBufferView.RootParameterIndex = 3;
+
+    // Constant Buffer View 2 (root parameter index 4)
+    arguments[4].Type = D3D12_INDIRECT_ARGUMENT_TYPE_CONSTANT_BUFFER_VIEW;
+    arguments[4].ConstantBufferView.RootParameterIndex = 4;
+
+    // Draw command
+    arguments[5].Type = D3D12_INDIRECT_ARGUMENT_TYPE_DRAW;
+
+    D3D12_COMMAND_SIGNATURE_DESC commandSignatureDesc = {};
+    commandSignatureDesc.ByteStride = sizeof(IndirectDrawArgs);
+    commandSignatureDesc.NumArgumentDescs = 6;
+    commandSignatureDesc.pArgumentDescs = arguments;
+
+    ID3D12CommandSignature* commandSignature;
+    device->CreateCommandSignature(&commandSignatureDesc, mRootSignatures["mRootSignatureParticlesGPU"].Get(), IID_PPV_ARGS(&commandSignature));
+
+    IndirectDrawArgs* commands = new IndirectDrawArgs[1];
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            commands[i].ShaderResourceView0Address = texResource->GetGPUVirtualAddress();
+            commands[i].ShaderResourceView1Address = SRV1;
+
+            commands[i].ConstantBufferView0Address = CB1;
+            commands[i].ConstantBufferView1Address = matCBAddress;
+            commands[i].ConstantBufferView2Address = 0;
+
+            commands[i].DrawArgs.VertexCountPerInstance = 512;
+            commands[i].DrawArgs.InstanceCount = 1;
+            commands[i].DrawArgs.StartVertexLocation = 0;
+            commands[i].DrawArgs.StartInstanceLocation = i;
+
+            //cmdList->ExecuteIndirect(commandSignature,
+            //    1,
+            //    );
+        }
+    }
+
+
+}
+
 void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> device,
     Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2],
-    Microsoft::WRL::ComPtr<ID3D12Resource> particleArgsBuffers[2],
+    Microsoft::WRL::ComPtr<ID3D12Resource>& particleArgsBuffer,
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> srvUavHeap,
     UINT srvDescriptorSize, 
     UINT offset)
@@ -97,7 +183,7 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
         sizeof(Particle) * emitterData.MaxParticles,
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
-    D3D12_RESOURCE_DESC particleArgsBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(DrawInstancedArgs));
+    D3D12_RESOURCE_DESC particleArgsBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(DrawInstancedArgs), D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
 
     auto heapProp = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
 
@@ -121,18 +207,9 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
         &heapProp,
         D3D12_HEAP_FLAG_NONE,
         &particleArgsBufferDesc,
-        D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         nullptr,
-        IID_PPV_ARGS(&particleArgsBuffers[0]));
-
-    device->CreateCommittedResource(
-        &heapProp,
-        D3D12_HEAP_FLAG_NONE,
-        &particleArgsBufferDesc,
-        D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
-        nullptr,
-        IID_PPV_ARGS(&particleArgsBuffers[1]));
-
+        IID_PPV_ARGS(&particleArgsBuffer));
 
     for (int i = 0; i < 2; i++) 
     {
@@ -144,7 +221,7 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE handle(
             srvUavHeap->GetCPUDescriptorHandleForHeapStart(),
-            offset * 4 + i * 2,
+            offset * 5 + i * 2,
             srvDescriptorSize);
 
         device->CreateUnorderedAccessView(
@@ -160,12 +237,33 @@ void ParticleSystem::InitializeSystem(Microsoft::WRL::ComPtr<ID3D12Device> devic
 
         CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
             srvUavHeap->GetCPUDescriptorHandleForHeapStart(),
-            offset * 4 + i * 2 + 1,
+            offset * 5 + i * 2 + 1,
             srvDescriptorSize);
 
         device->CreateShaderResourceView(
             particleBuffers[i].Get(), &srvDesc, srvHandle);
     }
+
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+    uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+    uavDesc.Buffer.FirstElement = 0;
+    uavDesc.Buffer.NumElements = 1;
+    uavDesc.Buffer.StructureByteStride = sizeof(DrawInstancedArgs);
+    uavDesc.Buffer.CounterOffsetInBytes = 0;
+    uavDesc.Buffer.Flags = D3D12_BUFFER_UAV_FLAG_NONE;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE uavHandle(
+        srvUavHeap->GetCPUDescriptorHandleForHeapStart(),
+        offset * 5 + 4,
+        srvDescriptorSize);
+
+    device->CreateUnorderedAccessView(
+        particleArgsBuffer.Get(),    
+        nullptr,       
+        &uavDesc,      
+        uavHandle      
+    );
 }
 
 void ParticleSystem::BuildSystemVertexBuffers(
