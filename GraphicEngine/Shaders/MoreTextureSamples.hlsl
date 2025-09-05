@@ -289,10 +289,9 @@ GBuffer PS(DomainOut pin)
     );
 	
 	// Output vertex attributes for interpolation across triangle.
-    float4 texC;
     int tileIDX = floor(texCoord.x * tilesCount);
     int tileIDY = floor(texCoord.y * tilesCount);
-    float2 tileTransform = (tileIDY, tileIDX);
+    float2 tileTransform = float2(tileIDX, tileIDY);
     float2 tileDisplacement = float2(0.5f, 0.5f) / tilesCount + tileTransform / tilesCount;
     if ((tileIDX + tileIDY) % 2 == 0)
     {

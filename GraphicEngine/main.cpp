@@ -71,6 +71,7 @@ enum class RenderLayer : int
     Sky = 16,
     Scene3LOD = 17,
     Scene9RMDemo = 18,
+    Scene12 = 19,
     Count
 };
 
@@ -162,6 +163,7 @@ private:
     void UpdateSamplersCB(const GameTimer& gt);
     void UpdateLODCB(const GameTimer& gt);
     void UpdateTessCB();
+    void UpdateHeightMapCB();
     
     void UpdateLODScene3();
 
@@ -184,6 +186,7 @@ private:
     virtual void BuildScene9RMDemoGeometry() override;
     virtual void BuildModelsGeometry() override;
     virtual void BuildScene10DebugGeometry() override;
+    virtual void BuildScene12Geometry() override;
     virtual void BuildSponzaGeometryAndTextures() override;
     virtual void BuildPSOs() override;
     virtual void BuildPostProcessingResources() override;
@@ -196,6 +199,7 @@ private:
     virtual void BuildBillboardSpritesGeometry() override;
     virtual void UploadTextures() override;
     virtual void UploadTextures2() override;
+    virtual void UploadTextures3() override;
 
     virtual void InitGBuffer() override;
     virtual void CreateScene3RTV() override;
@@ -224,6 +228,7 @@ private:
     void DrawRenderItemsScene9(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene9RMDemo(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene12(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDefferedPointSpotScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene11(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -539,6 +544,11 @@ int lightingIDScene6 = 1;
 int PBRShaderScene9 = 1;
 bool isRoughnessMetallicDemoScene9 = false;
 
+bool isWireframeScene12 = false;
+float tessFactorScene12 = 1.0f;
+bool isDistantAdaptiveTessScene12 = true;
+float displacementScaleScene12 = 1.0f;
+
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -738,6 +748,10 @@ void Engine::Update(const GameTimer& gt)
     if (activeSceneID == 11)
     {
         UpdateTessCB();
+    }
+    if (activeSceneID == 12)
+    {
+        UpdateHeightMapCB();
     }
     timeScene2 = ParseTime(gt);
 }
@@ -1946,11 +1960,45 @@ void Engine::Draw(const GameTimer& gt)
         CD3DX12_RESOURCE_BARRIER barriersClose[] = { barrier1, barrier2, barrier3, barrier4, barrier5, barrier6 };
         mCommandList->ResourceBarrier(6, barriersClose);
     }
+
+    else if (activeSceneID == 12)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureHeightMap"].Get());
+
+        if (isWireframeScene12)
+            mCommandList->SetPipelineState(mPSOs["heightMapWireframePSO"].Get());
+        else mCommandList->SetPipelineState(mPSOs["heightMapSolidPSO"].Get());
+
+        passCB = mCurrFrameResource->PassCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+        auto heightCB = mCurrFrameResource->HeightMapCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(4, heightCB->GetGPUVirtualAddress());
+
+        DrawRenderItemsScene12(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene12]);
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        mCommandList->ResourceBarrier(1, &barrier1);
+    }
     
 
     // Draw screen quad
     if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
-        && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9)
+        && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9 && activeSceneID != 12)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -3543,6 +3591,20 @@ void Engine::UpdateTessCB()
     currPassCB->CopyData(0, tessConst);
 }
 
+void Engine::UpdateHeightMapCB()
+{
+    HeightMapConstants heightConst;
+
+    if (isDistantAdaptiveTessScene12)
+        heightConst.DistantAdaptiveTess = 1;
+    else heightConst.DistantAdaptiveTess = 0;
+    heightConst.TessFactor = tessFactorScene12;
+    heightConst.DisplacementScale = displacementScaleScene12;
+
+    auto currPassCB = mCurrFrameResource->HeightMapCB.get();
+    currPassCB->CopyData(0, heightConst);
+}
+
 void Engine::UpdateLODScene3()
 {
     float distance;
@@ -3980,6 +4042,22 @@ void Engine::LoadTextures()
         mCommandList.Get(), IntegrationMap->Filename.c_str(),
         IntegrationMap->Resource, IntegrationMap->UploadHeap), true);
     mTextures[IntegrationMap->Name] = std::move(IntegrationMap);
+
+    auto TerrainTex = std::make_unique<Texture>();
+    TerrainTex->Name = "TerrainTex";
+    TerrainTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\TerrainTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), TerrainTex->Filename.c_str(),
+        TerrainTex->Resource, TerrainTex->UploadHeap), true);
+    mTextures[TerrainTex->Name] = std::move(TerrainTex);
+
+    auto TerrainHeight = std::make_unique<Texture>();
+    TerrainHeight->Name = "TerrainHeight";
+    TerrainHeight->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\TerrainHeight.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), TerrainHeight->Filename.c_str(),
+        TerrainHeight->Resource, TerrainHeight->UploadHeap), true);
+    mTextures[TerrainHeight->Name] = std::move(TerrainHeight);
 }
 
 void Engine::BuildShadowMaps()
@@ -3998,7 +4076,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 55;
+    srvHeapDesc.NumDescriptors = 60;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -4569,6 +4647,33 @@ void Engine::UploadTextures2()
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
 }
 
+void Engine::UploadTextures3()
+{
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(54, mCbvSrvDescriptorSize);
+
+    auto TerrainTex = mTextures["TerrainTex"]->Resource;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc1 = {};
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = TerrainTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(TerrainTex.Get(), &srvDesc1, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    auto TerrainHeight = mTextures["TerrainHeight"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = TerrainHeight->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = TerrainHeight->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(TerrainHeight.Get(), &srvDesc1, hDescriptor);
+}
+
 
 void Engine::BuildRootSignature()
 {
@@ -4633,6 +4738,9 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableRMDemo3;
     texTableRMDemo3.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableHeightMap;
+    texTableHeightMap.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -4668,6 +4776,8 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_PARAMETER slotRootParameterParticlesArgsCompute[1];
     CD3DX12_ROOT_PARAMETER slotRootParameterParticlesGPU[5];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterHeightMap[5];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -4792,6 +4902,12 @@ void Engine::BuildRootSignature()
 
     slotRootParameterParticlesArgsCompute[0].InitAsUnorderedAccessView(0);
 
+    slotRootParameterHeightMap[0].InitAsDescriptorTable(1, &texTableHeightMap);
+    slotRootParameterHeightMap[1].InitAsConstantBufferView(0);
+    slotRootParameterHeightMap[2].InitAsConstantBufferView(1);
+    slotRootParameterHeightMap[3].InitAsConstantBufferView(2);
+    slotRootParameterHeightMap[4].InitAsConstantBufferView(3);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -4890,6 +5006,10 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescHeightMap(5, slotRootParameterHeightMap,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     CreateRootSignature(rootSigDesc, "mRootSignature");
     CreateRootSignature(rootSigDesc2, "mRootSignatureLight");
@@ -4915,6 +5035,7 @@ void Engine::BuildRootSignature()
     CreateRootSignature(rootSigDescRMDemo, "mRootSignatureRMDemo");
     CreateRootSignature(rootSigDescParticlesArgsCompute, "mRootSignatureParticlesArgsCompute");
     CreateRootSignature(rootSigDescParticlesGPU, "mRootSignatureParticlesGPU");
+    CreateRootSignature(rootSigDescHeightMap, "mRootSignatureHeightMap");
 }
 
 
@@ -5023,6 +5144,11 @@ void Engine::BuildShadersAndInputLayout()
 
     mShaders["RMDemoVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\RoughnessMetallicDemo.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["RMDemoPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\RoughnessMetallicDemo.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["HeightMapVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\HeightMapTerrain.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["HeightMapHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\HeightMapTerrain.hlsl", nullptr, "HS", "hs_5_1");
+    mShaders["HeightMapDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\HeightMapTerrain.hlsl", nullptr, "DS", "ds_5_1");
+    mShaders["HeightMapPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\HeightMapTerrain.hlsl", nullptr, "PS", "ps_5_1");
 
     mInputLayout =
     {
@@ -6196,6 +6322,65 @@ void Engine::BuildScene10DebugGeometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
+void Engine::BuildScene12Geometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData planeMesh = geoGen.CreateGrid(100, 100, 50, 50);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry planeSubmesh;
+    planeSubmesh.IndexCount = (UINT)planeMesh.Indices32.size();
+    planeSubmesh.StartIndexLocation = totalIndexCount;
+    planeSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += planeSubmesh.IndexCount;
+    totalVertexCount += planeMesh.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < planeMesh.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = planeMesh.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = planeMesh.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = planeMesh.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = planeMesh.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += planeMesh.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(planeMesh.GetIndices16()), std::end(planeMesh.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene12Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["plane"] = planeSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
 void Engine::BuildSponzaGeometryAndTextures()
 {
     LoadModel("Sponza/sponza.obj", Sponza, md3dDevice.Get(),
@@ -7114,6 +7299,49 @@ void Engine::BuildPSOs()
         mShaders["RMDemoPS"]->GetBufferSize()
     };
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&RMDemoPsoDesc, IID_PPV_ARGS(&mPSOs["RMDemoPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC heightMapPsoDesc;
+    ZeroMemory(&heightMapPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    heightMapPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+    heightMapPsoDesc.pRootSignature = mRootSignatures["mRootSignatureHeightMap"].Get();
+    heightMapPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["HeightMapVS"]->GetBufferPointer()),
+        mShaders["HeightMapVS"]->GetBufferSize()
+    };
+    heightMapPsoDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["HeightMapHS"]->GetBufferPointer()),
+        mShaders["HeightMapHS"]->GetBufferSize()
+    };
+    heightMapPsoDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["HeightMapDS"]->GetBufferPointer()),
+        mShaders["HeightMapDS"]->GetBufferSize()
+    };
+    heightMapPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["HeightMapPS"]->GetBufferPointer()),
+        mShaders["HeightMapPS"]->GetBufferSize()
+    };
+    heightMapPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    heightMapPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    heightMapPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    heightMapPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    heightMapPsoDesc.SampleMask = UINT_MAX;
+    heightMapPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_PATCH;
+    heightMapPsoDesc.NumRenderTargets = 1;
+    heightMapPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    heightMapPsoDesc.SampleDesc.Count = 1;
+    heightMapPsoDesc.SampleDesc.Quality = 0;
+    heightMapPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&heightMapPsoDesc, IID_PPV_ARGS(&mPSOs["heightMapSolidPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC heightMapWireframePsoDesc;
+    ZeroMemory(&heightMapWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    heightMapWireframePsoDesc = heightMapPsoDesc;
+    heightMapWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&heightMapWireframePsoDesc, IID_PPV_ARGS(&mPSOs["heightMapWireframePSO"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -7364,6 +7592,16 @@ void Engine::BuildMaterials()
     PBR5Mat->Roughness = 0.125f;
 
     mMaterials["PBR5Material"] = std::move(PBR5Mat);
+
+    auto TerrainMat = std::make_unique<Material>();
+    TerrainMat->Name = "TerrainMaterial";
+    TerrainMat->MatCBIndex = 14;
+    TerrainMat->DiffuseSrvHeapIndex = 54;
+    TerrainMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    TerrainMat->FresnelR0 = DirectX::XMFLOAT3(0.04f, 0.04f, 0.04f);
+    TerrainMat->Roughness = 0.9f;
+
+    mMaterials["TerrainMaterial"] = std::move(TerrainMat);
 }
 
 void Engine::BuildRenderItems()
@@ -7891,6 +8129,20 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::Scene9RMDemo].push_back(sphereRMDemo.get());
     mAllRitems.push_back(std::move(sphereRMDemo));
+
+    auto terrainRitem = std::make_unique<RenderItem>();
+    terrainRitem->ObjCBIndex = 768;
+    terrainRitem->World = MathHelper::Identity4x4();
+    terrainRitem->TexTransform = MathHelper::Identity4x4();
+    terrainRitem->Mat = mMaterials["TerrainMaterial"].get();
+    terrainRitem->Geo = mGeometries["scene12Geo"].get();
+    terrainRitem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    terrainRitem->IndexCount = terrainRitem->Geo->DrawArgs["plane"].IndexCount;
+    terrainRitem->StartIndexLocation = terrainRitem->Geo->DrawArgs["plane"].StartIndexLocation;
+    terrainRitem->BaseVertexLocation = terrainRitem->Geo->DrawArgs["plane"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene12].push_back(terrainRitem.get());
+    mAllRitems.push_back(std::move(terrainRitem));
 
 
     for (int i = 0; i < mAllRitems.size(); ++i)
@@ -9111,6 +9363,41 @@ void Engine::DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const st
     }
 }
 
+void Engine::DrawRenderItemsScene12(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
 void Engine::DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -10086,6 +10373,7 @@ void Engine::RenderUI()
         ImGui::Text("Scene 9: PBR scene");
         ImGui::Text("Scene 10: Rendering Techniques");
         ImGui::Text("Scene 11: Decals Tessellation");
+        ImGui::Text("Scene 12: Terrain with Height map");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -10163,6 +10451,12 @@ void Engine::RenderUI()
             if (ImGui::Button("Scene 11", ImVec2(80, 40)))
             {
                 activeSceneID = 11;
+            }
+            ImGui::TableSetColumnIndex(3);
+
+            if (ImGui::Button("Scene 12", ImVec2(80, 40)))
+            {
+                activeSceneID = 12;
             }
 
             ImGui::EndTable();
@@ -10550,6 +10844,14 @@ void Engine::RenderUI()
                 ImGui::SliderFloat("Decal Scale 3", &decalsScaleScene11[2], 0.5f, 3.0f);
             }
             mAllRitems[2]->NumFramesDirty = 1;
+        }
+        else if (activeSceneID == 12)
+        {
+            ImGui::Text("");
+            ImGui::Checkbox("Wireframe", &isWireframeScene12);
+            ImGui::Checkbox("Distance Adaptive Tess", &isDistantAdaptiveTessScene12);
+            ImGui::SliderFloat("Tessellation Factor", &tessFactorScene12, 1.0f, 64.0f);
+            ImGui::SliderFloat("Displacement Scale", &displacementScaleScene12, 0.0f, 10.0f);
         }
     } ImGui::End();
 

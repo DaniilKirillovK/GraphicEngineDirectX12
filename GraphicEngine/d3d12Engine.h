@@ -118,6 +118,7 @@ protected:
     virtual void BuildScene9RMDemoGeometry() {}
     virtual void BuildModelsGeometry() {}
     virtual void BuildScene10DebugGeometry() {}
+    virtual void BuildScene12Geometry() {}
     virtual void BuildSponzaGeometryAndTextures() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
@@ -131,6 +132,7 @@ protected:
     virtual void LoadTextures() {}
     virtual void UploadTextures() {}
     virtual void UploadTextures2() {}
+    virtual void UploadTextures3() {}
     virtual void BuildFrameResources() {}
     virtual void BuildMaterials() {}
     virtual void BuildRenderItems() {}

@@ -63,6 +63,13 @@ struct TessConstants
     Decal Decals[MaxDecals];
 };
 
+struct HeightMapConstants
+{
+    float TessFactor = 1.f;
+    UINT DistantAdaptiveTess = 0;
+    float DisplacementScale = 1.0f;
+};
+
 struct ObjectConstants
 {
     DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
@@ -228,6 +235,7 @@ public:
     std::unique_ptr<UploadBuffer<MoreSamplersConstants>> SamplersCB = nullptr;
     std::unique_ptr<UploadBuffer<LODConstants>> LODCB = nullptr;
     std::unique_ptr<UploadBuffer<TessConstants>> TessCB = nullptr;
+    std::unique_ptr<UploadBuffer<HeightMapConstants>> HeightMapCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.

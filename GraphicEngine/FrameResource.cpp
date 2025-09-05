@@ -26,6 +26,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     SamplersCB = std::make_unique<UploadBuffer<MoreSamplersConstants>>(device, 1, true);
     LODCB = std::make_unique<UploadBuffer<LODConstants>>(device, 2, true);
     TessCB = std::make_unique<UploadBuffer<TessConstants>>(device, 1, true);
+    HeightMapCB = std::make_unique<UploadBuffer<HeightMapConstants>>(device, 1, true);
 }
 
 FrameResource::~FrameResource()
