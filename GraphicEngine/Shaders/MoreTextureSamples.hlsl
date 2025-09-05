@@ -125,7 +125,7 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
     vout.TangentW = mul(vin.TangentU, (float3x3) gWorld);
 	
 	// Output vertex attributes for interpolation across triangle.
-    float4 texC = mul(float4(vin.TexC * tilesCount, 0.0f, 1.0f), gTexTransform);
+    float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
     vout.Color = instance.Color;
 
@@ -278,6 +278,31 @@ GBuffer PS(DomainOut pin)
     gBuffer.Position = float4(pin.PosW, 1.0f);
     
     float2 texCoord = pin.TexC;
+    float2x2 rotateClockwise = float2x2(
+        cos(gTotalTime / 2), sin(gTotalTime / 2),
+        -sin(gTotalTime / 2), cos(gTotalTime / 2)
+    );
+    
+    float2x2 rotateCounterClockwise = float2x2(
+        cos(gTotalTime / 2), -sin(gTotalTime / 2),
+        sin(gTotalTime / 2), cos(gTotalTime / 2)
+    );
+	
+	// Output vertex attributes for interpolation across triangle.
+    float4 texC;
+    int tileIDX = floor(texCoord.x * tilesCount);
+    int tileIDY = floor(texCoord.y * tilesCount);
+    float2 tileTransform = (tileIDY, tileIDX);
+    float2 tileDisplacement = float2(0.5f, 0.5f) / tilesCount + tileTransform / tilesCount;
+    if ((tileIDX + tileIDY) % 2 == 0)
+    {
+        texCoord = mul(float4((mul(rotateClockwise, texCoord - tileDisplacement) + tileDisplacement) * tilesCount, 0.0f, 1.0f), gTexTransform);
+    }
+    else
+    {
+        texCoord = mul(float4((mul(rotateCounterClockwise, texCoord - tileDisplacement) + tileDisplacement) * tilesCount, 0.0f, 1.0f), gTexTransform);
+    }
+    
     if (gFiltering == 0)
     {
         if (gAddressMode == 0)
