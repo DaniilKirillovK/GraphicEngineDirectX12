@@ -223,7 +223,7 @@ struct Light
     DirectX::XMFLOAT4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 };
 
-#define MaxLights 16
+#define MaxLights 516
 
 struct Decal
 {

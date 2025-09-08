@@ -521,7 +521,9 @@ BuildScene9Geometry();
 BuildScene9RMDemoGeometry();
 BuildModelsGeometry();
 BuildScene10DebugGeometry();
+BuildScene10MoreLightGeometry();
 BuildScene12Geometry();
+BuildScene13Geometry();
 BuildSponzaGeometryAndTextures();
 BuildBillboardSpritesGeometry();
 InitParticleSystem();
@@ -531,10 +533,14 @@ BuildFrameResources();
 InitGBuffer();
 CreateScene3RTV();
 BuildPSOs();
+
 InitInstanceBuffer();
 InitInstanceBufferRMDemo();
+InitInstanceBufferMoreLight();
+
 UploadTextures2();
 UploadTextures3();
+
 BuildPostProcessingResources();
 CreateNoiseTexture();
 

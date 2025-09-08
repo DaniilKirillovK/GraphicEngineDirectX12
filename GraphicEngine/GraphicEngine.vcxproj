@@ -176,6 +176,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MathHelper.cpp" />
     <ClCompile Include="ModelLoader.cpp" />
+    <ClCompile Include="OcTree.cpp" />
     <ClCompile Include="Particles.cpp" />
     <ClCompile Include="ParticleSystem.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
@@ -204,6 +205,7 @@
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="ModelHelper.h" />
     <ClInclude Include="ModelLoader.h" />
+    <ClInclude Include="OcTree.h" />
     <ClInclude Include="Particles.h" />
     <ClInclude Include="ParticleSystem.h" />
     <ClInclude Include="ShadowMap.h" />

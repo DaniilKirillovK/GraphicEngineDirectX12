@@ -225,7 +225,7 @@ float4 PS(VertexOut pin) : SV_Target
     {
         if (shadowFactor.r != 1.0f)
         {
-            shadowFactor = (1.0f - gShadowTextures[shadowTextureID - 1].Sample(gsamAnisotropicWrap, pin.TexC).r) / 2.f;
+            shadowFactor += 0.3f * gShadowTextures[shadowTextureID - 1].Sample(gsamAnisotropicWrap, pin.TexC).r;
         }
     }
 	

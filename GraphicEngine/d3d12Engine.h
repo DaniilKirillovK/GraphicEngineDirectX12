@@ -118,13 +118,18 @@ protected:
     virtual void BuildScene9RMDemoGeometry() {}
     virtual void BuildModelsGeometry() {}
     virtual void BuildScene10DebugGeometry() {}
+    virtual void BuildScene10MoreLightGeometry() {}
     virtual void BuildScene12Geometry() {}
+    virtual void BuildScene13Geometry() {}
     virtual void BuildSponzaGeometryAndTextures() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
     virtual void CreateScene3RTV() {}
+
     virtual void InitInstanceBuffer() {}
     virtual void InitInstanceBufferRMDemo() {}
+    virtual void InitInstanceBufferMoreLight() {}
+
     virtual void InitParticleSystem() {}
     virtual void BuildPostProcessingResources() {}
     virtual void CreateNoiseTexture() {}
@@ -210,6 +215,14 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceRMDemoBuffer;
     D3D12_VERTEX_BUFFER_VIEW instanceRMDemoVertexBufferView;
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceRMDemoUploadBuffer;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> instanceMoreLightBuffer;
+    D3D12_VERTEX_BUFFER_VIEW instanceMoreLightVertexBufferView;
+    Microsoft::WRL::ComPtr<ID3D12Resource> instanceMoreLightUploadBuffer;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> instanceOcTreeBuffer;
+    D3D12_VERTEX_BUFFER_VIEW instanceOcTreeVertexBufferView;
+    Microsoft::WRL::ComPtr<ID3D12Resource> instanceOcTreeUploadBuffer;
 
 
     Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2];

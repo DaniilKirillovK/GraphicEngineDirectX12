@@ -17,3 +17,16 @@ struct InstanceDataRMDemo
 	float Metallic;
 };
 
+struct InstanceDataMoreLight
+{
+	DirectX::XMFLOAT4X4 WorldMatrix;
+	UINT lightID;
+	DirectX::XMFLOAT3 Pad = { 0.0f, 0.0f, 0.0f };
+};
+
+struct InstanceDataGameObject
+{
+	DirectX::XMFLOAT4X4 WorldMatrix;
+	DirectX::XMFLOAT4 Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+};
+
