@@ -12,7 +12,7 @@
 
 #include "LightingUtil.hlsl"
 
-Texture2D gParticleTexture : register(t0, space0);
+Texture2D<float4> gParticleTextures[2] : register(t0, space0);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -190,8 +190,7 @@ void GS(point VertexOut gin[1],
         gout.NormalW = look;
         gout.TexC = texC[i];
         gout.PrimID = primID;
-        float4 Color = ComputeLighting(gLights, mat, v[i].xyz,
-        normal, toEyeW, shadowFactor);
+        float4 Color = float4(0.0f, 0.0f, 1.0f, 1.0f);
         gout.Color = Color;
 		
         triStream.Append(gout);
@@ -202,14 +201,21 @@ float4 PS(GeoOut pin) : SV_Target
 {
     float4 Position = float4(pin.PosW, 1.0f);
     
+    float4 Albedo;
+    
     float2 TexCoord = pin.TexC;
-    float4 Albedo = (gParticleTexture.Sample(gsamLinearWrap, TexCoord) * gDiffuseAlbedo);
+    if (particlesIn[pin.PrimID].ParticleType == 0)
+    {
+        Albedo = (gParticleTextures[0].Sample(gsamLinearWrap, TexCoord) * gDiffuseAlbedo);
+    }
+    else Albedo = (gParticleTextures[1].Sample(gsamLinearWrap, TexCoord) * gDiffuseAlbedo);
+    
 
     // Light terms.
     float4 ambient = gAmbientLight * Albedo;
     clip(ambient.a - 0.1f);
     
-    float4 litColor = ambient + pin.Color;
+    float4 litColor = ambient + Albedo;
 
     return litColor;
 }

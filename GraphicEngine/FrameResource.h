@@ -229,6 +229,7 @@ public:
     std::unique_ptr<UploadBuffer<EmitterConstants>> EmitterCB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter2CB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter3CB = nullptr;
+    std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter4CB = nullptr;
     std::unique_ptr<UploadBuffer<InstanceData>> InstancingCB = nullptr;
     std::unique_ptr<UploadBuffer<PostProcessingConstants>> PostProcessingCB = nullptr;
     std::unique_ptr<UploadBuffer<NoiseComputeConstants>> NoiseCB = nullptr;

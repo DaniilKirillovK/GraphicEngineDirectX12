@@ -234,6 +234,9 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource> particleSmokeBuffers[2];
     Microsoft::WRL::ComPtr<ID3D12Resource> particleSmokeArgsBuffer;
     UINT currParticleSmokeReadBuffer = 0;
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleRainBuffers[2];
+    Microsoft::WRL::ComPtr<ID3D12Resource> particleRainArgsBuffer;
+    UINT currParticleRainReadBuffer = 0;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> postProcessingBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> noiseTexture;

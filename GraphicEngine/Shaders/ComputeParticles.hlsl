@@ -8,6 +8,7 @@ struct Particle
     float Size;
     float4 Color;
     float LifeTime;
+    int ParticleType;
 };
 
 RWStructuredBuffer<Particle> particlesOut : register(u0);
@@ -59,6 +60,7 @@ void CS_UpdateParticles(uint3 id : SV_DispatchThreadID)
                 particle.Size = StartSize;
                 particle.Age = 0;
                 particle.LifeTime = clamp(1, 10, (float)id.x / 8);
+                particle.ParticleType = 0;
             }
         }
         else
@@ -88,6 +90,7 @@ void CS_UpdateParticles(uint3 id : SV_DispatchThreadID)
                 particle.Size = StartSize;
                 particle.Age = 0;
                 particle.LifeTime = clamp(3, 8, (float) id.x / 64);
+                particle.ParticleType = 0;
             }
         }
         else
@@ -127,6 +130,7 @@ void CS_UpdateParticles(uint3 id : SV_DispatchThreadID)
                 particle.Size = StartSize;
                 particle.Age = 0;
                 particle.LifeTime = (float) id.x % 10 + sin(TotalTime * id.x) * 5.f;
+                particle.ParticleType = 0;
             }
         }
         else

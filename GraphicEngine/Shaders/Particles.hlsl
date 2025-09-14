@@ -31,6 +31,7 @@ struct Particle
     float Size;
     float4 Color;
     float LifeTime;
+    uint ParticleType;
 };
 
 StructuredBuffer<Particle> particlesIn : register(t0, space1);

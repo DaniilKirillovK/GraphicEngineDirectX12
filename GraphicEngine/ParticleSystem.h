@@ -9,11 +9,12 @@ struct Particle
 	DirectX::XMFLOAT3 Position;
 	float Age;
 	DirectX::XMFLOAT3 Velocity;
-	float Weight;
+	float Weight = 1.0f;
 	DirectX::XMFLOAT3 Acceleration;
 	float Size;
 	DirectX::XMFLOAT4 Color;
 	float LifeTime;
+	UINT ParticleType = 0;
 };
 
 struct DrawInstancedArgs 

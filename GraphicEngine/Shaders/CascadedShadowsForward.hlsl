@@ -221,6 +221,7 @@ float4 PS(VertexOut pin) : SV_Target
     shadowFactor[0] = CalcShadowFactor(pin.ShadowPosH, pin.PosH);
     shadowFactor[1] = shadowFactor[0];
     shadowFactor[2] = shadowFactor[0];
+    
     if (isTexturedShadows)
     {
         if (shadowFactor.r != 1.0f)

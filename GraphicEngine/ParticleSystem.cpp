@@ -35,6 +35,17 @@ ParticleSystem::ParticleSystem(int maxParticles, DirectX::XMFLOAT3 position, int
         this->emitterData.EndSize = 0.8f;
         this->emitterData.GravityForce = DirectX::XMFLOAT3(0.0f, 0.5f, 0.0f);
     }
+    else if (systemID == 4)
+    {
+        this->emitterData.MaxParticles = maxParticles;
+        this->emitterData.Position = position;
+        this->emitterData.StartColor = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        this->emitterData.EndColor = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+        this->emitterData.EmitterIsActive = true;
+        this->emitterData.StartSize = 1.0f;
+        this->emitterData.EndSize = 0.9f;
+        this->emitterData.GravityForce = DirectX::XMFLOAT3(0.0f, 0.5f, 0.0f);
+    }
     this->emitterData.SystemID = systemID;
     this->emitterData.TotalTime = 0.0f;
     particlesData = new Particle[maxParticles];

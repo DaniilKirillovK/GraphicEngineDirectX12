@@ -76,6 +76,7 @@ enum class RenderLayer : int
     Scene10MoreLight = 20,
     Scene13 = 21,
     Scene13Octree = 22,
+    RainParticles = 23,
     Count
 };
 
@@ -164,6 +165,7 @@ private:
     void UpdateParticleEmitterCB(const GameTimer& gt);
     void UpdateParticleEmitter2CB(const GameTimer& gt);
     void UpdateParticleEmitter3CB(const GameTimer& gt);
+    void UpdateParticleEmitter4CB(const GameTimer& gt);
     void UpdatePostProcessingCB(const GameTimer& gt);
     void UpdateNoiseCB(const GameTimer& gt);
     void UpdateSamplersCB(const GameTimer& gt);
@@ -305,6 +307,7 @@ private:
     ParticleSystem* mParticleSystem;
     ParticleSystem* mParticleSystem2;
     ParticleSystem* mParticleSystemSmoke;
+    ParticleSystem* mParticleSystemRain;
 
     float mTheta = 1.3f * DirectX::XM_PI;
     float mPhi = 0.4f * DirectX::XM_PI;
@@ -743,6 +746,7 @@ void Engine::Update(const GameTimer& gt)
         else if (activeParticleSystemScene6 == 3)
         {
             UpdateParticleEmitter3CB(gt);
+            UpdateParticleEmitter4CB(gt);
             UpdateShadowPassCBParticles(gt);
             UpdateShadowTransform(gt);
             UpdateMainPassCBShadows(gt);
@@ -1465,34 +1469,34 @@ void Engine::Draw(const GameTimer& gt)
         }
         else if (activeParticleSystemScene6 == 3)
         {
-            // Compute args pass
-            {
-                ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
-                mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
+            //// Compute args pass
+            //{
+            //    ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
+            //    mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
 
-                CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
-                    particleSmokeArgsBuffer.Get(),
-                    D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-                mCommandList->ResourceBarrier(1, &computeBarrier1);
+            //    CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+            //        particleSmokeArgsBuffer.Get(),
+            //        D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+            //        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            //    mCommandList->ResourceBarrier(1, &computeBarrier1);
 
-                mCommandList->SetComputeRootSignature(mRootSignatures["mRootSignatureParticlesArgsCompute"].Get());
+            //    mCommandList->SetComputeRootSignature(mRootSignatures["mRootSignatureParticlesArgsCompute"].Get());
 
-                mCommandList->SetComputeRootUnorderedAccessView(0, particleSmokeArgsBuffer->GetGPUVirtualAddress());
+            //    mCommandList->SetComputeRootUnorderedAccessView(0, particleSmokeArgsBuffer->GetGPUVirtualAddress());
 
-                mCommandList->SetPipelineState(mPSOs["computeParticlesArgs"].Get());
+            //    mCommandList->SetPipelineState(mPSOs["computeParticlesArgs"].Get());
 
-                UINT threadGroupCount = 1;
-                mCommandList->Dispatch(threadGroupCount, 1, 1);
+            //    UINT threadGroupCount = 1;
+            //    mCommandList->Dispatch(threadGroupCount, 1, 1);
 
-                CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
-                    particleSmokeArgsBuffer.Get(),
-                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-                    D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
-                mCommandList->ResourceBarrier(1, &computeBarrier2);
-            }
+            //    CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+            //        particleSmokeArgsBuffer.Get(),
+            //        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            //        D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+            //    mCommandList->ResourceBarrier(1, &computeBarrier2);
+            //}
 
-            // Compute pass
+            // Compute pass Smoke
             {
                 ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
                 mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
@@ -1523,6 +1527,39 @@ void Engine::Draw(const GameTimer& gt)
                 mCommandList->ResourceBarrier(1, &computeBarrier2);
 
                 currParticleSmokeReadBuffer = 1 - currParticleSmokeReadBuffer;
+            }
+
+            // Compute pass Rain
+            {
+                ID3D12DescriptorHeap* prticlesDescriptorHeaps[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(prticlesDescriptorHeaps), prticlesDescriptorHeaps);
+
+                CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particleRainBuffers[1 - currParticleRainReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+                mCommandList->ResourceBarrier(1, &computeBarrier1);
+
+                auto emitterCB = mCurrFrameResource->Emitter4CB->Resource();
+
+                mCommandList->SetComputeRootSignature(mRootSignatures["mRootSignatureParticlesCompute"].Get());
+
+                mCommandList->SetComputeRootUnorderedAccessView(0, particleRainBuffers[1 - currParticleRainReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootShaderResourceView(1, particleRainBuffers[currParticleRainReadBuffer]->GetGPUVirtualAddress());
+                mCommandList->SetComputeRootConstantBufferView(2, emitterCB->GetGPUVirtualAddress());
+
+                mCommandList->SetPipelineState(mPSOs["computeParticlesRain"].Get());
+
+                UINT threadGroupCount = 8;
+                mCommandList->Dispatch(threadGroupCount, 1, 1);
+
+                CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+                    particleRainBuffers[1 - currParticleRainReadBuffer].Get(),
+                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                    D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+                mCommandList->ResourceBarrier(1, &computeBarrier2);
+
+                currParticleRainReadBuffer = 1 - currParticleRainReadBuffer;
             }
 
             // Shadow Pass
@@ -1566,7 +1603,7 @@ void Engine::Draw(const GameTimer& gt)
                 }
             }
 
-            // Draw particles
+            // Draw particles Smoke
             {
                 ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
                 mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
@@ -1576,7 +1613,7 @@ void Engine::Draw(const GameTimer& gt)
                 auto passCB = mCurrFrameResource->PassCB->Resource();
                 mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
                 CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
-                handle.Offset(10 + currParticle2ReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
+                handle.Offset(10 + currParticleSmokeReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
                 mCommandList->SetGraphicsRootDescriptorTable(1, handle);
 
                 D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
@@ -1592,6 +1629,31 @@ void Engine::Draw(const GameTimer& gt)
 
                 DrawParticles(*mParticleSystemSmoke, RenderLayer::Particles3);
                 //DrawParticlesGPU(*mParticleSystemSmoke, RenderLayer::Particles3);
+            }
+
+            // Draw particles Rain
+            {
+                ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureParticlesRain"].Get());
+
+                auto passCB = mCurrFrameResource->PassCB->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+                CD3DX12_GPU_DESCRIPTOR_HANDLE handle(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
+                handle.Offset(15 + currParticleRainReadBuffer * 2 + 1, mCbvSrvDescriptorSize);
+                mCommandList->SetGraphicsRootDescriptorTable(1, handle);
+
+                D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+                mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetPipelineState(mPSOs["particlesRain"].Get());
+
+                DrawParticles(*mParticleSystemRain, RenderLayer::RainParticles);
 
                 // Indicate a state transition on the resource usage.
                 auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -3747,6 +3809,26 @@ void Engine::UpdateParticleEmitter3CB(const GameTimer& gt)
     currPassCB->CopyData(0, emitterConstPass);
 }
 
+void Engine::UpdateParticleEmitter4CB(const GameTimer& gt)
+{
+    EmitterConstants emitterConstPass;
+
+    emitterConstPass.Position = mParticleSystemRain->emitterData.Position;
+    emitterConstPass.DeltaTime = gt.DeltaTime();
+    emitterConstPass.GravityForce = mParticleSystemRain->emitterData.GravityForce;
+    emitterConstPass.SystemID = mParticleSystemRain->emitterData.SystemID;
+    emitterConstPass.StartColor = mParticleSystemRain->emitterData.StartColor;
+    emitterConstPass.EndColor = mParticleSystemRain->emitterData.EndColor;
+    emitterConstPass.StartSize = mParticleSystemRain->emitterData.StartSize;
+    emitterConstPass.EndSize = mParticleSystemRain->emitterData.EndSize;
+    emitterConstPass.MaxParticles = mParticleSystemRain->emitterData.MaxParticles;
+    emitterConstPass.EmitterIsActive = mParticleSystemRain->emitterData.EmitterIsActive;
+    emitterConstPass.TotalTime = gt.TotalTime();
+
+    auto currPassCB = mCurrFrameResource->Emitter4CB.get();
+    currPassCB->CopyData(0, emitterConstPass);
+}
+
 void Engine::UpdatePostProcessingCB(const GameTimer& gt)
 {
     PostProcessingConstants constPass;
@@ -4310,6 +4392,22 @@ void Engine::LoadTextures()
         mCommandList.Get(), TerrainHeight->Filename.c_str(),
         TerrainHeight->Resource, TerrainHeight->UploadHeap), true);
     mTextures[TerrainHeight->Name] = std::move(TerrainHeight);
+
+    auto RainTex = std::make_unique<Texture>();
+    RainTex->Name = "RainTex";
+    RainTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\RainTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), RainTex->Filename.c_str(),
+        RainTex->Resource, RainTex->UploadHeap), true);
+    mTextures[RainTex->Name] = std::move(RainTex);
+
+    auto RainCircleTex = std::make_unique<Texture>();
+    RainCircleTex->Name = "RainCircleTex";
+    RainCircleTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\RainCircleTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), RainCircleTex->Filename.c_str(),
+        RainCircleTex->Resource, RainCircleTex->UploadHeap), true);
+    mTextures[RainCircleTex->Name] = std::move(RainCircleTex);
 }
 
 void Engine::BuildShadowMaps()
@@ -4339,7 +4437,7 @@ void Engine::BuildDescriptorHeaps()
     // Create particles SRV/UAV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvParticlesHeapDesc = {};
-    srvParticlesHeapDesc.NumDescriptors = 35;
+    srvParticlesHeapDesc.NumDescriptors = 40;
     srvParticlesHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvParticlesHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvParticlesHeapDesc, IID_PPV_ARGS(&mParticlesSrvUavHeap)));
@@ -4391,8 +4489,8 @@ void Engine::BuildShadowMapsDescriptors()
     dsvCpuStart = mDsvHeap->GetCPUDescriptorHandleForHeapStart();
 
     mShadowMapScene6->BuildDescriptors(
-        CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, 21, mCbvSrvUavDescriptorSize),
-        CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, 21, mCbvSrvUavDescriptorSize),
+        CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, 26, mCbvSrvUavDescriptorSize),
+        CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, 26, mCbvSrvUavDescriptorSize),
         CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 6, mDsvDescriptorSize));
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSponzaSrvHeap->GetCPUDescriptorHandleForHeapStart());
@@ -4537,7 +4635,7 @@ void Engine::UploadTextures2()
     auto ParticleTex = mTextures["ParticleTex"]->Resource;
 
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptorParticles(mParticlesSrvUavHeap->GetCPUDescriptorHandleForHeapStart());
-    hDescriptorParticles.Offset(16, mCbvSrvDescriptorSize);
+    hDescriptorParticles.Offset(21, mCbvSrvDescriptorSize);
 
     srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srvDesc1.Format = ParticleTex->GetDesc().Format;
@@ -4924,6 +5022,31 @@ void Engine::UploadTextures3()
     srvDesc1.Texture2D.MostDetailedMip = 0;
     srvDesc1.Texture2D.MipLevels = TerrainHeight->GetDesc().MipLevels;
     md3dDevice->CreateShaderResourceView(TerrainHeight.Get(), &srvDesc1, hDescriptor);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptorParticles(mParticlesSrvUavHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptorParticles.Offset(27, mCbvSrvDescriptorSize);
+
+    auto RainTex = mTextures["RainTex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = RainTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = RainTex->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(RainTex.Get(), &srvDesc1, hDescriptorParticles);
+
+    hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
+
+    auto RainCircleTex = mTextures["RainCircleTex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = RainCircleTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = RainCircleTex->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(RainCircleTex.Get(), &srvDesc1, hDescriptorParticles);
+
+    hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
 }
 
 
@@ -5003,6 +5126,11 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTable2Scene13;
     texTable2Scene13.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableParticlesRain0;
+    texTableParticlesRain0.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 2, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTableParticlesRain1;
+    texTableParticlesRain1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -5044,6 +5172,8 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_PARAMETER slotRootParameterObjectsScene13[5];
     CD3DX12_ROOT_PARAMETER slotRootParameterOctreeScene13[2];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterParticlesRain[4];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -5188,6 +5318,11 @@ void Engine::BuildRootSignature()
     slotRootParameterOctreeScene13[0].InitAsConstantBufferView(0);
     slotRootParameterOctreeScene13[1].InitAsConstantBufferView(1);
 
+    slotRootParameterParticlesRain[0].InitAsDescriptorTable(1, &texTableParticlesRain0);
+    slotRootParameterParticlesRain[1].InitAsDescriptorTable(1, &texTableParticlesRain1);
+    slotRootParameterParticlesRain[2].InitAsConstantBufferView(0);
+    slotRootParameterParticlesRain[3].InitAsConstantBufferView(1);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -5302,6 +5437,10 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescParticlesRain(4, slotRootParameterParticlesRain,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     CreateRootSignature(rootSigDesc, "mRootSignature");
     CreateRootSignature(rootSigDesc2, "mRootSignatureLight");
@@ -5331,6 +5470,7 @@ void Engine::BuildRootSignature()
     CreateRootSignature(rootSigDescMoreLight, "mRootSignatureMoreLight");
     CreateRootSignature(rootSigDescObjectsScene13, "mRootSignatureObjectsScene13");
     CreateRootSignature(rootSigDescOctreeScene13, "mRootSignatureOctreeScene13");
+    CreateRootSignature(rootSigDescParticlesRain, "mRootSignatureParticlesRain");
 }
 
 
@@ -5369,11 +5509,16 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["particlesForwardGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForward.hlsl", nullptr, "GS", "gs_5_1");
     mShaders["particlesForwardPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForward.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["particlesRainVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesRain.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["particlesRainGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesRain.hlsl", nullptr, "GS", "gs_5_1");
+    mShaders["particlesRainPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesRain.hlsl", nullptr, "PS", "ps_5_1");
+
     mShaders["particlesForwardVertexLightingVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForwardVertexLighting.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["particlesForwardVertexLightingGS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForwardVertexLighting.hlsl", nullptr, "GS", "gs_5_1");
     mShaders["particlesForwardVertexLightingPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ParticlesForwardVertexLighting.hlsl", nullptr, "PS", "ps_5_1");
 
     mShaders["particlesCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeParticles.hlsl", nullptr, "CS_UpdateParticles", "cs_5_1");
+    mShaders["particlesRainCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeParticlesRain.hlsl", nullptr, "CS_UpdateParticles", "cs_5_1");
 
     mShaders["particlesArgsCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ComputeArgsParticles.hlsl", nullptr, "CS_UpdateArgs", "cs_5_1");
 
@@ -7984,6 +8129,54 @@ void Engine::BuildPSOs()
         mShaders["Scene13OcTreePS"]->GetBufferSize()
     };
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&scene13OctreePsoDesc, IID_PPV_ARGS(&mPSOs["Scene13OctreePSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesRainPsoDesc;
+    ZeroMemory(&particlesRainPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    particlesRainPsoDesc.pRootSignature = mRootSignatures["mRootSignatureParticlesRain"].Get();
+    particlesRainPsoDesc.InputLayout = { mParticlesInputLayout.data(), (UINT)mParticlesInputLayout.size() };
+    particlesRainPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesRainVS"]->GetBufferPointer()),
+        mShaders["particlesRainVS"]->GetBufferSize()
+    };
+    particlesRainPsoDesc.GS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesRainGS"]->GetBufferPointer()),
+        mShaders["particlesRainGS"]->GetBufferSize()
+    };
+    particlesRainPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["particlesRainPS"]->GetBufferPointer()),
+        mShaders["particlesRainPS"]->GetBufferSize()
+    };
+    particlesRainPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    particlesRainPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    particlesRainPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    particlesRainPsoDesc.RasterizerState.DepthClipEnable = TRUE;
+    particlesRainPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    particlesRainPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    particlesRainPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    particlesRainPsoDesc.SampleMask = UINT_MAX;
+    particlesRainPsoDesc.NumRenderTargets = 1;
+    particlesRainPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    particlesRainPsoDesc.SampleDesc.Count = 1;
+    particlesRainPsoDesc.SampleDesc.Quality = 0;
+    particlesRainPsoDesc.DSVFormat = mDepthStencilFormat;
+    particlesRainPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesRainPsoDesc, IID_PPV_ARGS(&mPSOs["particlesRain"])));
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC particlesRainComputePsoDesc;
+    ZeroMemory(&particlesRainComputePsoDesc, sizeof(D3D12_COMPUTE_PIPELINE_STATE_DESC));
+    particlesRainComputePsoDesc.pRootSignature = mRootSignatures["mRootSignatureParticlesCompute"].Get();
+    particlesRainComputePsoDesc.CS = {
+        reinterpret_cast<BYTE*>(mShaders["particlesRainCS"]->GetBufferPointer()),
+        mShaders["particlesRainCS"]->GetBufferSize()
+    };
+    particlesRainComputePsoDesc.NodeMask = 0;
+    particlesRainComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+
+    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesRainComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeParticlesRain"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -8126,7 +8319,7 @@ void Engine::BuildMaterials()
     auto particleMat = std::make_unique<Material>();
     particleMat->Name = "particleMaterial";
     particleMat->MatCBIndex = 4;
-    particleMat->DiffuseSrvHeapIndex = 16;
+    particleMat->DiffuseSrvHeapIndex = 21;
     particleMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     particleMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
     particleMat->Roughness = 0.125f;
@@ -8136,7 +8329,7 @@ void Engine::BuildMaterials()
     auto particle2Mat = std::make_unique<Material>();
     particle2Mat->Name = "particle2Material";
     particle2Mat->MatCBIndex = 4;
-    particle2Mat->DiffuseSrvHeapIndex = 17;
+    particle2Mat->DiffuseSrvHeapIndex = 22;
     particle2Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     particle2Mat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
     particle2Mat->Roughness = 0.125f;
@@ -8156,7 +8349,7 @@ void Engine::BuildMaterials()
     auto smokeMat = std::make_unique<Material>();
     smokeMat->Name = "smokeMaterial";
     smokeMat->MatCBIndex = 6;
-    smokeMat->DiffuseSrvHeapIndex = 18;
+    smokeMat->DiffuseSrvHeapIndex = 23;
     smokeMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     smokeMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
     smokeMat->Roughness = 0.125f;
@@ -8166,7 +8359,7 @@ void Engine::BuildMaterials()
     auto bonfireMat = std::make_unique<Material>();
     bonfireMat->Name = "bonfireMaterial";
     bonfireMat->MatCBIndex = 7;
-    bonfireMat->DiffuseSrvHeapIndex = 19;
+    bonfireMat->DiffuseSrvHeapIndex = 24;
     bonfireMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     bonfireMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
     bonfireMat->Roughness = 0.125f;
@@ -8176,7 +8369,7 @@ void Engine::BuildMaterials()
     auto grassMat = std::make_unique<Material>();
     grassMat->Name = "grassMaterial";
     grassMat->MatCBIndex = 8;
-    grassMat->DiffuseSrvHeapIndex = 20;
+    grassMat->DiffuseSrvHeapIndex = 25;
     grassMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
     grassMat->FresnelR0 = DirectX::XMFLOAT3(0.01f, 0.01f, 0.01f);
     grassMat->Roughness = 0.125f;
@@ -8244,6 +8437,16 @@ void Engine::BuildMaterials()
     TerrainMat->Roughness = 0.9f;
 
     mMaterials["TerrainMaterial"] = std::move(TerrainMat);
+
+    auto RainMat = std::make_unique<Material>();
+    RainMat->Name = "RainMaterial";
+    RainMat->MatCBIndex = 15;
+    RainMat->DiffuseSrvHeapIndex = 27;
+    RainMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    RainMat->FresnelR0 = DirectX::XMFLOAT3(0.04f, 0.04f, 0.04f);
+    RainMat->Roughness = 0.9f;
+
+    mMaterials["RainMaterial"] = std::move(RainMat);
 }
 
 void Engine::BuildRenderItems()
@@ -8827,6 +9030,20 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::Scene13Octree].push_back(octreeScene13Ritem.get());
     mAllRitems.push_back(std::move(octreeScene13Ritem));
+
+    auto rainParticlesRitem = std::make_unique<RenderItem>();
+    rainParticlesRitem->ObjCBIndex = 772;
+    rainParticlesRitem->World = MathHelper::Identity4x4();
+    rainParticlesRitem->TexTransform = MathHelper::Identity4x4();
+    rainParticlesRitem->Mat = mMaterials["RainMaterial"].get();
+    rainParticlesRitem->Geo = mGeometries["particlesGeo4"].get();
+    rainParticlesRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_POINTLIST;
+    rainParticlesRitem->IndexCount = rainParticlesRitem->Geo->DrawArgs["points4"].IndexCount;
+    rainParticlesRitem->StartIndexLocation = rainParticlesRitem->Geo->DrawArgs["points4"].StartIndexLocation;
+    rainParticlesRitem->BaseVertexLocation = rainParticlesRitem->Geo->DrawArgs["points4"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::RainParticles].push_back(rainParticlesRitem.get());
+    mAllRitems.push_back(std::move(rainParticlesRitem));
 
 
     for (int i = 0; i < mAllRitems.size(); ++i)
@@ -9439,6 +9656,19 @@ void Engine::InitParticleSystem()
     mParticleSystemSmoke->BuildSystemVertexBuffers(mGeometries,
         md3dDevice,
         mCommandList);
+
+    mParticleSystemRain = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 30.f, 0.f), 4);
+
+    mParticleSystemRain->InitializeSystem(md3dDevice,
+        particleRainBuffers,
+        particleRainArgsBuffer,
+        mParticlesSrvUavHeap,
+        mCbvSrvUavDescriptorSize,
+        3);
+
+    mParticleSystemRain->BuildSystemVertexBuffers(mGeometries,
+        md3dDevice,
+        mCommandList);
 }
 
 void Engine::CreateRootSignature(CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc, std::string rootSigName)
@@ -9811,7 +10041,7 @@ void Engine::DrawRenderItemsScene6Shadows(ID3D12GraphicsCommandList* cmdList, co
             D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
 
             CD3DX12_GPU_DESCRIPTOR_HANDLE shadowMap(mParticlesSrvUavHeap->GetGPUDescriptorHandleForHeapStart());
-            shadowMap.Offset(21, mCbvSrvDescriptorSize);
+            shadowMap.Offset(26, mCbvSrvDescriptorSize);
             cmdList->SetGraphicsRootDescriptorTable(0, shadowMap);
             cmdList->SetGraphicsRootDescriptorTable(1, tex);
             cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
