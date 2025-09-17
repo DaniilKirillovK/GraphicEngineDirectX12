@@ -218,6 +218,7 @@ public:
    // std::unique_ptr<UploadBuffer<FrameConstants>> FrameCB = nullptr;
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<PassConstants>> PassCBScene3Camera2 = nullptr;
+    std::unique_ptr<UploadBuffer<PassConstants>> PassCBScene13Camera2 = nullptr;
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> PassCBShadows = nullptr;
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> PassCBShadowsCascaded = nullptr;
     std::unique_ptr<UploadBuffer<PassConstantsShadows>> ShadowPassCB = nullptr;
@@ -231,6 +232,7 @@ public:
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter3CB = nullptr;
     std::unique_ptr<UploadBuffer<EmitterConstants>> Emitter4CB = nullptr;
     std::unique_ptr<UploadBuffer<InstanceData>> InstancingCB = nullptr;
+    std::unique_ptr<UploadBuffer<InstanceDataGameObject>> InstancingScene13CB = nullptr;
     std::unique_ptr<UploadBuffer<PostProcessingConstants>> PostProcessingCB = nullptr;
     std::unique_ptr<UploadBuffer<NoiseComputeConstants>> NoiseCB = nullptr;
     std::unique_ptr<UploadBuffer<MoreSamplersConstants>> SamplersCB = nullptr;

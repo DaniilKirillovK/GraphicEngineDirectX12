@@ -125,6 +125,7 @@ protected:
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
     virtual void CreateScene3RTV() {}
+    virtual void CreateScene13RTV() {}
 
     virtual void InitInstanceBuffer() {}
     virtual void InitInstanceBufferRMDemo() {}
@@ -162,6 +163,10 @@ protected:
     ID3D12Resource* Scene3RenderTargetBuffer()const;
     D3D12_CPU_DESCRIPTOR_HANDLE Scene3RenderTargetBufferView()const;
     CD3DX12_CPU_DESCRIPTOR_HANDLE DepthStencilViewScene3()const;
+
+    ID3D12Resource* Scene13RenderTargetBuffer()const;
+    D3D12_CPU_DESCRIPTOR_HANDLE Scene13RenderTargetBufferView()const;
+    CD3DX12_CPU_DESCRIPTOR_HANDLE DepthStencilViewScene13()const;
 
     void CalculateFrameStats();
 
@@ -206,6 +211,9 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource> mRenderTargetBufferScene3;
     Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBufferScene3;
+    
+    Microsoft::WRL::ComPtr<ID3D12Resource> mRenderTargetBufferScene13;
+    Microsoft::WRL::ComPtr<ID3D12Resource> mDepthStencilBufferScene13;
 
     GBuffer gBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceBuffer;

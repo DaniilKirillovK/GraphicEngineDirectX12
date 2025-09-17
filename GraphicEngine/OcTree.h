@@ -9,6 +9,7 @@
 struct GameObject
 {
     DirectX::BoundingBox boundingBox;
+    int objectID;
 };
 
 struct DebugVertexOcTree 
@@ -51,12 +52,16 @@ public:
     void CollectDebugNodes(OctreeNode* node, std::vector<DebugVertexOcTree>& vertices,
         std::vector<uint16_t>& indices) const;
 
+    void OctreeCulling(OctreeNode* node,
+        const DirectX::BoundingFrustum& frustum,
+        std::vector<GameObject*>& visibleObjects);
+
 private:
     std::unique_ptr<OctreeNode> m_Root;
     Microsoft::WRL::ComPtr<ID3D12Device> mDevice;
 
-    uint32_t m_MaxDepth = 8;
-    uint32_t m_MinObjectsPerNode = 2;
+    uint32_t m_MaxDepth = 3;
+    uint32_t m_MinObjectsPerNode = 4;
     uint32_t m_NodeCount = 0;
 
     bool m_DrawDebug = false;

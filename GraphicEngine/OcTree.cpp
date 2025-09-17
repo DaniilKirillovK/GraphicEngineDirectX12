@@ -201,3 +201,31 @@ void Octree::CollectDebugNodes(OctreeNode* node,
         }
     }
 }
+
+void Octree::OctreeCulling(OctreeNode* node, const DirectX::BoundingFrustum& frustum, std::vector<GameObject*>& visibleObjects)
+{
+    if (!node) return;
+
+    auto containment = frustum.Contains(node->Bounds);
+
+    if (containment == DirectX::DISJOINT) 
+    {
+        return;
+    }
+
+    if (containment != DirectX::DISJOINT && node->IsLeaf)
+    {
+        for (int i = 0; i < node->Objects.size(); ++i)
+        {
+            visibleObjects.push_back(node->Objects[i]);
+        }
+    }
+
+    if (!node->IsLeaf) 
+    {
+        for (int i = 0; i < 8; ++i) 
+        {
+            OctreeCulling(node->Children[i].get(), frustum, visibleObjects);
+        }
+    }
+}

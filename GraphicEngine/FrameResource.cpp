@@ -9,6 +9,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     //  FrameCB = std::make_unique<UploadBuffer<FrameConstants>>(device, 1, true);
     PassCB = std::make_unique<UploadBuffer<PassConstants>>(device, passCount, true);
     PassCBScene3Camera2 = std::make_unique<UploadBuffer<PassConstants>>(device, 1, true);
+    PassCBScene13Camera2 = std::make_unique<UploadBuffer<PassConstants>>(device, 1, true);
     PassCBShadows = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);
     PassCBShadowsCascaded = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 4, true);
     ShadowPassCB = std::make_unique<UploadBuffer<PassConstantsShadows>>(device, 1, true);
@@ -22,6 +23,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     Emitter3CB = std::make_unique<UploadBuffer<EmitterConstants>>(device, 1, true);
     Emitter4CB = std::make_unique<UploadBuffer<EmitterConstants>>(device, 1, true);
     InstancingCB = std::make_unique<UploadBuffer<InstanceData>>(device, 900, false);
+    InstancingScene13CB = std::make_unique<UploadBuffer<InstanceDataGameObject>>(device, 150, false);
     PostProcessingCB = std::make_unique<UploadBuffer<PostProcessingConstants>>(device, 1, true);
     NoiseCB = std::make_unique<UploadBuffer<NoiseComputeConstants>>(device, 1, true);
     SamplersCB = std::make_unique<UploadBuffer<MoreSamplersConstants>>(device, 1, true);

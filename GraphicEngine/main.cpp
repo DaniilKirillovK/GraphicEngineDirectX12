@@ -141,8 +141,10 @@ private:
     void OnKeyboardInput(const GameTimer& gt);
     void UpdateCamera(const GameTimer& gt);
     void SetCamera2Scene3();
+    void SetCamera2Scene13();
     void AnimateMaterials(const GameTimer& gt);
     void UpdateInstanceData(const GameTimer& gt);
+    void UpdateInstanceDataScene13(const GameTimer& gt);
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateLightObjectCBs(const GameTimer& gt);
     void UpdateLightObjectCBMoreLight(const GameTimer& gt);
@@ -152,6 +154,7 @@ private:
     void UpdateMainPassCBMoreLightScene10(const GameTimer& gt);
     void UpdateMainPassCBParticles(const GameTimer& gt);
     void UpdateMainPassCBScene3Camera2(const GameTimer& gt);
+    void UpdateMainPassCBScene13Camera2(const GameTimer& gt);
     void UpdateMainPassCBShadows(const GameTimer& gt);
     void UpdateMainPassCBShadowsCascaded(const GameTimer& gt);
     void UpdateShadowPassCB(const GameTimer& gt);
@@ -217,6 +220,7 @@ private:
 
     virtual void InitGBuffer() override;
     virtual void CreateScene3RTV() override;
+    virtual void CreateScene13RTV() override;
     void ResizeGBuffer();
 
     virtual void InitInstanceBuffer() override;
@@ -317,6 +321,7 @@ private:
 
     Camera mCamera;
     Camera mCamera2Scene3;
+    Camera mCamera2Scene13;
 
     Camera mCameraFrustum3;
     Camera mCameraFrustum2;
@@ -579,6 +584,8 @@ bool isDistantAdaptiveTessScene12 = true;
 float displacementScaleScene12 = 1.0f;
 
 bool isDebugOctreeScene13 = false;
+bool isActiveOctreeCullingInfoScene13 = false;
+bool isUsingOctreeCullingScene13 = false;
 
 
 
@@ -670,7 +677,9 @@ bool Engine::Initialize()
     mCameraShadowMap2048.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
 
     mCamera2Scene3.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    mCamera2Scene13.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
     SetCamera2Scene3();
+    SetCamera2Scene13();
     DirectX::BoundingFrustum::CreateFromMatrix(mCamFrustum, mCamera.GetProj());
 
     if (!D3D12Engine::Initialize())
@@ -790,6 +799,11 @@ void Engine::Update(const GameTimer& gt)
     {
         UpdateHeightMapCB();
     }
+    if (activeSceneID == 13)
+    {
+        UpdateMainPassCBScene13Camera2(gt);
+        UpdateInstanceDataScene13(gt);
+    }
     timeScene2 = ParseTime(gt);
 }
 
@@ -851,6 +865,12 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
         mCommandList->ResourceBarrier(1, &barrierClear);
     }
+    if (activeSceneID == 13)
+    {
+        auto barrierClear = CD3DX12_RESOURCE_BARRIER::Transition(Scene13RenderTargetBuffer(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &barrierClear);
+    }
 
     
     mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
@@ -862,6 +882,7 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 5, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
         mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 6, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
         mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 7, mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+        mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 8, mRtvDescriptorSize), DirectX::Colors::LightSkyBlue, 0, nullptr);
     }
 
     auto barrier1ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -877,6 +898,13 @@ void Engine::Draw(const GameTimer& gt)
     CD3DX12_RESOURCE_BARRIER barriersClearClose[] = { barrier1ClearEnd, barrier2ClearEnd, barrier3ClearEnd, barrier4ClearEnd, barrier5ClearEnd };
     mCommandList->ResourceBarrier(5, barriersClearClose);
 
+    if (activeSceneID == 13)
+    {
+        auto barrierClear = CD3DX12_RESOURCE_BARRIER::Transition(Scene13RenderTargetBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        mCommandList->ResourceBarrier(1, &barrierClear);
+    }
+
 
     if (isFirstExecution)
     {
@@ -891,6 +919,8 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
     if (activeSceneID == 3)
         mCommandList->ClearDepthStencilView(DepthStencilViewScene3(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+    if (activeSceneID == 13)
+        mCommandList->ClearDepthStencilView(DepthStencilViewScene13(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
     D3D12_CPU_DESCRIPTOR_HANDLE rtvs[] = 
     {
@@ -2118,49 +2148,85 @@ void Engine::Draw(const GameTimer& gt)
 
     else if (activeSceneID == 13)
     {
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
-
-        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureObjectsScene13"].Get());
-
-        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-        mCommandList->ResourceBarrier(1, &backBuffer);
-
-        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
-
-        mCommandList->RSSetViewports(1, &viewports[4]);
-        mCommandList->RSSetScissorRects(1, &rects[4]);
-
-        passCB = mCurrFrameResource->PassCB->Resource();
-        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
-        CD3DX12_GPU_DESCRIPTOR_HANDLE instanceTableHandle(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-        instanceTableHandle.Offset(57, mCbvSrvDescriptorSize);
-        mCommandList->SetGraphicsRootDescriptorTable(4, instanceTableHandle);
-
-        mCommandList->SetPipelineState(mPSOs["Scene13ObjectsPSO"].Get());
-
-        DrawRenderItemsScene13(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene13]);
-
-
-        // Draw Octree
-        if (isDebugOctreeScene13)
+        // Main camera Draw call
         {
-            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureOctreeScene13"].Get());
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureObjectsScene13"].Get());
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
 
             passCB = mCurrFrameResource->PassCB->Resource();
-            mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+            auto instanceCB = mCurrFrameResource->InstancingScene13CB->Resource();
+            mCommandList->SetGraphicsRootShaderResourceView(4, instanceCB->GetGPUVirtualAddress());
 
-            mCommandList->SetPipelineState(mPSOs["Scene13OctreePSO"].Get());
+            mCommandList->SetPipelineState(mPSOs["Scene13ObjectsPSO"].Get());
 
-            DrawOctreeScene13(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene13Octree]);
+            DrawRenderItemsScene13(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene13]);
+
+
+            // Draw Octree
+            if (isDebugOctreeScene13)
+            {
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureOctreeScene13"].Get());
+
+                passCB = mCurrFrameResource->PassCB->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+                mCommandList->SetPipelineState(mPSOs["Scene13OctreePSO"].Get());
+
+                DrawOctreeScene13(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene13Octree]);
+            }
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
         }
 
-        // Indicate a state transition on the resource usage.
-        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-        mCommandList->ResourceBarrier(1, &barrier1);
+        // Second camera Draw call
+        if (isActiveOctreeCullingInfoScene13)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = Scene13RenderTargetBufferView();
+            auto passCBCamera2 = mCurrFrameResource->PassCBScene13Camera2->Resource();
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureObjectsScene13"].Get());
+
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCBCamera2->GetGPUVirtualAddress());
+            auto instanceCB = mCurrFrameResource->InstancingScene13CB->Resource();
+            mCommandList->SetGraphicsRootShaderResourceView(4, instanceCB->GetGPUVirtualAddress());
+
+            auto rtvBuffer = CD3DX12_RESOURCE_BARRIER::Transition(Scene13RenderTargetBuffer(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &rtvBuffer);
+
+            auto dsvCamera2 = DepthStencilViewScene13();
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsvCamera2);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["Scene13ObjectsPSO"].Get());
+
+            DrawRenderItemsScene13(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene13]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(Scene13RenderTargetBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
     }
     
 
@@ -2483,6 +2549,12 @@ void Engine::SetCamera2Scene3()
     mCamera2Scene3.UpdateViewMatrix();
 }
 
+void Engine::SetCamera2Scene13()
+{
+    mCamera2Scene13.LookAt(DirectX::XMFLOAT3(40.0f, 40.0f, 40.0f), DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f), DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f));
+    mCamera2Scene13.UpdateViewMatrix();
+}
+
 void Engine::AnimateMaterials(const GameTimer& gt)
 {
     auto animateMat = mMaterials["metalAnimate"].get();
@@ -2547,6 +2619,48 @@ void Engine::UpdateInstanceData(const GameTimer& gt)
         }
 
         mAllRitems[13]->InstanceCount = visibleInstanceCount;
+    }
+}
+
+void Engine::UpdateInstanceDataScene13(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    auto det = XMMatrixDeterminant(view);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&det, view);
+
+    auto currInstanceBuffer = mCurrFrameResource->InstancingScene13CB.get();
+    {
+        int visibleInstanceCount = 0;
+
+        DirectX::XMFLOAT4X4 worldM = MathHelper::Identity4x4();
+        DirectX::XMMATRIX world = DirectX::XMLoadFloat4x4(&worldM);
+        auto det2 = XMMatrixDeterminant(world);
+        DirectX::XMMATRIX invWorld = DirectX::XMMatrixInverse(&det2, world);
+
+        DirectX::XMMATRIX viewToLocal = DirectX::XMMatrixMultiply(invView, invWorld);
+
+        DirectX::BoundingFrustum camFrustum;
+        DirectX::BoundingFrustum::CreateFromMatrix(camFrustum, mCamera.GetProj());
+
+        DirectX::BoundingFrustum localSpaceFrustum;
+        camFrustum.Transform(localSpaceFrustum, viewToLocal);
+
+        std::vector<GameObject*> visibleObjects;
+
+        octreeScene13->OctreeCulling(octreeScene13->GetRoot(), localSpaceFrustum, visibleObjects);
+
+        for (int i = 0; i < visibleObjects.size(); ++i)
+        {
+            InstanceDataGameObject data;
+            DirectX::XMMATRIX worldMatrix = DirectX::XMMatrixIdentity();
+            worldMatrix = DirectX::XMLoadFloat4x4(&instancesDataOcTree[visibleObjects[i]->objectID].WorldMatrix);
+
+            DirectX::XMStoreFloat4x4(&data.WorldMatrix, worldMatrix);
+            data.Color = instancesDataOcTree[visibleObjects[i]->objectID].Color;
+            currInstanceBuffer->CopyData(visibleInstanceCount++, data);
+        }
+
+        mAllRitems[770]->InstanceCount = visibleInstanceCount;
     }
 }
 
@@ -3284,6 +3398,51 @@ void Engine::UpdateMainPassCBScene3Camera2(const GameTimer& gt)
     mMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
     auto currPassCB = mCurrFrameResource->PassCBScene3Camera2.get();
+    currPassCB->CopyData(0, mMainPassCB);
+}
+
+void Engine::UpdateMainPassCBScene13Camera2(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCamera2Scene13.GetView();
+    DirectX::XMMATRIX proj = mCamera2Scene13.GetProj();
+
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
+
+    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mMainPassCB.EyePosW = mCamera2Scene13.GetPosition3f();
+    mMainPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+    mMainPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+    mMainPassCB.NearZ = 1.0f;
+    mMainPassCB.FarZ = 1000.0f;
+    mMainPassCB.TotalTime = gt.TotalTime();
+    mMainPassCB.DeltaTime = gt.DeltaTime();
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+
+    // Directional lights
+    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
+    mMainPassCB.Lights[0].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+    mMainPassCB.Lights[1].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+    mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+    mMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    auto currPassCB = mCurrFrameResource->PassCBScene13Camera2.get();
     currPassCB->CopyData(0, mMainPassCB);
 }
 
@@ -5313,7 +5472,7 @@ void Engine::BuildRootSignature()
     slotRootParameterObjectsScene13[1].InitAsConstantBufferView(0);
     slotRootParameterObjectsScene13[2].InitAsConstantBufferView(1);
     slotRootParameterObjectsScene13[3].InitAsConstantBufferView(2);
-    slotRootParameterObjectsScene13[4].InitAsDescriptorTable(1, &texTable2Scene13);
+    slotRootParameterObjectsScene13[4].InitAsShaderResourceView(0, 1);
 
     slotRootParameterOctreeScene13[0].InitAsConstantBufferView(0);
     slotRootParameterOctreeScene13[1].InitAsConstantBufferView(1);
@@ -6898,7 +7057,7 @@ void Engine::BuildScene13Geometry()
 {
     GeometryGenerator geoGen;
 
-    GeometryGenerator::MeshData sphereMesh = geoGen.CreateSphere(1.0f, 10, 10, 0, 0, 0);
+    GeometryGenerator::MeshData sphereMesh = geoGen.CreateSphere(1.0f, 250, 250, 0, 0, 0);
 
     UINT totalIndexCount = 0;
     UINT totalVertexCount = 0;
@@ -6958,7 +7117,7 @@ void Engine::BuildScene13Geometry()
 
 void Engine::BuildScene13InstanceBuffer()
 {
-    int instanceCount = 25;
+    int instanceCount = 150;
     std::vector<InstanceDataGameObject> instanceData(instanceCount);
     for (UINT i = 0; i < instanceCount; ++i)
     {
@@ -6975,6 +7134,7 @@ void Engine::BuildScene13InstanceBuffer()
         boundingBox.Center = DirectX::XMFLOAT3(xTranslation, yTranslation, zTranslation);
         boundingBox.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
         gameObject->boundingBox = boundingBox;
+        gameObject->objectID = i;
         gameObjects.push_back(gameObject);
     }
     instancesDataOcTree = instanceData;
@@ -7029,7 +7189,7 @@ void Engine::BuildScene13InstanceBuffer()
     D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
     srvDesc.Format = DXGI_FORMAT_UNKNOWN;
     srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-    srvDesc.Buffer.NumElements = 25;
+    srvDesc.Buffer.NumElements = 150;
     srvDesc.Buffer.StructureByteStride = sizeof(InstanceDataGameObject);
     srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 
@@ -9167,6 +9327,15 @@ void Engine::InitGBuffer()
         &optClear,
         IID_PPV_ARGS(mDepthStencilBufferScene3.GetAddressOf())));
 
+    auto tmp3 = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    ThrowIfFailed(md3dDevice->CreateCommittedResource(
+        &tmp3,
+        D3D12_HEAP_FLAG_NONE,
+        &depthStencilDesc,
+        D3D12_RESOURCE_STATE_COMMON,
+        &optClear,
+        IID_PPV_ARGS(mDepthStencilBufferScene13.GetAddressOf())));
+
 
     D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc;
     dsvDesc.Flags = D3D12_DSV_FLAG_NONE;
@@ -9176,6 +9345,7 @@ void Engine::InitGBuffer()
     md3dDevice->CreateDepthStencilView(mDepthStencilBuffer.Get(), &dsvDesc, DepthStencilView());
 
     md3dDevice->CreateDepthStencilView(mDepthStencilBufferScene3.Get(), &dsvDesc, DepthStencilViewScene3());
+    md3dDevice->CreateDepthStencilView(mDepthStencilBufferScene13.Get(), &dsvDesc, DepthStencilViewScene13());
 
     gBuffer.gBufferDepth = mDepthStencilBuffer.Get();
 
@@ -9293,6 +9463,46 @@ void Engine::CreateScene3RTV()
     srvDRDesc.Texture2D.MostDetailedMip = 0;
     srvDRDesc.Texture2D.MipLevels = 1;
     md3dDevice->CreateShaderResourceView(Scene3RenderTargetBuffer(), &srvDRDesc, hDescriptor);
+}
+
+void Engine::CreateScene13RTV()
+{
+    D3D12_RESOURCE_DESC texDesc = {};
+    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Alignment = 0;
+    texDesc.Width = mClientWidth;
+    texDesc.Height = mClientHeight;
+    texDesc.DepthOrArraySize = 1;
+    texDesc.MipLevels = 1;
+    texDesc.Format = mBackBufferFormat;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    auto heapType = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        nullptr,
+        IID_PPV_ARGS(&mRenderTargetBufferScene13));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+    rtvHandle.Offset(8, mRtvDescriptorSize);
+
+    md3dDevice->CreateRenderTargetView(Scene13RenderTargetBuffer(), nullptr, rtvHandle);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(58, mCbvSrvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDRDesc = {};
+    srvDRDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDRDesc.Format = mBackBufferFormat;
+    srvDRDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDRDesc.Texture2D.MostDetailedMip = 0;
+    srvDRDesc.Texture2D.MipLevels = 1;
+    md3dDevice->CreateShaderResourceView(Scene13RenderTargetBuffer(), &srvDRDesc, hDescriptor);
 }
 
 void Engine::ResizeGBuffer()
@@ -10418,7 +10628,7 @@ void Engine::DrawRenderItemsScene13(ID3D12GraphicsCommandList* cmdList, const st
             cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
             cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
-            cmdList->DrawIndexedInstanced(ri->IndexCount, 25, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+            cmdList->DrawIndexedInstanced(ri->IndexCount, mAllRitems[770]->InstanceCount, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
     }
 }
@@ -11959,6 +12169,7 @@ void Engine::RenderUI()
         {
             ImGui::Text("");
             ImGui::Checkbox("Debug Octree", &isDebugOctreeScene13);
+            ImGui::Checkbox("Octree Culling Info", &isActiveOctreeCullingInfoScene13);
         }
     } ImGui::End();
 
@@ -12407,6 +12618,24 @@ void Engine::RenderUI()
             ImGui::ColorPicker3("Spot Color 1", colSpot1Scene10, ImGuiColorEditFlags_NoAlpha);
 
         } ImGui::End();
+    }
+    else if (activeSceneID == 13)
+    {
+        if (isActiveOctreeCullingInfoScene13)
+        {
+            ImVec2 size = ImVec2(WINDOW_WIDTH / 4, WINDOW_HEIGHT / 3);
+            ImVec2 pos = ImVec2(WINDOW_WIDTH / 2 - size.x / 2, 0);
+
+            ImGui::SetNextWindowPos(pos);
+            ImGui::SetNextWindowSize(size);
+            ImGui::SetNextWindowBgAlpha(0.5f);
+            if (ImGui::Begin("Octree Culling Info", &opened, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings))
+            {
+                CD3DX12_GPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                hDescriptor.Offset(58, mCbvSrvDescriptorSize);
+                ImGui::Image((ImTextureID)hDescriptor.ptr, ImVec2((float)304, (float)225));
+            } ImGui::End();
+        }
     }
 
     ImGui::Render();
