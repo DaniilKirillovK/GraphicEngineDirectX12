@@ -524,6 +524,7 @@ BuildScene10DebugGeometry();
 BuildScene10MoreLightGeometry();
 BuildScene12Geometry();
 BuildScene13Geometry();
+BuildScene14Geometry();
 BuildSponzaGeometryAndTextures();
 BuildBillboardSpritesGeometry();
 InitParticleSystem();

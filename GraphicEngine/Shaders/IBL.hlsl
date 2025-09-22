@@ -31,6 +31,7 @@ SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 
+
 float3 CalculateIBL(float3 N, float3 V, float4 albedo, float3 F0, float roughness, float metallic)
 {
     float3 R = reflect(-V, N);

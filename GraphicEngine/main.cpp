@@ -77,6 +77,7 @@ enum class RenderLayer : int
     Scene13 = 21,
     Scene13Octree = 22,
     RainParticles = 23,
+    Scene14 = 24,
     Count
 };
 
@@ -175,6 +176,7 @@ private:
     void UpdateLODCB(const GameTimer& gt);
     void UpdateTessCB();
     void UpdateHeightMapCB();
+    void UpdateTerrainCB();
     
     void UpdateLODScene3();
 
@@ -203,6 +205,8 @@ private:
     virtual void BuildScene13Geometry() override;
     void BuildScene13InstanceBuffer();
     void BuildScene13OctreeGeometry();
+
+    virtual void BuildScene14Geometry() override;
 
     virtual void BuildSponzaGeometryAndTextures() override;
     virtual void BuildPSOs() override;
@@ -249,6 +253,7 @@ private:
     void DrawRenderItemsScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene12(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene14(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawMoreLightGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -587,6 +592,9 @@ bool isDebugOctreeScene13 = false;
 bool isActiveOctreeCullingInfoScene13 = false;
 bool isUsingOctreeCullingScene13 = false;
 
+float displacementScaleScene14 = 1.0f;
+bool isWireframeScene14 = false;
+
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -665,8 +673,8 @@ Engine::~Engine()
 
 bool Engine::Initialize()
 {
-    mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 100.0f);
-    mCameraFrustum0.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 30.0f, 100.0f);
+    mCamera.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    mCameraFrustum0.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 30.0f, 1000.0f);
     mCameraFrustum1.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 20.0f, 30.0f);
     mCameraFrustum2.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 10.0f, 20.0f);
     mCameraFrustum3.SetLens(0.25f * MathHelper::Pi, AspectRatio(), 1.0f, 10.0f);
@@ -803,6 +811,10 @@ void Engine::Update(const GameTimer& gt)
     {
         UpdateMainPassCBScene13Camera2(gt);
         UpdateInstanceDataScene13(gt);
+    }
+    if (activeSceneID == 14)
+    {
+        UpdateTerrainCB();
     }
     timeScene2 = ParseTime(gt);
 }
@@ -1690,29 +1702,6 @@ void Engine::Draw(const GameTimer& gt)
                     D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
                 mCommandList->ResourceBarrier(1, &barrier2);
             }
-
-            // Draw Particles GPU
-            /*{
-                ID3D12DescriptorHeap* descriptorHeapsParticleRender[] = { mParticlesSrvUavHeap.Get() };
-                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapsParticleRender), descriptorHeapsParticleRender);
-
-                mCommandList->SetPipelineState(mPSOs["renderParticlesForwardGPU"].Get());
-
-                auto passCB = mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress();
-
-                D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
-
-                mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
-
-                mCommandList->RSSetViewports(1, &viewports[4]);
-                mCommandList->RSSetScissorRects(1, &rects[4]);
-
-                DrawParticlesGPU(*mParticleSystemSmoke, RenderLayer::Particles3, passCB);
-
-                auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-                mCommandList->ResourceBarrier(1, &barrier2);
-            }*/
         }
     }
 
@@ -2228,12 +2217,46 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->ResourceBarrier(1, &barrier1);
         }
     }
+
+    else if (activeSceneID == 14)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureTerrain"].Get());
+
+        if (!isWireframeScene14)
+            mCommandList->SetPipelineState(mPSOs["terrainPSO"].Get());
+        else mCommandList->SetPipelineState(mPSOs["terrainWireframePSO"].Get());
+
+        passCB = mCurrFrameResource->PassCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+        auto terrainCB = mCurrFrameResource->TerrainCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(4, terrainCB->GetGPUVirtualAddress());
+
+        DrawRenderItemsScene14(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene14]);
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        mCommandList->ResourceBarrier(1, &barrier1);
+    }
     
 
     // Draw screen quad
     if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
         && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9 && activeSceneID != 12
-        && activeSceneID != 13)
+        && activeSceneID != 13 && activeSceneID != 14)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -4098,6 +4121,16 @@ void Engine::UpdateHeightMapCB()
     currPassCB->CopyData(0, heightConst);
 }
 
+void Engine::UpdateTerrainCB()
+{
+    TerrainConstants terrainConst;
+
+    terrainConst.DisplacementScale = displacementScaleScene14;
+
+    auto currPassCB = mCurrFrameResource->TerrainCB.get();
+    currPassCB->CopyData(0, terrainConst);
+}
+
 void Engine::UpdateLODScene3()
 {
     float distance;
@@ -4567,6 +4600,30 @@ void Engine::LoadTextures()
         mCommandList.Get(), RainCircleTex->Filename.c_str(),
         RainCircleTex->Resource, RainCircleTex->UploadHeap), true);
     mTextures[RainCircleTex->Name] = std::move(RainCircleTex);
+
+    auto Terrain2Tex = std::make_unique<Texture>();
+    Terrain2Tex->Name = "Terrain2Tex";
+    Terrain2Tex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\Terrain2Tex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), Terrain2Tex->Filename.c_str(),
+        Terrain2Tex->Resource, Terrain2Tex->UploadHeap), true);
+    mTextures[Terrain2Tex->Name] = std::move(Terrain2Tex);
+
+    auto Terrain2Norm = std::make_unique<Texture>();
+    Terrain2Norm->Name = "Terrain2Norm";
+    Terrain2Norm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\Terrain2Normal.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), Terrain2Norm->Filename.c_str(),
+        Terrain2Norm->Resource, Terrain2Norm->UploadHeap), true);
+    mTextures[Terrain2Norm->Name] = std::move(Terrain2Norm);
+
+    auto Terrain2Height = std::make_unique<Texture>();
+    Terrain2Height->Name = "Terrain2Height";
+    Terrain2Height->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\Terrain2Height.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), Terrain2Height->Filename.c_str(),
+        Terrain2Height->Resource, Terrain2Height->UploadHeap), true);
+    mTextures[Terrain2Height->Name] = std::move(Terrain2Height);
 }
 
 void Engine::BuildShadowMaps()
@@ -4585,7 +4642,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 60;
+    srvHeapDesc.NumDescriptors = 65;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -5154,6 +5211,42 @@ void Engine::UploadTextures2()
     md3dDevice->CreateShaderResourceView(IntegrationMap.Get(), &srvDesc1, hDescriptor);
 
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor2(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor2.Offset(59, mCbvSrvDescriptorSize);
+
+    auto Terrain2Tex = mTextures["Terrain2Tex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = Terrain2Tex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(Terrain2Tex.Get(), &srvDesc1, hDescriptor2);
+
+    hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
+
+    auto Terrain2Norm = mTextures["Terrain2Norm"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = Terrain2Norm->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(Terrain2Norm.Get(), &srvDesc1, hDescriptor2);
+
+    hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
+
+    auto Terrain2Height = mTextures["Terrain2Height"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = Terrain2Height->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = -1;
+    md3dDevice->CreateShaderResourceView(Terrain2Height.Get(), &srvDesc1, hDescriptor2);
+
+    hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
 }
 
 void Engine::UploadTextures3()
@@ -5290,6 +5383,9 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableParticlesRain1;
     texTableParticlesRain1.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableTerrain;
+    texTableTerrain.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -5333,6 +5429,8 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterOctreeScene13[2];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterParticlesRain[4];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterTerrain[5];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -5482,6 +5580,12 @@ void Engine::BuildRootSignature()
     slotRootParameterParticlesRain[2].InitAsConstantBufferView(0);
     slotRootParameterParticlesRain[3].InitAsConstantBufferView(1);
 
+    slotRootParameterTerrain[0].InitAsDescriptorTable(1, &texTableTerrain);
+    slotRootParameterTerrain[1].InitAsConstantBufferView(0);
+    slotRootParameterTerrain[2].InitAsConstantBufferView(1);
+    slotRootParameterTerrain[3].InitAsConstantBufferView(2);
+    slotRootParameterTerrain[4].InitAsConstantBufferView(3);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -5600,6 +5704,10 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescTerrain(5, slotRootParameterTerrain,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     CreateRootSignature(rootSigDesc, "mRootSignature");
     CreateRootSignature(rootSigDesc2, "mRootSignatureLight");
@@ -5630,6 +5738,7 @@ void Engine::BuildRootSignature()
     CreateRootSignature(rootSigDescObjectsScene13, "mRootSignatureObjectsScene13");
     CreateRootSignature(rootSigDescOctreeScene13, "mRootSignatureOctreeScene13");
     CreateRootSignature(rootSigDescParticlesRain, "mRootSignatureParticlesRain");
+    CreateRootSignature(rootSigDescTerrain, "mRootSignatureTerrain");
 }
 
 
@@ -5763,6 +5872,11 @@ void Engine::BuildShadersAndInputLayout()
 
     mShaders["Scene13OcTreeVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Scene13Octree.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["Scene13OcTreePS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Scene13Octree.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["TerrainVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Terrain.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["TerrainHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Terrain.hlsl", nullptr, "HS", "hs_5_1");
+    mShaders["TerrainDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Terrain.hlsl", nullptr, "DS", "ds_5_1");
+    mShaders["TerrainPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Terrain.hlsl", nullptr, "PS", "ps_5_1");
 
     mInputLayout =
     {
@@ -7247,6 +7361,65 @@ void Engine::BuildScene13OctreeGeometry()
     mGeometries[geo->Name] = std::move(geo);
 }
 
+void Engine::BuildScene14Geometry()
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData planeMesh = geoGen.CreateGrid(200, 200, 200, 200);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry planeSubmesh;
+    planeSubmesh.IndexCount = (UINT)planeMesh.Indices32.size();
+    planeSubmesh.StartIndexLocation = totalIndexCount;
+    planeSubmesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += planeSubmesh.IndexCount;
+    totalVertexCount += planeMesh.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < planeMesh.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = planeMesh.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = planeMesh.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = planeMesh.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = planeMesh.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += planeMesh.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(planeMesh.GetIndices16()), std::end(planeMesh.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene14Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["terrain"] = planeSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
 void Engine::BuildSponzaGeometryAndTextures()
 {
     LoadModel("Sponza/sponza.obj", Sponza, md3dDevice.Get(),
@@ -8337,6 +8510,39 @@ void Engine::BuildPSOs()
     particlesRainComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
     ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesRainComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeParticlesRain"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDesc;
+    ZeroMemory(&terrainPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    terrainPsoDesc = heightMapPsoDesc;
+    terrainPsoDesc.pRootSignature = mRootSignatures["mRootSignatureTerrain"].Get();
+    terrainPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TerrainVS"]->GetBufferPointer()),
+        mShaders["TerrainVS"]->GetBufferSize()
+    };
+    terrainPsoDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TerrainHS"]->GetBufferPointer()),
+        mShaders["TerrainHS"]->GetBufferSize()
+    };
+    terrainPsoDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TerrainDS"]->GetBufferPointer()),
+        mShaders["TerrainDS"]->GetBufferSize()
+    };
+    terrainPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TerrainPS"]->GetBufferPointer()),
+        mShaders["TerrainPS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainPsoDesc, IID_PPV_ARGS(&mPSOs["terrainPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainWireframePsoDesc;
+    ZeroMemory(&terrainWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    terrainWireframePsoDesc = terrainPsoDesc;
+    terrainWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainWireframePsoDesc, IID_PPV_ARGS(&mPSOs["terrainWireframePSO"])));
+
 }
 
 void Engine::BuildPostProcessingResources()
@@ -8607,6 +8813,16 @@ void Engine::BuildMaterials()
     RainMat->Roughness = 0.9f;
 
     mMaterials["RainMaterial"] = std::move(RainMat);
+
+    auto Terrain2Mat = std::make_unique<Material>();
+    Terrain2Mat->Name = "TerrainMaterial2";
+    Terrain2Mat->MatCBIndex = 16;
+    Terrain2Mat->DiffuseSrvHeapIndex = 59;
+    Terrain2Mat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    Terrain2Mat->FresnelR0 = DirectX::XMFLOAT3(0.04f, 0.04f, 0.04f);
+    Terrain2Mat->Roughness = 0.9f;
+
+    mMaterials["TerrainMaterial2"] = std::move(Terrain2Mat);
 }
 
 void Engine::BuildRenderItems()
@@ -9204,6 +9420,20 @@ void Engine::BuildRenderItems()
 
     mRitemLayer[(int)RenderLayer::RainParticles].push_back(rainParticlesRitem.get());
     mAllRitems.push_back(std::move(rainParticlesRitem));
+
+    auto terrain2Ritem = std::make_unique<RenderItem>();
+    terrain2Ritem->ObjCBIndex = 773;
+    terrain2Ritem->World = MathHelper::Identity4x4();
+    terrain2Ritem->TexTransform = MathHelper::Identity4x4();
+    terrain2Ritem->Mat = mMaterials["TerrainMaterial2"].get();
+    terrain2Ritem->Geo = mGeometries["scene14Geo"].get();
+    terrain2Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
+    terrain2Ritem->IndexCount = terrain2Ritem->Geo->DrawArgs["terrain"].IndexCount;
+    terrain2Ritem->StartIndexLocation = terrain2Ritem->Geo->DrawArgs["terrain"].StartIndexLocation;
+    terrain2Ritem->BaseVertexLocation = terrain2Ritem->Geo->DrawArgs["terrain"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene14].push_back(terrain2Ritem.get());
+    mAllRitems.push_back(std::move(terrain2Ritem));
 
 
     for (int i = 0; i < mAllRitems.size(); ++i)
@@ -10633,6 +10863,41 @@ void Engine::DrawRenderItemsScene13(ID3D12GraphicsCommandList* cmdList, const st
     }
 }
 
+void Engine::DrawRenderItemsScene14(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
 void Engine::DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -11670,6 +11935,7 @@ void Engine::RenderUI()
         ImGui::Text("Scene 11: Decals Tessellation");
         ImGui::Text("Scene 12: Terrain with Height map");
         ImGui::Text("Scene 13: OcTree");
+        ImGui::Text("Scene 14: Terrain");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -11759,6 +12025,12 @@ void Engine::RenderUI()
             if (ImGui::Button("Scene 13", ImVec2(80, 40)))
             {
                 activeSceneID = 13;
+            }
+            ImGui::TableSetColumnIndex(5);
+
+            if (ImGui::Button("Scene 14", ImVec2(80, 40)))
+            {
+                activeSceneID = 14;
             }
 
             ImGui::EndTable();
@@ -12170,6 +12442,12 @@ void Engine::RenderUI()
             ImGui::Text("");
             ImGui::Checkbox("Debug Octree", &isDebugOctreeScene13);
             ImGui::Checkbox("Octree Culling Info", &isActiveOctreeCullingInfoScene13);
+        }
+        else if (activeSceneID == 14)
+        {
+            ImGui::Text("");
+            ImGui::Checkbox("Wireframe", &isWireframeScene14);
+            ImGui::SliderFloat("Displacement Scale", &displacementScaleScene14, 0.0f, 50.0f);
         }
     } ImGui::End();
 

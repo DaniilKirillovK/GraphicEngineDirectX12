@@ -37,6 +37,7 @@ struct OctreeNode
     void Clear();
 };
 
+
 class Octree 
 {
 public:
@@ -60,7 +61,7 @@ private:
     std::unique_ptr<OctreeNode> m_Root;
     Microsoft::WRL::ComPtr<ID3D12Device> mDevice;
 
-    uint32_t m_MaxDepth = 3;
+    uint32_t m_MaxDepth = 5;
     uint32_t m_MinObjectsPerNode = 4;
     uint32_t m_NodeCount = 0;
 
