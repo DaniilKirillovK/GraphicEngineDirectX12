@@ -22,6 +22,7 @@
 #include "SponzaLoader.h"
 #include "ShadowMap.h"
 #include "OcTree.h"
+#include "QuadTree.h"
 
 extern "C" { _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
 
@@ -207,6 +208,7 @@ private:
     void BuildScene13OctreeGeometry();
 
     virtual void BuildScene14Geometry() override;
+    virtual void BuildQuadTreeTerrain() override;
 
     virtual void BuildSponzaGeometryAndTextures() override;
     virtual void BuildPSOs() override;
@@ -254,6 +256,8 @@ private:
     void DrawRenderItemsScene12(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene14(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawTerrainScene14(ID3D12GraphicsCommandList* cmdList);
+    void DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList);
     void DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawMoreLightGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -299,11 +303,15 @@ private:
     std::vector<D3D12_INPUT_ELEMENT_DESC> mParticlesInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mPostProcessingInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mDebugInputLayout;
+    std::vector<D3D12_INPUT_ELEMENT_DESC> mTerrainDebugInputLayout;
 
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
     // List of all the render items.
     std::vector<std::unique_ptr<RenderItem>> mAllRitems;
+
+    std::vector<std::vector<StaticMesh>> terrainMeshesLOD;
+    TerrainQuadtree m_terrainQuadTree;
 
     // Render items divided by PSO.
     std::vector<RenderItem*> mOpaqueRitems;
@@ -2244,7 +2252,9 @@ void Engine::Draw(const GameTimer& gt)
         auto terrainCB = mCurrFrameResource->TerrainCB->Resource();
         mCommandList->SetGraphicsRootConstantBufferView(4, terrainCB->GetGPUVirtualAddress());
 
-        DrawRenderItemsScene14(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene14]);
+        if (isWireframeScene14)
+            DrawDebugTerrainScene14(mCommandList.Get());
+        else DrawTerrainScene14(mCommandList.Get());
 
         // Indicate a state transition on the resource usage.
         auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -5878,6 +5888,11 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["TerrainDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Terrain.hlsl", nullptr, "DS", "ds_5_1");
     mShaders["TerrainPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Terrain.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["TerrainDebugVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TerrainDebug.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["TerrainDebugHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TerrainDebug.hlsl", nullptr, "HS", "hs_5_1");
+    mShaders["TerrainDebugDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TerrainDebug.hlsl", nullptr, "DS", "ds_5_1");
+    mShaders["TerrainDebugPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TerrainDebug.hlsl", nullptr, "PS", "ps_5_1");
+
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -5914,6 +5929,15 @@ void Engine::BuildShadersAndInputLayout()
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
+    };
+
+    mTerrainDebugInputLayout =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 }
 
@@ -7363,61 +7387,12 @@ void Engine::BuildScene13OctreeGeometry()
 
 void Engine::BuildScene14Geometry()
 {
-    GeometryGenerator geoGen;
+   
+}
 
-    GeometryGenerator::MeshData planeMesh = geoGen.CreateGrid(200, 200, 200, 200);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry planeSubmesh;
-    planeSubmesh.IndexCount = (UINT)planeMesh.Indices32.size();
-    planeSubmesh.StartIndexLocation = totalIndexCount;
-    planeSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += planeSubmesh.IndexCount;
-    totalVertexCount += planeMesh.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < planeMesh.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = planeMesh.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = planeMesh.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = planeMesh.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = planeMesh.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += planeMesh.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(planeMesh.GetIndices16()), std::end(planeMesh.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene14Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["terrain"] = planeSubmesh;
-
-    mGeometries[geo->Name] = std::move(geo);
+void Engine::BuildQuadTreeTerrain()
+{
+    m_terrainQuadTree.Initialize(md3dDevice.Get(), 6, mGeometries, mCommandList);
 }
 
 void Engine::BuildSponzaGeometryAndTextures()
@@ -8514,6 +8489,7 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDesc;
     ZeroMemory(&terrainPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     terrainPsoDesc = heightMapPsoDesc;
+    terrainPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
     terrainPsoDesc.pRootSignature = mRootSignatures["mRootSignatureTerrain"].Get();
     terrainPsoDesc.VS =
     {
@@ -8540,6 +8516,27 @@ void Engine::BuildPSOs()
     D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainWireframePsoDesc;
     ZeroMemory(&terrainWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     terrainWireframePsoDesc = terrainPsoDesc;
+    terrainWireframePsoDesc.InputLayout = { mTerrainDebugInputLayout.data(), (UINT)mTerrainDebugInputLayout.size() };
+    terrainWireframePsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TerrainDebugVS"]->GetBufferPointer()),
+        mShaders["TerrainDebugVS"]->GetBufferSize()
+    };
+    terrainWireframePsoDesc.HS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TerrainDebugHS"]->GetBufferPointer()),
+        mShaders["TerrainDebugHS"]->GetBufferSize()
+    };
+    terrainWireframePsoDesc.DS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TerrainDebugDS"]->GetBufferPointer()),
+        mShaders["TerrainDebugDS"]->GetBufferSize()
+    };
+    terrainWireframePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TerrainDebugPS"]->GetBufferPointer()),
+        mShaders["TerrainDebugPS"]->GetBufferSize()
+    };
     terrainWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainWireframePsoDesc, IID_PPV_ARGS(&mPSOs["terrainWireframePSO"])));
 
@@ -9426,11 +9423,7 @@ void Engine::BuildRenderItems()
     terrain2Ritem->World = MathHelper::Identity4x4();
     terrain2Ritem->TexTransform = MathHelper::Identity4x4();
     terrain2Ritem->Mat = mMaterials["TerrainMaterial2"].get();
-    terrain2Ritem->Geo = mGeometries["scene14Geo"].get();
     terrain2Ritem->PrimitiveType = D3D_PRIMITIVE_TOPOLOGY_3_CONTROL_POINT_PATCHLIST;
-    terrain2Ritem->IndexCount = terrain2Ritem->Geo->DrawArgs["terrain"].IndexCount;
-    terrain2Ritem->StartIndexLocation = terrain2Ritem->Geo->DrawArgs["terrain"].StartIndexLocation;
-    terrain2Ritem->BaseVertexLocation = terrain2Ritem->Geo->DrawArgs["terrain"].BaseVertexLocation;
 
     mRitemLayer[(int)RenderLayer::Scene14].push_back(terrain2Ritem.get());
     mAllRitems.push_back(std::move(terrain2Ritem));
@@ -10894,6 +10887,98 @@ void Engine::DrawRenderItemsScene14(ID3D12GraphicsCommandList* cmdList, const st
             cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
             cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
+void Engine::DrawTerrainScene14(ID3D12GraphicsCommandList* cmdList)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    DirectX::XMMATRIX proj = mCamera.GetProj();
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto det = XMMatrixDeterminant(view);
+    DirectX::XMMATRIX inverseViewMatrix = DirectX::XMMatrixInverse(&det, view);
+    DirectX::BoundingFrustum localFrustum;
+    DirectX::BoundingFrustum::CreateFromMatrix(localFrustum, proj);
+    DirectX::BoundingFrustum worldFrustum;
+    localFrustum.Transform(worldFrustum, inverseViewMatrix);
+    m_terrainQuadTree.Update(viewProj, worldFrustum);
+
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    for (size_t i = 0; i < m_terrainQuadTree.m_NodesToRender.size(); ++i)
+    {
+        {
+            StaticMesh mesh = m_terrainQuadTree.m_NodesToRender[i]->mesh;
+            auto ri = mAllRitems[773].get();
+
+            auto tmp1 = mesh.vertexBufferView;
+            auto tmp2 = mesh.indexBufferView;
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+        }
+    }
+}
+
+void Engine::DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    DirectX::XMMATRIX proj = mCamera.GetProj();
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto det = XMMatrixDeterminant(view);
+    DirectX::XMMATRIX inverseViewMatrix = DirectX::XMMatrixInverse(&det, view);
+    DirectX::BoundingFrustum localFrustum;
+    DirectX::BoundingFrustum::CreateFromMatrix(localFrustum, proj);
+    DirectX::BoundingFrustum worldFrustum;
+    localFrustum.Transform(worldFrustum, inverseViewMatrix);
+    m_terrainQuadTree.Update(viewProj, worldFrustum);
+
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    for (size_t i = 0; i < m_terrainQuadTree.m_DebugNodesToRender.size(); ++i)
+    {
+        {
+            StaticMesh mesh = m_terrainQuadTree.m_DebugNodesToRender[i]->debugMesh;
+            auto ri = mAllRitems[773].get();
+
+            auto tmp1 = mesh.vertexBufferView;
+            auto tmp2 = mesh.indexBufferView;
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
         }
     }
 }

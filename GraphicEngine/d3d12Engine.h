@@ -122,6 +122,7 @@ protected:
     virtual void BuildScene12Geometry() {}
     virtual void BuildScene13Geometry() {}
     virtual void BuildScene14Geometry() {}
+    virtual void BuildQuadTreeTerrain() {}
     virtual void BuildSponzaGeometryAndTextures() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}

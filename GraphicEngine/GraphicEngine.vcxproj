@@ -179,6 +179,7 @@
     <ClCompile Include="OcTree.cpp" />
     <ClCompile Include="Particles.cpp" />
     <ClCompile Include="ParticleSystem.cpp" />
+    <ClCompile Include="QuadTree.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -208,6 +209,7 @@
     <ClInclude Include="OcTree.h" />
     <ClInclude Include="Particles.h" />
     <ClInclude Include="ParticleSystem.h" />
+    <ClInclude Include="QuadTree.h" />
     <ClInclude Include="ShadowMap.h" />
     <ClInclude Include="SponzaLoader.h" />
     <ClInclude Include="stb_image.h" />
