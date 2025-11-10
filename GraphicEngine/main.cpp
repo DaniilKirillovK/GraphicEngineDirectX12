@@ -23,6 +23,7 @@
 #include "ShadowMap.h"
 #include "OcTree.h"
 #include "QuadTree.h"
+#include "TAAUtility.h"
 
 extern "C" { _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
 
@@ -79,6 +80,7 @@ enum class RenderLayer : int
     Scene13Octree = 22,
     RainParticles = 23,
     Scene14 = 24,
+    Scene15 = 25,
     Count
 };
 
@@ -163,6 +165,7 @@ private:
     void UpdateShadowPassCBCascaded(const GameTimer& gt);
     void UpdateShadowPassCBParticles(const GameTimer& gt);
     void UpdateShadowTransform(const GameTimer& gt);
+    void UpdateMainPassCBScene15(const GameTimer& gt);
 
     void UpdateShadowTransformCascaded(Camera camera, int MapID, DirectX::XMFLOAT3 center,
         float l, float r, float b, float t, float n, float f);
@@ -178,6 +181,7 @@ private:
     void UpdateTessCB();
     void UpdateHeightMapCB();
     void UpdateTerrainCB();
+    void UpdateScene15ObjectPosition(const GameTimer& gt);
     
     void UpdateLODScene3();
 
@@ -210,6 +214,8 @@ private:
     virtual void BuildScene14Geometry() override;
     virtual void BuildQuadTreeTerrain() override;
 
+    virtual void BuildScene15Geometry() override;
+
     virtual void BuildSponzaGeometryAndTextures() override;
     virtual void BuildPSOs() override;
     virtual void BuildPostProcessingResources() override;
@@ -227,6 +233,7 @@ private:
     virtual void InitGBuffer() override;
     virtual void CreateScene3RTV() override;
     virtual void CreateScene13RTV() override;
+    virtual void CreateScene15RTV() override;
     void ResizeGBuffer();
 
     virtual void InitInstanceBuffer() override;
@@ -258,6 +265,7 @@ private:
     void DrawRenderItemsScene14(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawTerrainScene14(ID3D12GraphicsCommandList* cmdList);
     void DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList);
+    void DrawRenderItemsScene15(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawMoreLightGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -268,6 +276,7 @@ private:
     void DrawBillboardRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
     void DrawScreenQuadPostProcessing(ID3D12GraphicsCommandList* cmdList);
+    void DrawScreenQuadTAA(ID3D12GraphicsCommandList* cmdList);
     void DrawParticles(ParticleSystem particleSystem, RenderLayer layer);
     void DrawParticlesGPU(ParticleSystem particleSystem, RenderLayer layer, UINT CB1, UINT SRV1);
     void DrawSceneToShadowMap();
@@ -400,6 +409,8 @@ private:
 
     std::vector<GameObject*> gameObjects;
     Octree* octreeScene13;
+
+    DirectX::XMFLOAT3 m_Scene15ObjectPostion = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
 };
 
 bool isFirstExecution = true;
@@ -603,6 +614,9 @@ bool isUsingOctreeCullingScene13 = false;
 float displacementScaleScene14 = 1.0f;
 bool isWireframeScene14 = false;
 
+bool isMovingObjectScene15 = false;
+int selectedRenderModeScene15 = 0;
+
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -751,7 +765,7 @@ void Engine::Update(const GameTimer& gt)
 
     UpdateObjectCBs(gt);
     UpdateMaterialCBs(gt);
-    if (activeSceneID != 10)
+    if (activeSceneID != 10 && !(activeSceneID == 15 && selectedRenderModeScene15 == 1))
         UpdateMainPassCB(gt);
     if (activeSceneID == 3)
     {
@@ -823,6 +837,14 @@ void Engine::Update(const GameTimer& gt)
     if (activeSceneID == 14)
     {
         UpdateTerrainCB();
+    }
+    if (activeSceneID == 15)
+    {
+        if (isMovingObjectScene15)
+            UpdateScene15ObjectPosition(gt);
+
+        if (selectedRenderModeScene15 == 1)
+            UpdateMainPassCBScene15(gt);
     }
     timeScene2 = ParseTime(gt);
 }
@@ -2261,12 +2283,105 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
         mCommandList->ResourceBarrier(1, &barrier1);
     }
+
+    else if (activeSceneID == 15)
+    {
+        if (selectedRenderModeScene15 == 0)
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureTAA"].Get());
+
+            mCommandList->SetPipelineState(mPSOs["TAAPSO"].Get());
+
+            passCB = mCurrFrameResource->PassCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+            DrawRenderItemsScene15(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene15]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
+        else
+        {
+            {
+                CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+                handle.Offset(9 + TAAUtility::m_CurrentRTV, mRtvDescriptorSize);
+                mCommandList->ClearRenderTargetView(handle, DirectX::Colors::White, 0, nullptr);
+                TAAUtility::m_CurrentRTV = (TAAUtility::m_CurrentRTV + 1) % 2;
+
+                D3D12_CPU_DESCRIPTOR_HANDLE rtv = handle;
+
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+                mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureTAA"].Get());
+
+                mCommandList->SetPipelineState(mPSOs["TAAPSO"].Get());
+
+                passCB = mCurrFrameResource->PassCB->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+                DrawRenderItemsScene15(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene15]);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureSkyBox"].Get());
+
+                mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetPipelineState(mPSOs["skyboxPSO"].Get());
+
+                passCB = mCurrFrameResource->PassCB->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+                DrawSkybox(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
+            }
+
+            {
+                D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
+
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureTAASecondPass"].Get());
+
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+                mCommandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetPipelineState(mPSOs["TAASecondPassPSO"].Get());
+
+                DrawScreenQuadTAA(mCommandList.Get());
+            }
+        }
+    }
     
 
     // Draw screen quad
     if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
         && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9 && activeSceneID != 12
-        && activeSceneID != 13 && activeSceneID != 14)
+        && activeSceneID != 13 && activeSceneID != 14 && activeSceneID != 15)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -2339,14 +2454,15 @@ void Engine::Draw(const GameTimer& gt)
     }
 
     // SkyBox
+    if (!(activeSceneID == 15 && selectedRenderModeScene15 == 1))
     {
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
         mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureSkyBox"].Get());
 
-        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+        mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
 
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -2844,6 +2960,17 @@ void Engine::UpdateObjectCBs(const GameTimer& gt)
                 if (i == 770)
                 {
                     world = XMLoadFloat4x4(&worldM);
+                }
+            }
+            else if (activeSceneID == 15)
+            {
+                if (i == 774)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(
+                        m_Scene15ObjectPostion.x,
+                        m_Scene15ObjectPostion.y,
+                        m_Scene15ObjectPostion.z
+                    );
                 }
             }
 
@@ -3885,6 +4012,60 @@ void Engine::UpdateShadowTransform(const GameTimer& gt)
     DirectX::XMStoreFloat4x4(&mShadowTransform, S);
 }
 
+void Engine::UpdateMainPassCBScene15(const GameTimer& gt)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    DirectX::XMMATRIX proj = mCamera.GetProj();
+    
+    TAAUtility::GenerateJitter();
+    proj = TAAUtility::GetJitterPerspectiveProjectionMatrix(
+        mCamera.GetNearZ(),
+        mCamera.GetFarZ(),
+        mCamera.GetFovY(),
+        mCamera.GetAspect(),
+        proj
+    );
+
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
+
+    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+    mMainPassCB.EyePosW = mCamera.GetPosition3f();
+    mMainPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+    mMainPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+    mMainPassCB.NearZ = 1.0f;
+    mMainPassCB.FarZ = 1000.0f;
+    mMainPassCB.TotalTime = gt.TotalTime();
+    mMainPassCB.DeltaTime = gt.DeltaTime();
+    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+
+    // Directional lights
+    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
+    mMainPassCB.Lights[0].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+    mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+    mMainPassCB.Lights[1].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+    mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+    mMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+
+    auto currPassCB = mCurrFrameResource->PassCB.get();
+    currPassCB->CopyData(0, mMainPassCB);
+}
+
 void Engine::UpdateShadowTransformCascaded(Camera camera, int MapID, DirectX::XMFLOAT3 center,
     float l, float r, float b, float t, float n, float f)
 {
@@ -4139,6 +4320,16 @@ void Engine::UpdateTerrainCB()
 
     auto currPassCB = mCurrFrameResource->TerrainCB.get();
     currPassCB->CopyData(0, terrainConst);
+}
+
+void Engine::UpdateScene15ObjectPosition(const GameTimer& gt)
+{
+    float newX = sin(gt.TotalTime() * 4.f) * 2.f;
+    m_Scene15ObjectPostion = DirectX::XMFLOAT3(
+        newX,
+        m_Scene15ObjectPostion.y,
+        m_Scene15ObjectPostion.z
+    );
 }
 
 void Engine::UpdateLODScene3()
@@ -4634,6 +4825,46 @@ void Engine::LoadTextures()
         mCommandList.Get(), Terrain2Height->Filename.c_str(),
         Terrain2Height->Resource, Terrain2Height->UploadHeap), true);
     mTextures[Terrain2Height->Name] = std::move(Terrain2Height);
+
+    auto HamburgerTex = std::make_unique<Texture>();
+    HamburgerTex->Name = "HamburgerTex";
+    HamburgerTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\HamburgerTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), HamburgerTex->Filename.c_str(),
+        HamburgerTex->Resource, HamburgerTex->UploadHeap), true);
+    mTextures[HamburgerTex->Name] = std::move(HamburgerTex);
+
+    auto HamburgerNorm = std::make_unique<Texture>();
+    HamburgerNorm->Name = "HamburgerNorm";
+    HamburgerNorm->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\HamburgerNormal.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), HamburgerNorm->Filename.c_str(),
+        HamburgerNorm->Resource, HamburgerNorm->UploadHeap), true);
+    mTextures[HamburgerNorm->Name] = std::move(HamburgerNorm);
+
+    auto HamburgerAO = std::make_unique<Texture>();
+    HamburgerAO->Name = "HamburgerAO";
+    HamburgerAO->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\HamburgerAO.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), HamburgerAO->Filename.c_str(),
+        HamburgerAO->Resource, HamburgerAO->UploadHeap), true);
+    mTextures[HamburgerAO->Name] = std::move(HamburgerAO);
+
+    auto HamburgerMetallic = std::make_unique<Texture>();
+    HamburgerMetallic->Name = "HamburgerMetallic";
+    HamburgerMetallic->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\HamburgerMetallic.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), HamburgerMetallic->Filename.c_str(),
+        HamburgerMetallic->Resource, HamburgerMetallic->UploadHeap), true);
+    mTextures[HamburgerMetallic->Name] = std::move(HamburgerMetallic);
+
+    auto HamburgerRoughness = std::make_unique<Texture>();
+    HamburgerRoughness->Name = "HamburgerRoughness";
+    HamburgerRoughness->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\HamburgerRoughness.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), HamburgerRoughness->Filename.c_str(),
+        HamburgerRoughness->Resource, HamburgerRoughness->UploadHeap), true);
+    mTextures[HamburgerRoughness->Name] = std::move(HamburgerRoughness);
 }
 
 void Engine::BuildShadowMaps()
@@ -4652,7 +4883,7 @@ void Engine::BuildDescriptorHeaps()
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 65;
+    srvHeapDesc.NumDescriptors = 75;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -5309,6 +5540,64 @@ void Engine::UploadTextures3()
     md3dDevice->CreateShaderResourceView(RainCircleTex.Get(), &srvDesc1, hDescriptorParticles);
 
     hDescriptorParticles.Offset(1, mCbvSrvDescriptorSize);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor2(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor2.Offset(62, mCbvSrvDescriptorSize);
+
+    auto HamburgerTex = mTextures["HamburgerTex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = HamburgerTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = HamburgerTex->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(HamburgerTex.Get(), &srvDesc1, hDescriptor2);
+
+    hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
+
+    auto HamburgerNorm = mTextures["HamburgerNorm"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = HamburgerNorm->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = HamburgerNorm->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(HamburgerNorm.Get(), &srvDesc1, hDescriptor2);
+
+    hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
+
+    auto HamburgerMetallic = mTextures["HamburgerMetallic"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = HamburgerMetallic->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = HamburgerMetallic->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(HamburgerMetallic.Get(), &srvDesc1, hDescriptor2);
+
+    hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
+
+    auto HamburgerRoughness = mTextures["HamburgerRoughness"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = HamburgerRoughness->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = HamburgerRoughness->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(HamburgerRoughness.Get(), &srvDesc1, hDescriptor2);
+
+    hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
+
+    auto HamburgerAO = mTextures["HamburgerAO"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = HamburgerAO->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = HamburgerAO->GetDesc().MipLevels;
+    md3dDevice->CreateShaderResourceView(HamburgerAO.Get(), &srvDesc1, hDescriptor2);
+
+    hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
 }
 
 
@@ -5396,6 +5685,13 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableTerrain;
     texTableTerrain.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 0, 0);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableTAA;
+    texTableTAA.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTable1TAASecondPass;
+    texTable1TAASecondPass.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTable2TAASecondPass;
+    texTable2TAASecondPass.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -5441,6 +5737,9 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterParticlesRain[4];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterTerrain[5];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterTAA[4];
+    CD3DX12_ROOT_PARAMETER slotRootParameterTAASecondPass[3];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -5596,6 +5895,15 @@ void Engine::BuildRootSignature()
     slotRootParameterTerrain[3].InitAsConstantBufferView(2);
     slotRootParameterTerrain[4].InitAsConstantBufferView(3);
 
+    slotRootParameterTAA[0].InitAsDescriptorTable(1, &texTableTAA);
+    slotRootParameterTAA[1].InitAsConstantBufferView(0);
+    slotRootParameterTAA[2].InitAsConstantBufferView(1);
+    slotRootParameterTAA[3].InitAsConstantBufferView(2);
+
+    slotRootParameterTAASecondPass[0].InitAsDescriptorTable(1, &texTable1TAASecondPass);
+    slotRootParameterTAASecondPass[1].InitAsDescriptorTable(1, &texTable2TAASecondPass);
+    slotRootParameterTAASecondPass[2].InitAsConstantBufferView(0);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -5718,6 +6026,14 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescTAA(4, slotRootParameterTAA,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescTAASecondPass(3, slotRootParameterTAASecondPass,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     CreateRootSignature(rootSigDesc, "mRootSignature");
     CreateRootSignature(rootSigDesc2, "mRootSignatureLight");
@@ -5749,6 +6065,8 @@ void Engine::BuildRootSignature()
     CreateRootSignature(rootSigDescOctreeScene13, "mRootSignatureOctreeScene13");
     CreateRootSignature(rootSigDescParticlesRain, "mRootSignatureParticlesRain");
     CreateRootSignature(rootSigDescTerrain, "mRootSignatureTerrain");
+    CreateRootSignature(rootSigDescTAA, "mRootSignatureTAA");
+    CreateRootSignature(rootSigDescTAASecondPass, "mRootSignatureTAASecondPass");
 }
 
 
@@ -5892,6 +6210,12 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["TerrainDebugHS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TerrainDebug.hlsl", nullptr, "HS", "hs_5_1");
     mShaders["TerrainDebugDS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TerrainDebug.hlsl", nullptr, "DS", "ds_5_1");
     mShaders["TerrainDebugPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TerrainDebug.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["TAA_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TAA.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["TAA_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TAA.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["TAASecondPass_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TAASecondPass.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["TAASecondPass_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TAASecondPass.hlsl", nullptr, "PS", "ps_5_1");
 
     mInputLayout =
     {
@@ -7395,6 +7719,51 @@ void Engine::BuildQuadTreeTerrain()
     m_terrainQuadTree.Initialize(md3dDevice.Get(), 6, mGeometries, mCommandList);
 }
 
+void Engine::BuildScene15Geometry()
+{
+    std::vector<Vertex> vertices;
+    std::vector<std::uint32_t> indices;
+
+    ModelLoader::LoadModel("Obj/hamburger.obj", vertices, indices);
+    for (int i = 0; i < vertices.size(); ++i)
+    {
+        vertices[i].Pos = DirectX::XMFLOAT3(vertices[i].Pos.x * 10.f, vertices[i].Pos.y * 10.f, vertices[i].Pos.z * 10.f);
+    }
+
+    SubmeshGeometry hamburgerSubmesh;
+    hamburgerSubmesh.IndexCount = indices.size();
+    hamburgerSubmesh.StartIndexLocation = 0;
+    hamburgerSubmesh.BaseVertexLocation = 0;
+    hamburgerSubmesh.VertexCount = vertices.size();
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene15Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
+        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R32_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["Hamburger"] = hamburgerSubmesh;
+
+    mGeometries[geo->Name] = std::move(geo);
+}
+
 void Engine::BuildSponzaGeometryAndTextures()
 {
     LoadModel("Sponza/sponza.obj", Sponza, md3dDevice.Get(),
@@ -8540,6 +8909,59 @@ void Engine::BuildPSOs()
     terrainWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainWireframePsoDesc, IID_PPV_ARGS(&mPSOs["terrainWireframePSO"])));
 
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC TAAPsoDesc;
+    ZeroMemory(&TAAPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    TAAPsoDesc = PBRPsoDesc;
+    TAAPsoDesc.pRootSignature = mRootSignatures["mRootSignatureTAA"].Get();
+    TAAPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TAA_VS"]->GetBufferPointer()),
+        mShaders["TAA_VS"]->GetBufferSize()
+    };
+    TAAPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TAA_PS"]->GetBufferPointer()),
+        mShaders["TAA_PS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&TAAPsoDesc, IID_PPV_ARGS(&mPSOs["TAAPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC TAASecondPassPsoDesc;
+    ZeroMemory(&TAASecondPassPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    TAASecondPassPsoDesc = TAAPsoDesc;
+    TAASecondPassPsoDesc.InputLayout = { mPostProcessingInputLayout.data(), (UINT)mPostProcessingInputLayout.size() };
+    TAASecondPassPsoDesc.pRootSignature = mRootSignatures["mRootSignatureTAASecondPass"].Get();
+    TAASecondPassPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TAASecondPass_VS"]->GetBufferPointer()),
+        mShaders["TAASecondPass_VS"]->GetBufferSize()
+    };
+    TAASecondPassPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["TAASecondPass_PS"]->GetBufferPointer()),
+        mShaders["TAASecondPass_PS"]->GetBufferSize()
+    };
+    TAASecondPassPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    TAASecondPassPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    TAASecondPassPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    TAASecondPassPsoDesc.BlendState.IndependentBlendEnable = FALSE;
+    TAASecondPassPsoDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    TAASecondPassPsoDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_ONE;
+    TAASecondPassPsoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_ONE;
+    TAASecondPassPsoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    TAASecondPassPsoDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
+    TAASecondPassPsoDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    TAASecondPassPsoDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    TAASecondPassPsoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    TAASecondPassPsoDesc.DepthStencilState.DepthEnable = FALSE;
+    TAASecondPassPsoDesc.DepthStencilState.StencilEnable = FALSE;
+    TAASecondPassPsoDesc.SampleMask = UINT_MAX;
+    TAASecondPassPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    TAASecondPassPsoDesc.NumRenderTargets = 1;
+    TAASecondPassPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    TAASecondPassPsoDesc.SampleDesc.Count = 1;
+    TAASecondPassPsoDesc.SampleDesc.Quality = 0;
+    TAASecondPassPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&TAASecondPassPsoDesc, IID_PPV_ARGS(&mPSOs["TAASecondPassPSO"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -8820,6 +9242,16 @@ void Engine::BuildMaterials()
     Terrain2Mat->Roughness = 0.9f;
 
     mMaterials["TerrainMaterial2"] = std::move(Terrain2Mat);
+
+    auto HamburgerMat = std::make_unique<Material>();
+    HamburgerMat->Name = "HamburgerMaterial";
+    HamburgerMat->MatCBIndex = 17;
+    HamburgerMat->DiffuseSrvHeapIndex = 62;
+    HamburgerMat->DiffuseAlbedo = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+    HamburgerMat->FresnelR0 = DirectX::XMFLOAT3(0.04f, 0.04f, 0.04f);
+    HamburgerMat->Roughness = 0.9f;
+
+    mMaterials["HamburgerMaterial"] = std::move(HamburgerMat);
 }
 
 void Engine::BuildRenderItems()
@@ -9428,6 +9860,20 @@ void Engine::BuildRenderItems()
     mRitemLayer[(int)RenderLayer::Scene14].push_back(terrain2Ritem.get());
     mAllRitems.push_back(std::move(terrain2Ritem));
 
+    auto hamburgerRitem = std::make_unique<RenderItem>();
+    hamburgerRitem->ObjCBIndex = 774;
+    hamburgerRitem->World = MathHelper::Identity4x4();
+    hamburgerRitem->TexTransform = MathHelper::Identity4x4();
+    hamburgerRitem->Mat = mMaterials["HamburgerMaterial"].get();
+    hamburgerRitem->Geo = mGeometries["scene15Geo"].get();
+    hamburgerRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    hamburgerRitem->IndexCount = hamburgerRitem->Geo->DrawArgs["Hamburger"].IndexCount;
+    hamburgerRitem->StartIndexLocation = hamburgerRitem->Geo->DrawArgs["Hamburger"].StartIndexLocation;
+    hamburgerRitem->BaseVertexLocation = hamburgerRitem->Geo->DrawArgs["Hamburger"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene15].push_back(hamburgerRitem.get());
+    mAllRitems.push_back(std::move(hamburgerRitem));
+
 
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
@@ -9726,6 +10172,61 @@ void Engine::CreateScene13RTV()
     srvDRDesc.Texture2D.MostDetailedMip = 0;
     srvDRDesc.Texture2D.MipLevels = 1;
     md3dDevice->CreateShaderResourceView(Scene13RenderTargetBuffer(), &srvDRDesc, hDescriptor);
+}
+
+void Engine::CreateScene15RTV()
+{
+    D3D12_RESOURCE_DESC texDesc = {};
+    texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDesc.Alignment = 0;
+    texDesc.Width = mClientWidth;
+    texDesc.Height = mClientHeight;
+    texDesc.DepthOrArraySize = 1;
+    texDesc.MipLevels = 1;
+    texDesc.Format = mBackBufferFormat;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    auto heapType = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        nullptr,
+        IID_PPV_ARGS(&TAAUtility::m_RTVs[0]));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+    rtvHandle.Offset(9, mRtvDescriptorSize);
+
+    md3dDevice->CreateRenderTargetView(TAAUtility::m_RTVs[0].Get(), nullptr, rtvHandle);
+
+    rtvHandle.Offset(1, mRtvDescriptorSize);
+
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        nullptr,
+        IID_PPV_ARGS(&TAAUtility::m_RTVs[1]));
+
+    md3dDevice->CreateRenderTargetView(TAAUtility::m_RTVs[1].Get(), nullptr, rtvHandle);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(67, mCbvSrvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDRDesc = {};
+    srvDRDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDRDesc.Format = mBackBufferFormat;
+    srvDRDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDRDesc.Texture2D.MostDetailedMip = 0;
+    srvDRDesc.Texture2D.MipLevels = 1;
+    md3dDevice->CreateShaderResourceView(TAAUtility::m_RTVs[0].Get(), &srvDRDesc, hDescriptor);
+    
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+    md3dDevice->CreateShaderResourceView(TAAUtility::m_RTVs[1].Get(), &srvDRDesc, hDescriptor);
 }
 
 void Engine::ResizeGBuffer()
@@ -10983,6 +11484,41 @@ void Engine::DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList)
     }
 }
 
+void Engine::DrawRenderItemsScene15(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
 void Engine::DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -11267,6 +11803,24 @@ void Engine::DrawScreenQuadPostProcessing(ID3D12GraphicsCommandList* cmdList)
     srv.Offset(20, mCbvSrvDescriptorSize);
 
     cmdList->SetGraphicsRootDescriptorTable(0, srv);
+
+    cmdList->DrawInstanced(4, 1, 0, 0);
+}
+
+void Engine::DrawScreenQuadTAA(ID3D12GraphicsCommandList* cmdList)
+{
+    auto geo = mGeometries["screenQuad"].get();
+    auto tmp1 = geo->VertexBufferView();
+    cmdList->IASetVertexBuffers(0, 1, &tmp1);
+    cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv1(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+    srv1.Offset(67 + (TAAUtility::m_CurrentRTV + 1) % 2, mCbvSrvDescriptorSize);
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv2(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+    srv2.Offset(67 + TAAUtility::m_CurrentRTV, mCbvSrvDescriptorSize);
+
+    cmdList->SetGraphicsRootDescriptorTable(0, srv1);
+    cmdList->SetGraphicsRootDescriptorTable(1, srv2);
 
     cmdList->DrawInstanced(4, 1, 0, 0);
 }
@@ -12021,6 +12575,7 @@ void Engine::RenderUI()
         ImGui::Text("Scene 12: Terrain with Height map");
         ImGui::Text("Scene 13: OcTree");
         ImGui::Text("Scene 14: Terrain");
+        ImGui::Text("Scene 15: TAA");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -12116,6 +12671,12 @@ void Engine::RenderUI()
             if (ImGui::Button("Scene 14", ImVec2(80, 40)))
             {
                 activeSceneID = 14;
+            }
+            ImGui::TableSetColumnIndex(6);
+
+            if (ImGui::Button("Scene 15", ImVec2(80, 40)))
+            {
+                activeSceneID = 15;
             }
 
             ImGui::EndTable();
@@ -12533,6 +13094,18 @@ void Engine::RenderUI()
             ImGui::Text("");
             ImGui::Checkbox("Wireframe", &isWireframeScene14);
             ImGui::SliderFloat("Displacement Scale", &displacementScaleScene14, 0.0f, 50.0f);
+        }
+        else if (activeSceneID == 15)
+        {
+            ImGui::Text("");
+            ImGui::Checkbox("Move object", &isMovingObjectScene15);
+
+            ImGui::Text("");
+            ImGui::Text("Render Mode");
+            ImGui::RadioButton("Common", &selectedRenderModeScene15, 0);
+            ImGui::RadioButton("TAA", &selectedRenderModeScene15, 1);
+
+            mAllRitems[774]->NumFramesDirty = gNumFrameResources;
         }
     } ImGui::End();
 

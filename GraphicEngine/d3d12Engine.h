@@ -122,12 +122,14 @@ protected:
     virtual void BuildScene12Geometry() {}
     virtual void BuildScene13Geometry() {}
     virtual void BuildScene14Geometry() {}
+    virtual void BuildScene15Geometry() {}
     virtual void BuildQuadTreeTerrain() {}
     virtual void BuildSponzaGeometryAndTextures() {}
     virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
     virtual void CreateScene3RTV() {}
     virtual void CreateScene13RTV() {}
+    virtual void CreateScene15RTV() {}
 
     virtual void InitInstanceBuffer() {}
     virtual void InitInstanceBufferRMDemo() {}

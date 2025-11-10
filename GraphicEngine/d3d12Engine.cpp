@@ -103,7 +103,7 @@ bool D3D12Engine::Initialize()
 void D3D12Engine::CreateRtvAndDsvDescriptorHeaps()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = 9;
+	rtvHeapDesc.NumDescriptors = 11;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -525,6 +525,7 @@ BuildScene10MoreLightGeometry();
 BuildScene12Geometry();
 BuildScene13Geometry();
 BuildScene14Geometry();
+BuildScene15Geometry();
 BuildQuadTreeTerrain();
 BuildSponzaGeometryAndTextures();
 BuildBillboardSpritesGeometry();
@@ -535,6 +536,7 @@ BuildFrameResources();
 InitGBuffer();
 CreateScene3RTV();
 CreateScene13RTV();
+CreateScene15RTV();
 BuildPSOs();
 
 InitInstanceBuffer();

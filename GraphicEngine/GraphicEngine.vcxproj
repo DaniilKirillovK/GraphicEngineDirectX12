@@ -181,6 +181,7 @@
     <ClCompile Include="ParticleSystem.cpp" />
     <ClCompile Include="QuadTree.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
+    <ClCompile Include="TAAUtility.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
@@ -213,6 +214,7 @@
     <ClInclude Include="ShadowMap.h" />
     <ClInclude Include="SponzaLoader.h" />
     <ClInclude Include="stb_image.h" />
+    <ClInclude Include="TAAUtility.h" />
     <ClInclude Include="UploadBuffer.h" />
   </ItemGroup>
   <ItemGroup>
