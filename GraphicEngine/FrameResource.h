@@ -131,6 +131,63 @@ struct PassConstants
     Light Lights[MaxLights];
 };
 
+struct TAAPassConstants
+{
+    DirectX::XMFLOAT4X4 View = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 InvView = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 Proj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 InvProj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 ViewProj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 InvViewProj = MathHelper::Identity4x4();
+
+    DirectX::XMFLOAT4X4 PrevView = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PrevInvView = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PrevProj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PrevInvProj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PrevViewProj = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PrevInvViewProj = MathHelper::Identity4x4();
+
+    DirectX::XMFLOAT3 EyePosW = { 0.0f, 0.0f, 0.0f };
+    float cbPerObjectPad1 = 0.0f;
+    DirectX::XMFLOAT2 RenderTargetSize = { 0.0f, 0.0f };
+    DirectX::XMFLOAT2 InvRenderTargetSize = { 0.0f, 0.0f };
+    float NearZ = 0.0f;
+    float FarZ = 0.0f;
+    float TotalTime = 0.0f;
+    float DeltaTime = 0.0f;
+
+    DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
+
+    DirectX::XMFLOAT4 FogColor = { 0.7f, 0.7f, 0.7f, 1.0f };
+    float gFogStart = 5.0f;
+    float gFogRange = 150.0f;
+    DirectX::XMFLOAT2 cbPerObjectPad2;
+
+    float TessFactor = 1.f;
+    float PixelationFactor = 16.f;
+    float ParallaxMapping = 0.f;
+    float displacementLevel = 1.0f;
+
+    float isNegative = 0.0f;
+    UINT lightingID = 1;
+    DirectX::XMFLOAT2 Resolution;
+
+    // Indices [0, NUM_DIR_LIGHTS) are directional lights;
+    // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
+    // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
+    // are spot lights for a maximum of MaxLights per object.
+    Light Lights[MaxLights];
+};
+
+struct TAAObjectConstants
+{
+    DirectX::XMFLOAT4X4 World = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PreviousWorld = MathHelper::Identity4x4();
+    float isTessellationNeeded = 1.0f;
+    float scale = 1.0f;
+};
+
 struct PassConstantsShadows
 {
     DirectX::XMFLOAT4X4 MainView = MathHelper::Identity4x4();
@@ -245,6 +302,8 @@ public:
     std::unique_ptr<UploadBuffer<TessConstants>> TessCB = nullptr;
     std::unique_ptr<UploadBuffer<HeightMapConstants>> HeightMapCB = nullptr;
     std::unique_ptr<UploadBuffer<TerrainConstants>> TerrainCB = nullptr;
+    std::unique_ptr<UploadBuffer<TAAPassConstants>> TAAPassCB = nullptr;
+    std::unique_ptr<UploadBuffer<TAAObjectConstants>> TAAObjectsCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.

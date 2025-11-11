@@ -19,6 +19,7 @@ public:
 		float aspect, DirectX::XMMATRIX projMatrix);
 
 	static inline Microsoft::WRL::ComPtr<ID3D12Resource> m_RTVs[2];
+	static inline Microsoft::WRL::ComPtr<ID3D12Resource> m_VelocityBuffer;
 	static inline int m_CurrentRTV = 0;
 
 private:

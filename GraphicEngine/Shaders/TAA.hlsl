@@ -20,6 +20,12 @@ Texture2D<float4> gMetallicTex : register(t2, space0);
 Texture2D<float4> gRoughnessTex : register(t3, space0);
 Texture2D<float4> gAOTex : register(t4, space0);
 
+struct TAABuffer
+{
+    float4 MainRTV : SV_TARGET0;
+    float4 VelocityRTV : SV_TARGET1;
+};
+
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
 SamplerState gsamLinearWrap : register(s2);
@@ -32,6 +38,7 @@ cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
     float4x4 gTexTransform;
+    float4x4 gPrevWorld;
     float isTessellationNeeded;
     float scale;
 };
@@ -45,6 +52,14 @@ cbuffer cbPass : register(b1)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
+    
+    float4x4 gPrevView;
+    float4x4 gPrevInvView;
+    float4x4 gPrevProj;
+    float4x4 gPrevInvProj;
+    float4x4 gPrevViewProj;
+    float4x4 gPrevInvViewProj;
+    
     float3 gEyePosW;
     float cbPerObjectPad1;
     float2 gRenderTargetSize;
@@ -97,18 +112,37 @@ struct VertexOut
 {
     float4 PosH : SV_POSITION;
     float3 PosW : POSITION;
+    float4 PrevPosH : TEXCOORD1;
     float3 NormalW : NORMAL;
-    float2 TexC : TEXCOORD;
+    float2 TexC : TEXCOORD0;
     float3 TangentW : TANGENT;
 };
+
+float2 CalcVelocity(float4 newPos, float4 oldPos)
+{
+    oldPos /= oldPos.w;
+    oldPos.xy = (oldPos.xy + 1) / 2.0f;
+    oldPos.y = 1 - oldPos.y;
+    
+    newPos /= newPos.w;
+    newPos.xy = (newPos.xy + 1) / 2.0f;
+    newPos.y = 1 - newPos.y;
+    
+    return (newPos - oldPos).xy;
+}
 
 VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 {
     VertexOut vout = (VertexOut) 0.0f;
    
     // Transform to world space.
-    float4 posW = mul(float4(vin.PosL * scale, 1.0f), gWorld);
+    float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosW = posW.xyz;
+    
+    float4x4 prevFrame_modelMatrix = gPrevWorld;
+    float4 prevFrame_worldPos = mul(prevFrame_modelMatrix, float4(vin.PosL, 1.0));
+    float4 prevFrame_clipPos = mul(gPrevViewProj, prevFrame_worldPos);
+    vout.PrevPosH = prevFrame_clipPos;
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
     vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
@@ -126,7 +160,7 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
 }
 
 
-float4 PS(VertexOut pin) : SV_Target
+TAABuffer PS(VertexOut pin)
 {
     float3 position = pin.PosW;
     
@@ -165,11 +199,9 @@ float4 PS(VertexOut pin) : SV_Target
     
     float4 litColor = float4(ambient + Lo, 1.0f);
     
-    // Tone mapping
-    //litColor.rgb = litColor.rgb / (litColor.rgb + float3(1.0, 1.0, 1.0));
-    
-    // Gamma correction
-    //litColor.rgb = pow(litColor.rgb, float3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+    TAABuffer buffer;
+    buffer.MainRTV = litColor;
+    buffer.VelocityRTV = float4(CalcVelocity(pin.PosH, pin.PrevPosH), 1.0f, 1.0f);
 
-    return litColor;
+    return buffer;
 }

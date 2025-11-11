@@ -15,6 +15,7 @@
 
 Texture2D<float4> gCurrentTexture : register(t0, space0);
 Texture2D<float4> gPreviousTexture : register(t0, space1);
+Texture2D<float4> gVelocityTexture : register(t0, space2);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -91,9 +92,23 @@ VertexOut VS(uint vertexID : SV_VertexID, VertexIn vIn)
 float4 PS(VertexOut vOut) : SV_TARGET
 {
     float2 uv = vOut.uv;
-    float3 currentColor = gCurrentTexture.Sample(gsamLinearWrap, uv);
-    float3 previousColor = gPreviousTexture.Sample(gsamLinearWrap, uv);
-    float4 litColor = float4(currentColor * 0.1f + previousColor * 0.9f, 1.0f);
+    float2 velocity = gVelocityTexture.Sample(gsamPointWrap, uv).xy;
+    float2 prevousPixelPos = uv - velocity;
+    
+    float3 currentColor = gCurrentTexture.Sample(gsamPointWrap, uv);
+    float3 previousColor = gPreviousTexture.Sample(gsamLinearWrap, prevousPixelPos);
+    
+    float3 NearColor0 = gCurrentTexture.Sample(gsamPointWrap, uv, int2(1, 0)).xyz;
+    float3 NearColor1 = gCurrentTexture.Sample(gsamPointWrap, uv, int2(0, 1)).xyz;
+    float3 NearColor2 = gCurrentTexture.Sample(gsamPointWrap, uv, int2(-1, 0)).xyz;
+    float3 NearColor3 = gCurrentTexture.Sample(gsamPointWrap, uv, int2(0, -1)).xyz;
+    
+    float3 BoxMin = min(currentColor, min(NearColor0, min(NearColor1, min(NearColor2, NearColor3))));
+    float3 BoxMax = max(currentColor, max(NearColor0, max(NearColor1, max(NearColor2, NearColor3))));
+    
+    previousColor = clamp(previousColor, BoxMin, BoxMax);
+    
+    float4 litColor = float4(currentColor * 0.9f + previousColor * 0.1f, 1.0f);
     
     return litColor;
 }

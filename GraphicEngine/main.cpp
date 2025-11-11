@@ -149,9 +149,12 @@ private:
     void AnimateMaterials(const GameTimer& gt);
     void UpdateInstanceData(const GameTimer& gt);
     void UpdateInstanceDataScene13(const GameTimer& gt);
+
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateLightObjectCBs(const GameTimer& gt);
     void UpdateLightObjectCBMoreLight(const GameTimer& gt);
+    void UpdateTAAObjectCBs(const GameTimer& gt);
+
     void UpdateMaterialCBs(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateMainPassCBScene10(const GameTimer& gt);
@@ -265,7 +268,10 @@ private:
     void DrawRenderItemsScene14(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawTerrainScene14(ID3D12GraphicsCommandList* cmdList);
     void DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList);
+
     void DrawRenderItemsScene15(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+    void DrawRenderItemsScene15TAA(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
+
     void DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawMoreLightGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -326,6 +332,7 @@ private:
     std::vector<RenderItem*> mOpaqueRitems;
 
     PassConstants mMainPassCB;
+    TAAPassConstants mTAAMainPassCB;
     PassConstantsShadows mMainPassCBShadows;
     PassConstantsShadows mShadowPassCB;
     PassConstants mReflectedPassCB;
@@ -411,6 +418,10 @@ private:
     Octree* octreeScene13;
 
     DirectX::XMFLOAT3 m_Scene15ObjectPostion = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
+
+    DirectX::XMFLOAT4X4 PreviousWorld = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PreviousView = MathHelper::Identity4x4();
+    DirectX::XMFLOAT4X4 PreviousProj = MathHelper::Identity4x4();
 };
 
 bool isFirstExecution = true;
@@ -764,9 +775,11 @@ void Engine::Update(const GameTimer& gt)
         UpdateInstanceData(gt);
 
     UpdateObjectCBs(gt);
+
     UpdateMaterialCBs(gt);
-    if (activeSceneID != 10 && !(activeSceneID == 15 && selectedRenderModeScene15 == 1))
+    if (activeSceneID != 10)
         UpdateMainPassCB(gt);
+
     if (activeSceneID == 3)
     {
         UpdateMainPassCBScene3Camera2(gt);
@@ -844,7 +857,10 @@ void Engine::Update(const GameTimer& gt)
             UpdateScene15ObjectPosition(gt);
 
         if (selectedRenderModeScene15 == 1)
+        {
             UpdateMainPassCBScene15(gt);
+            UpdateTAAObjectCBs(gt);
+        }
     }
     timeScene2 = ParseTime(gt);
 }
@@ -2290,6 +2306,8 @@ void Engine::Draw(const GameTimer& gt)
         {
             D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
 
+            mCommandList->ClearRenderTargetView(rtvs2, DirectX::Colors::White, 0, nullptr);
+
             auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                 D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
             mCommandList->ResourceBarrier(1, &backBuffer);
@@ -2301,9 +2319,9 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->RSSetViewports(1, &viewports[4]);
             mCommandList->RSSetScissorRects(1, &rects[4]);
 
-            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureTAA"].Get());
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignaturePBR"].Get());
 
-            mCommandList->SetPipelineState(mPSOs["TAAPSO"].Get());
+            mCommandList->SetPipelineState(mPSOs["PBRPSO"].Get());
 
             passCB = mCurrFrameResource->PassCB->Resource();
             mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
@@ -2319,15 +2337,23 @@ void Engine::Draw(const GameTimer& gt)
         {
             {
                 CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+                CD3DX12_CPU_DESCRIPTOR_HANDLE velocityTextureRTVHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE(mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 11, mRtvDescriptorSize);
                 handle.Offset(9 + TAAUtility::m_CurrentRTV, mRtvDescriptorSize);
+
                 mCommandList->ClearRenderTargetView(handle, DirectX::Colors::White, 0, nullptr);
+                mCommandList->ClearRenderTargetView(velocityTextureRTVHandle, DirectX::Colors::Black, 0, nullptr);
+
                 TAAUtility::m_CurrentRTV = (TAAUtility::m_CurrentRTV + 1) % 2;
 
-                D3D12_CPU_DESCRIPTOR_HANDLE rtv = handle;
+                D3D12_CPU_DESCRIPTOR_HANDLE rtvsTaa[] =
+                {
+                    handle,
+                    velocityTextureRTVHandle
+                };
 
                 mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-                mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+                mCommandList->OMSetRenderTargets(2, rtvsTaa, false, &dsv);
 
                 mCommandList->RSSetViewports(1, &viewports[4]);
                 mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -2336,14 +2362,14 @@ void Engine::Draw(const GameTimer& gt)
 
                 mCommandList->SetPipelineState(mPSOs["TAAPSO"].Get());
 
-                passCB = mCurrFrameResource->PassCB->Resource();
+                passCB = mCurrFrameResource->TAAPassCB->Resource();
                 mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
-                DrawRenderItemsScene15(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene15]);
+                DrawRenderItemsScene15TAA(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Scene15]);
 
-                mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureSkyBox"].Get());
+                /*mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureSkyBox"].Get());
 
-                mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+                mCommandList->OMSetRenderTargets(1, &handle, false, &dsv);
 
                 mCommandList->RSSetViewports(1, &viewports[4]);
                 mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -2353,7 +2379,7 @@ void Engine::Draw(const GameTimer& gt)
                 passCB = mCurrFrameResource->PassCB->Resource();
                 mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
-                DrawSkybox(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
+                DrawSkybox(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);*/
             }
 
             {
@@ -2363,6 +2389,7 @@ void Engine::Draw(const GameTimer& gt)
 
                 mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureTAASecondPass"].Get());
 
+                passCB = mCurrFrameResource->PassCB->Resource();
                 mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
 
                 mCommandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
@@ -2454,7 +2481,7 @@ void Engine::Draw(const GameTimer& gt)
     }
 
     // SkyBox
-    if (!(activeSceneID == 15 && selectedRenderModeScene15 == 1))
+    if (!(activeSceneID == 15))
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
 
@@ -3075,6 +3102,46 @@ void Engine::UpdateLightObjectCBMoreLight(const GameTimer& gt)
 
         // Next FrameResource need to be updated too.
         mAllRitems[769]->NumFramesDirty--;
+    }
+}
+
+void Engine::UpdateTAAObjectCBs(const GameTimer& gt)
+{
+    auto currObjectCB = mCurrFrameResource->TAAObjectsCB.get();
+    for (int i = 0; i < mAllRitems.size(); ++i)
+    {
+        // Only update the cbuffer data if the constants have changed.  
+        // This needs to be tracked per frame resource.
+        if (mAllRitems[i]->NumFramesDirty > 0)
+        {
+            DirectX::XMMATRIX world = XMLoadFloat4x4(&mAllRitems[i]->World);
+            DirectX::XMFLOAT4X4 worldM = MathHelper::Identity4x4();
+            TAAObjectConstants objConstants;
+
+            if (i == 774)
+            {
+                world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(
+                    m_Scene15ObjectPostion.x,
+                    m_Scene15ObjectPostion.y,
+                    m_Scene15ObjectPostion.z
+                );
+            }
+
+            DirectX::XMMATRIX texTransform = XMLoadFloat4x4(&mAllRitems[i]->TexTransform);
+
+            DirectX::XMMATRIX prevWorld = XMLoadFloat4x4(&PreviousWorld);
+            XMStoreFloat4x4(&objConstants.PreviousWorld, XMMatrixTranspose(prevWorld));
+
+            DirectX::XMStoreFloat4x4(&PreviousWorld, world);
+
+            XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+            XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
+
+            currObjectCB->CopyData(mAllRitems[i]->ObjCBIndex, objConstants);
+
+            // Next FrameResource need to be updated too.
+            mAllRitems[i]->NumFramesDirty--;
+        }
     }
 }
 
@@ -4034,36 +4101,58 @@ void Engine::UpdateMainPassCBScene15(const GameTimer& gt)
     DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
     DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
 
-    XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
-    XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
-    XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
-    XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
-    XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
-    XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-    mMainPassCB.EyePosW = mCamera.GetPosition3f();
-    mMainPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
-    mMainPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
-    mMainPassCB.NearZ = 1.0f;
-    mMainPassCB.FarZ = 1000.0f;
-    mMainPassCB.TotalTime = gt.TotalTime();
-    mMainPassCB.DeltaTime = gt.DeltaTime();
-    mMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
+    XMStoreFloat4x4(&mTAAMainPassCB.View, XMMatrixTranspose(view));
+    XMStoreFloat4x4(&mTAAMainPassCB.InvView, XMMatrixTranspose(invView));
+    XMStoreFloat4x4(&mTAAMainPassCB.Proj, XMMatrixTranspose(proj));
+    XMStoreFloat4x4(&mTAAMainPassCB.InvProj, XMMatrixTranspose(invProj));
+    XMStoreFloat4x4(&mTAAMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
+    XMStoreFloat4x4(&mTAAMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+
+    DirectX::XMMATRIX prevView = DirectX::XMLoadFloat4x4(&PreviousView);
+    DirectX::XMMATRIX prevProj = DirectX::XMLoadFloat4x4(&PreviousProj);
+
+    auto tmp4 = XMMatrixDeterminant(prevView);
+    auto tmp5 = XMMatrixDeterminant(prevProj);
+    DirectX::XMMATRIX prevViewProj = XMMatrixMultiply(prevView, prevProj);
+    auto tmp6 = XMMatrixDeterminant(prevViewProj);
+    DirectX::XMMATRIX prevInvView = XMMatrixInverse(&tmp4, prevView);
+    DirectX::XMMATRIX prevInvProj = XMMatrixInverse(&tmp5, prevProj);
+    DirectX::XMMATRIX prevInvViewProj = XMMatrixInverse(&tmp6, prevViewProj);
+
+    XMStoreFloat4x4(&mTAAMainPassCB.PrevView, XMMatrixTranspose(prevView));
+    XMStoreFloat4x4(&mTAAMainPassCB.PrevInvView, XMMatrixTranspose(prevInvView));
+    XMStoreFloat4x4(&mTAAMainPassCB.PrevProj, XMMatrixTranspose(prevProj));
+    XMStoreFloat4x4(&mTAAMainPassCB.PrevInvProj, XMMatrixTranspose(prevInvProj));
+    XMStoreFloat4x4(&mTAAMainPassCB.PrevViewProj, XMMatrixTranspose(prevViewProj));
+    XMStoreFloat4x4(&mTAAMainPassCB.PrevInvViewProj, XMMatrixTranspose(prevInvViewProj));
+
+    DirectX::XMStoreFloat4x4(&PreviousView, view);
+    DirectX::XMStoreFloat4x4(&PreviousProj, proj);
+
+    mTAAMainPassCB.EyePosW = mCamera.GetPosition3f();
+    mTAAMainPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
+    mTAAMainPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
+    mTAAMainPassCB.NearZ = 1.0f;
+    mTAAMainPassCB.FarZ = 1000.0f;
+    mTAAMainPassCB.TotalTime = gt.TotalTime();
+    mTAAMainPassCB.DeltaTime = gt.DeltaTime();
+    mTAAMainPassCB.AmbientLight = { 0.25f, 0.25f, 0.35f, 1.0f };
 
     // Directional lights
-    mMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
-    mMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
-    mMainPassCB.Lights[0].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    mTAAMainPassCB.Lights[0].Direction = { 0.57735f, -0.57735f, 0.57735f };
+    mTAAMainPassCB.Lights[0].Strength = { 0.8f, 0.8f, 0.8f };
+    mTAAMainPassCB.Lights[0].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-    mMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
-    mMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
-    mMainPassCB.Lights[1].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    mTAAMainPassCB.Lights[1].Direction = { -0.57735f, -0.57735f, 0.57735f };
+    mTAAMainPassCB.Lights[1].Strength = { 0.4f, 0.4f, 0.4f };
+    mTAAMainPassCB.Lights[1].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-    mMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
-    mMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
-    mMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
+    mTAAMainPassCB.Lights[2].Direction = { 0.0f, -0.707f, -0.707f };
+    mTAAMainPassCB.Lights[2].Strength = { 0.2f, 0.2f, 0.2f };
+    mTAAMainPassCB.Lights[2].Color = { 1.0f, 1.0f, 1.0f, 1.0f };
 
-    auto currPassCB = mCurrFrameResource->PassCB.get();
-    currPassCB->CopyData(0, mMainPassCB);
+    auto currPassCB = mCurrFrameResource->TAAPassCB.get();
+    currPassCB->CopyData(0, mTAAMainPassCB);
 }
 
 void Engine::UpdateShadowTransformCascaded(Camera camera, int MapID, DirectX::XMFLOAT3 center,
@@ -5691,6 +5780,8 @@ void Engine::BuildRootSignature()
     texTable1TAASecondPass.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
     CD3DX12_DESCRIPTOR_RANGE texTable2TAASecondPass;
     texTable2TAASecondPass.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+    CD3DX12_DESCRIPTOR_RANGE texTable3TAASecondPass;
+    texTable3TAASecondPass.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2);
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
@@ -5739,7 +5830,7 @@ void Engine::BuildRootSignature()
     CD3DX12_ROOT_PARAMETER slotRootParameterTerrain[5];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterTAA[4];
-    CD3DX12_ROOT_PARAMETER slotRootParameterTAASecondPass[3];
+    CD3DX12_ROOT_PARAMETER slotRootParameterTAASecondPass[4];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -5903,6 +5994,8 @@ void Engine::BuildRootSignature()
     slotRootParameterTAASecondPass[0].InitAsDescriptorTable(1, &texTable1TAASecondPass);
     slotRootParameterTAASecondPass[1].InitAsDescriptorTable(1, &texTable2TAASecondPass);
     slotRootParameterTAASecondPass[2].InitAsConstantBufferView(0);
+    slotRootParameterTAASecondPass[3].InitAsDescriptorTable(1, &texTable3TAASecondPass);
+
 
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
@@ -6030,7 +6123,7 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescTAASecondPass(3, slotRootParameterTAASecondPass,
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescTAASecondPass(4, slotRootParameterTAASecondPass,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -8923,6 +9016,9 @@ void Engine::BuildPSOs()
         reinterpret_cast<BYTE*>(mShaders["TAA_PS"]->GetBufferPointer()),
         mShaders["TAA_PS"]->GetBufferSize()
     };
+    TAAPsoDesc.NumRenderTargets = 2;
+    TAAPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    TAAPsoDesc.RTVFormats[1] = mBackBufferFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&TAAPsoDesc, IID_PPV_ARGS(&mPSOs["TAAPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC TAASecondPassPsoDesc;
@@ -8958,6 +9054,7 @@ void Engine::BuildPSOs()
     TAASecondPassPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     TAASecondPassPsoDesc.NumRenderTargets = 1;
     TAASecondPassPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    TAASecondPassPsoDesc.RTVFormats[1] = DXGI_FORMAT_UNKNOWN;
     TAASecondPassPsoDesc.SampleDesc.Count = 1;
     TAASecondPassPsoDesc.SampleDesc.Quality = 0;
     TAASecondPassPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
@@ -10214,6 +10311,18 @@ void Engine::CreateScene15RTV()
 
     md3dDevice->CreateRenderTargetView(TAAUtility::m_RTVs[1].Get(), nullptr, rtvHandle);
 
+    rtvHandle.Offset(1, mRtvDescriptorSize);
+
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDesc,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        nullptr,
+        IID_PPV_ARGS(&TAAUtility::m_VelocityBuffer));
+
+    md3dDevice->CreateRenderTargetView(TAAUtility::m_VelocityBuffer.Get(), nullptr, rtvHandle);
+
     CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
     hDescriptor.Offset(67, mCbvSrvDescriptorSize);
 
@@ -10227,6 +10336,9 @@ void Engine::CreateScene15RTV()
     
     hDescriptor.Offset(1, mCbvSrvDescriptorSize);
     md3dDevice->CreateShaderResourceView(TAAUtility::m_RTVs[1].Get(), &srvDRDesc, hDescriptor);
+
+    hDescriptor.Offset(1, mCbvSrvDescriptorSize);
+    md3dDevice->CreateShaderResourceView(TAAUtility::m_VelocityBuffer.Get(), &srvDRDesc, hDescriptor);
 }
 
 void Engine::ResizeGBuffer()
@@ -11519,6 +11631,41 @@ void Engine::DrawRenderItemsScene15(ID3D12GraphicsCommandList* cmdList, const st
     }
 }
 
+void Engine::DrawRenderItemsScene15TAA(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(TAAObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->TAAObjectsCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
+        }
+    }
+}
+
 void Engine::DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -11818,9 +11965,12 @@ void Engine::DrawScreenQuadTAA(ID3D12GraphicsCommandList* cmdList)
     srv1.Offset(67 + (TAAUtility::m_CurrentRTV + 1) % 2, mCbvSrvDescriptorSize);
     CD3DX12_GPU_DESCRIPTOR_HANDLE srv2(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
     srv2.Offset(67 + TAAUtility::m_CurrentRTV, mCbvSrvDescriptorSize);
+    CD3DX12_GPU_DESCRIPTOR_HANDLE srv3(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+    srv3.Offset(69, mCbvSrvDescriptorSize);
 
     cmdList->SetGraphicsRootDescriptorTable(0, srv1);
     cmdList->SetGraphicsRootDescriptorTable(1, srv2);
+    cmdList->SetGraphicsRootDescriptorTable(3, srv3);
 
     cmdList->DrawInstanced(4, 1, 0, 0);
 }

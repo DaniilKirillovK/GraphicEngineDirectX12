@@ -31,6 +31,8 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     TessCB = std::make_unique<UploadBuffer<TessConstants>>(device, 1, true);
     HeightMapCB = std::make_unique<UploadBuffer<HeightMapConstants>>(device, 1, true);
     TerrainCB = std::make_unique<UploadBuffer<TerrainConstants>>(device, 1, true);
+    TAAPassCB = std::make_unique<UploadBuffer<TAAPassConstants>>(device, 1, true);
+    TAAObjectsCB = std::make_unique<UploadBuffer<TAAObjectConstants>>(device, objectCount, true);
 }
 
 FrameResource::~FrameResource()
