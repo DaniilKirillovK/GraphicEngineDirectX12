@@ -59,8 +59,12 @@ float3 CalculateAtmosphericScattering(float3 rayOrigin, float3 rayDir, float max
     float3 totalRayleigh = float3(0.0f, 0.0f, 0.0f);
     float totalMie = 0.0f;
     
+    transmittance = float3(1.0f, 1.0f, 1.0f);
+    
     float stepSize = maxDistance / StepCount;
     float lightStepSize = stepSize / StepCount;
+    
+    float2 OpticalDepthPA = 0.0;
     
     for (int i = 0; i < StepCount; ++i)
     {
@@ -79,7 +83,7 @@ float3 CalculateAtmosphericScattering(float3 rayOrigin, float3 rayDir, float max
         float3 lightRayDir = LightDirAndIntensity.xyz;
         float lightDistance = AtmosphereRadius * 2.0f;
         
-        transmittance = float3(1.0f, 1.0f, 1.0f);
+        float lightTransmittance = float3(1.0f, 1.0f, 1.0f);
         
         for (int j = 0; j < StepCount; ++j)
         {
@@ -89,21 +93,23 @@ float3 CalculateAtmosphericScattering(float3 rayOrigin, float3 rayDir, float max
             
             if (lightHeight < 0.0f)
             {
-                transmittance = float3(0.0f, 0.0f, 0.0f);
+                lightTransmittance = float3(0.0f, 0.0f, 0.0f);
                 break;
             }
             
             float lightDensity = DensityAtHeight(lightHeight, densityFalloff);
-            transmittance *= exp(-(RayleiCoef * lightDensity + MieCoef * lightDensity) * lightStepSize);
+            lightTransmittance *= exp(-(RayleiCoef * lightDensity + MieCoef * lightDensity) * lightStepSize);
         }
         
-        totalRayleigh += rayleighDensity * transmittance * stepSize * SunColor;
-        totalMie += mieDensity * transmittance * stepSize * dot(SunColor, float3(0.333f, 0.333f, 0.333f));
+        totalRayleigh += rayleighDensity * lightTransmittance * stepSize;
+        totalMie += mieDensity * lightTransmittance * stepSize;
+        
+        transmittance *= exp(-(rayleighDensity * 100.f + mieDensity * float3(1, 1, 1)) * stepSize);
     }
     
     float cosTheta = dot(rayDir, LightDirAndIntensity.xyz);
     float rayleighPhase = RayleighPhase(cosTheta);
     float miePhase = MiePhase(cosTheta, 0.76f);
     
-    return (totalRayleigh * rayleighPhase + totalMie * miePhase) * SunColor * ScaterringIntensity;
+    return (totalRayleigh * rayleighPhase + totalMie * miePhase) * ScaterringIntensity;
 }

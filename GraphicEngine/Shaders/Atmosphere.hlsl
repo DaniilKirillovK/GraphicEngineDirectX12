@@ -36,18 +36,21 @@ float4 PS(in VertexOut Input) : SV_Target0
     
     float3 scattering = CalculateAtmosphericScattering(rayOrigin, rayDir, maxDistance, transmittance);
     
-    float3 finalColor = scattering * 10.f;
-    
-    finalColor = finalColor / (finalColor + 1.0);
+    scattering *= 10.f;
     
     if (depth > 0.99999f)
     {
+        float3 finalColor = scattering;
+        finalColor = finalColor / (finalColor + 1.0);
         return float4(finalColor, 1.0f);
     }
     else
     {
-        float distanceFactor = saturate(maxDistance / 500.0f);
-        return float4(finalColor, distanceFactor);
+        float3 finalColor = scattering;
+        finalColor = finalColor / (finalColor + 1.0);
+        float alpha = 1.0 - min(transmittance.r, min(transmittance.g, transmittance.b));
+        
+        return float4(finalColor, alpha);
     }
 }
 

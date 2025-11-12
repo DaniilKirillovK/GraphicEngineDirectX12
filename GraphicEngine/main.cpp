@@ -635,7 +635,7 @@ int selectedRenderModeScene15 = 0;
 
 float scene16SunColor[3] = { 1.0f, 1.0f, 1.0f };
 float scene16ScaterringIntensity = 20.f;
-float scene16RayleiCoef[3] = { 5.8e-6f, 13.5e-6f, 33.1e-6f };
+float scene16RayleiCoef[3] = { 6.95e-6f, 1.18e-5f, 2.44e-5f };
 float scene16MieCoef = { 2.1e-5f };
 
 
@@ -4546,7 +4546,7 @@ void Engine::UpdateAtmosphereCB()
     atmosphereConst.SunColor = DirectX::XMFLOAT3(scene16SunColor[0], scene16SunColor[1], scene16SunColor[2]);
     atmosphereConst.ScaterringIntensity = scene16ScaterringIntensity;
 
-    float theta = 30 * 3.1415926535f / 180.f;
+    float theta = 30 * 3.1415926535f;
     float z = cos(theta);
     float y = sin(theta);
     atmosphereConst.LightDirAndIntensity = DirectX::XMFLOAT4(0.f, -y, -z, 10.0f);
@@ -13506,15 +13506,14 @@ void Engine::RenderUI()
         else if (activeSceneID == 16)
         {
             ImGui::Text("");
-            ImGui::SliderFloat("Scaterring Intensity", &scene16ScaterringIntensity, 0.0f, 100.f);
-            ImGui::ColorPicker3("Sun Color", scene16SunColor, ImGuiColorEditFlags_NoAlpha);
+            ImGui::SliderFloat("Scaterring Intensity", &scene16ScaterringIntensity, 0.0f, 30.f);
 
             ImGui::Text("");
-            ImGui::SliderFloat("Mie Coef", &scene16MieCoef, 1.0e-7f, 1.0e-3f, "%.7f");
+            ImGui::SliderFloat("Mie Coef", &scene16MieCoef, 1.0e-7f, 1.0e-2f, "%.7f");
             ImGui::Text("Rayleigh Coef");
-            ImGui::SliderFloat("Rayleigh R", &scene16RayleiCoef[0], 1.0e-6f, 50.0e-6f, "%.6f");
-            ImGui::SliderFloat("Rayleigh G", &scene16RayleiCoef[1], 1.0e-6f, 50.0e-6f, "%.6f");
-            ImGui::SliderFloat("Rayleigh B", &scene16RayleiCoef[2], 1.0e-6f, 50.0e-6f, "%.6f");
+            ImGui::SliderFloat("Rayleigh R", &scene16RayleiCoef[0], 1.0e-6f, 4.0e-5f, "%.6f");
+            ImGui::SliderFloat("Rayleigh G", &scene16RayleiCoef[1], 1.0e-6f, 4.0e-5f, "%.6f");
+            ImGui::SliderFloat("Rayleigh B", &scene16RayleiCoef[2], 1.0e-6f, 4.0e-5f, "%.6f");
         }
     } ImGui::End();
 
