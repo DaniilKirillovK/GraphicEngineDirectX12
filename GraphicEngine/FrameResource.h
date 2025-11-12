@@ -238,6 +238,23 @@ struct PassConstantsShadows
     Light Lights[MaxLights];
 };
 
+struct AtmosphereConstants
+{
+    DirectX::XMFLOAT4X4	InvProjectionMatrix;
+    DirectX::XMFLOAT4X4	InvViewMatrix;
+    DirectX::XMFLOAT4X4	InvViewProjMatrix;
+    DirectX::XMFLOAT4 LightDirAndIntensity;
+    DirectX::XMFLOAT4 EarthCenterAndRadius;
+    DirectX::XMFLOAT2 DensityScaleHeight;
+    float AtmosphereRadius;
+    float MieG;
+    float MieCoef;
+    DirectX::XMFLOAT3 CameraPosition;
+    DirectX::XMFLOAT3 RayleiCoef;
+    float ScaterringIntensity;
+    DirectX::XMFLOAT3 SunColor;
+};
+
 struct Vertex
 {
     Vertex() = default;
@@ -304,6 +321,7 @@ public:
     std::unique_ptr<UploadBuffer<TerrainConstants>> TerrainCB = nullptr;
     std::unique_ptr<UploadBuffer<TAAPassConstants>> TAAPassCB = nullptr;
     std::unique_ptr<UploadBuffer<TAAObjectConstants>> TAAObjectsCB = nullptr;
+    std::unique_ptr<UploadBuffer<AtmosphereConstants>> AtmosphereCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.

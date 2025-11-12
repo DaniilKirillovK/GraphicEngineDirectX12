@@ -234,7 +234,7 @@ DomainOut DS(PatchTess patchTess,
     float resultDisplacement = 0.0f;
     float displacement = gTextures[2].SampleLevel(gsamLinearWrap, texCoord, 0).r;
     float displacementScale = gDisplacementScale;
-    displacement = (2.f * displacement - 1.0f) * displacementScale;
+    displacement = (pow(2.f * displacement, 2.f) - 1.0f) * displacementScale;
     resultDisplacement += displacement;
 
     position += normal * resultDisplacement;

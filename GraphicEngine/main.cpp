@@ -81,6 +81,7 @@ enum class RenderLayer : int
     RainParticles = 23,
     Scene14 = 24,
     Scene15 = 25,
+    Scene16 = 26,
     Count
 };
 
@@ -185,6 +186,7 @@ private:
     void UpdateHeightMapCB();
     void UpdateTerrainCB();
     void UpdateScene15ObjectPosition(const GameTimer& gt);
+    void UpdateAtmosphereCB();
     
     void UpdateLODScene3();
 
@@ -272,6 +274,8 @@ private:
     void DrawRenderItemsScene15(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene15TAA(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
+    void DrawTerrainScene16(ID3D12GraphicsCommandList* cmdList);
+
     void DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawMoreLightGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -283,6 +287,7 @@ private:
     void DrawScreenQuad(ID3D12GraphicsCommandList* cmdList);
     void DrawScreenQuadPostProcessing(ID3D12GraphicsCommandList* cmdList);
     void DrawScreenQuadTAA(ID3D12GraphicsCommandList* cmdList);
+    void DrawScreenQuadAtmosphere(ID3D12GraphicsCommandList* cmdList);
     void DrawParticles(ParticleSystem particleSystem, RenderLayer layer);
     void DrawParticlesGPU(ParticleSystem particleSystem, RenderLayer layer, UINT CB1, UINT SRV1);
     void DrawSceneToShadowMap();
@@ -628,6 +633,10 @@ bool isWireframeScene14 = false;
 bool isMovingObjectScene15 = false;
 int selectedRenderModeScene15 = 0;
 
+float scene16SunColor[3] = { 1.0f, 1.0f, 1.0f };
+float scene16ScaterringIntensity = 20.f;
+float scene16RayleiCoef[3] = { 5.8e-6f, 13.5e-6f, 33.1e-6f };
+float scene16MieCoef = { 2.1e-5f };
 
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
@@ -861,6 +870,10 @@ void Engine::Update(const GameTimer& gt)
             UpdateMainPassCBScene15(gt);
             UpdateTAAObjectCBs(gt);
         }
+    }
+    if (activeSceneID == 16)
+    {
+        UpdateAtmosphereCB();
     }
     timeScene2 = ParseTime(gt);
 }
@@ -2403,12 +2416,96 @@ void Engine::Draw(const GameTimer& gt)
             }
         }
     }
+
+    else if (activeSceneID == 16)
+    {
+        // Geometry Pass
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureTerrain"].Get());
+
+            mCommandList->SetPipelineState(mPSOs["terrainPSO"].Get());
+
+            passCB = mCurrFrameResource->PassCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+            auto terrainCB = mCurrFrameResource->TerrainCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(4, terrainCB->GetGPUVirtualAddress());
+
+            DrawTerrainScene16(mCommandList.Get());
+
+            /*mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureSkyBox"].Get());
+
+            mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["skyboxPSO"].Get());
+
+            passCB = mCurrFrameResource->PassCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+            DrawSkybox(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);*/
+        }
+
+        // Atmosphere pass
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
+
+            // Indicate a state transition on the resource usage.
+            D3D12_RESOURCE_BARRIER depthBarrier = CD3DX12_RESOURCE_BARRIER::Transition(gBuffer.gBufferDepth.Get(),
+                D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            mCommandList->ResourceBarrier(1, &depthBarrier);
+
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureAtmosphere"].Get());
+
+            passCB = mCurrFrameResource->AtmosphereCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(0, passCB->GetGPUVirtualAddress());
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE depthSrv(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            depthSrv.Offset(15, mCbvSrvDescriptorSize);
+            mCommandList->SetGraphicsRootDescriptorTable(1, depthSrv);
+
+            mCommandList->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(mPSOs["AtmospherePSO"].Get());
+
+            DrawScreenQuadAtmosphere(mCommandList.Get());
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+
+            auto depthOpen = CD3DX12_RESOURCE_BARRIER::Transition(mDepthStencilBuffer.Get(),
+                D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            D3D12_RESOURCE_BARRIER barrierOpen[] = { depthOpen };
+            mCommandList->ResourceBarrier(1, barrierOpen);
+        }
+    }
     
 
     // Draw screen quad
     if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
         && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9 && activeSceneID != 12
-        && activeSceneID != 13 && activeSceneID != 14 && activeSceneID != 15)
+        && activeSceneID != 13 && activeSceneID != 14 && activeSceneID != 15 && activeSceneID != 16)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -2481,7 +2578,7 @@ void Engine::Draw(const GameTimer& gt)
     }
 
     // SkyBox
-    if (!(activeSceneID == 15))
+    if (!(activeSceneID == 15) && activeSceneID != 16)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
 
@@ -4421,6 +4518,43 @@ void Engine::UpdateScene15ObjectPosition(const GameTimer& gt)
     );
 }
 
+void Engine::UpdateAtmosphereCB()
+{
+    AtmosphereConstants atmosphereConst;
+    DirectX::XMMATRIX view = mCamera.GetView();
+    DirectX::XMMATRIX proj = mCamera.GetProj();
+    auto tmp1 = XMMatrixDeterminant(view);
+    auto tmp2 = XMMatrixDeterminant(proj);
+    DirectX::XMMATRIX invView = XMMatrixInverse(&tmp1, view);
+    DirectX::XMMATRIX invProj = XMMatrixInverse(&tmp2, proj);
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto tmp3 = XMMatrixDeterminant(viewProj);
+    DirectX::XMMATRIX invViewProj = XMMatrixInverse(&tmp3, viewProj);
+
+    XMStoreFloat4x4(&atmosphereConst.InvProjectionMatrix, invProj);
+    XMStoreFloat4x4(&atmosphereConst.InvViewMatrix, invView);
+    XMStoreFloat4x4(&atmosphereConst.InvViewProjMatrix, invViewProj);
+
+    atmosphereConst.DensityScaleHeight = DirectX::XMFLOAT2(8000.0f, 1200.f);
+    atmosphereConst.AtmosphereRadius = 6460e3;
+    atmosphereConst.EarthCenterAndRadius = DirectX::XMFLOAT4(0.f, -6360e3, 0.f, 6360e3);
+    atmosphereConst.RayleiCoef = DirectX::XMFLOAT3(scene16RayleiCoef[0], scene16RayleiCoef[1], scene16RayleiCoef[2]);
+    atmosphereConst.MieG = 0.8f;
+    atmosphereConst.MieCoef = scene16MieCoef;
+    atmosphereConst.CameraPosition = mCamera.GetPosition3f();
+
+    atmosphereConst.SunColor = DirectX::XMFLOAT3(scene16SunColor[0], scene16SunColor[1], scene16SunColor[2]);
+    atmosphereConst.ScaterringIntensity = scene16ScaterringIntensity;
+
+    float theta = 30 * 3.1415926535f / 180.f;
+    float z = cos(theta);
+    float y = sin(theta);
+    atmosphereConst.LightDirAndIntensity = DirectX::XMFLOAT4(0.f, -y, -z, 10.0f);
+
+    auto currPassCB = mCurrFrameResource->AtmosphereCB.get();
+    currPassCB->CopyData(0, atmosphereConst);
+}
+
 void Engine::UpdateLODScene3()
 {
     float distance;
@@ -5783,6 +5917,9 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTable3TAASecondPass;
     texTable3TAASecondPass.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 2);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableAtmosphere;
+    texTableAtmosphere.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -5831,6 +5968,8 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_PARAMETER slotRootParameterTAA[4];
     CD3DX12_ROOT_PARAMETER slotRootParameterTAASecondPass[4];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterAtmosphere[2];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -5996,6 +6135,8 @@ void Engine::BuildRootSignature()
     slotRootParameterTAASecondPass[2].InitAsConstantBufferView(0);
     slotRootParameterTAASecondPass[3].InitAsDescriptorTable(1, &texTable3TAASecondPass);
 
+    slotRootParameterAtmosphere[0].InitAsConstantBufferView(0);
+    slotRootParameterAtmosphere[1].InitAsDescriptorTable(1, &texTableAtmosphere);
 
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
@@ -6127,6 +6268,10 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescAtmosphere(2, slotRootParameterAtmosphere,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     CreateRootSignature(rootSigDesc, "mRootSignature");
     CreateRootSignature(rootSigDesc2, "mRootSignatureLight");
@@ -6160,6 +6305,7 @@ void Engine::BuildRootSignature()
     CreateRootSignature(rootSigDescTerrain, "mRootSignatureTerrain");
     CreateRootSignature(rootSigDescTAA, "mRootSignatureTAA");
     CreateRootSignature(rootSigDescTAASecondPass, "mRootSignatureTAASecondPass");
+    CreateRootSignature(rootSigDescAtmosphere, "mRootSignatureAtmosphere");
 }
 
 
@@ -6309,6 +6455,9 @@ void Engine::BuildShadersAndInputLayout()
 
     mShaders["TAASecondPass_VS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TAASecondPass.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["TAASecondPass_PS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\TAASecondPass.hlsl", nullptr, "PS", "ps_5_1");
+
+    mShaders["AtmosphereVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Atmosphere.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["AtmospherePS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Atmosphere.hlsl", nullptr, "PS", "ps_5_1");
 
     mInputLayout =
     {
@@ -9059,6 +9208,44 @@ void Engine::BuildPSOs()
     TAASecondPassPsoDesc.SampleDesc.Quality = 0;
     TAASecondPassPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&TAASecondPassPsoDesc, IID_PPV_ARGS(&mPSOs["TAASecondPassPSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC AtmospherePsoDesc;
+    ZeroMemory(&AtmospherePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    AtmospherePsoDesc.InputLayout = { nullptr, 0 };
+    AtmospherePsoDesc.pRootSignature = mRootSignatures["mRootSignatureAtmosphere"].Get();
+    AtmospherePsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["AtmosphereVS"]->GetBufferPointer()),
+        mShaders["AtmosphereVS"]->GetBufferSize()
+    };
+    AtmospherePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["AtmospherePS"]->GetBufferPointer()),
+        mShaders["AtmospherePS"]->GetBufferSize()
+    };
+    AtmospherePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    AtmospherePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    AtmospherePsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    AtmospherePsoDesc.BlendState.IndependentBlendEnable = FALSE;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].BlendEnable = TRUE;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].LogicOpEnable = FALSE;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ZERO;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ONE;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+    AtmospherePsoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    AtmospherePsoDesc.DepthStencilState.DepthEnable = FALSE;
+    AtmospherePsoDesc.DepthStencilState.StencilEnable = FALSE;
+    AtmospherePsoDesc.SampleMask = UINT_MAX;
+    AtmospherePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    AtmospherePsoDesc.NumRenderTargets = 1;
+    AtmospherePsoDesc.RTVFormats[0] = mBackBufferFormat;
+    AtmospherePsoDesc.SampleDesc.Count = 1;
+    AtmospherePsoDesc.SampleDesc.Quality = 0;
+    AtmospherePsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&AtmospherePsoDesc, IID_PPV_ARGS(&mPSOs["AtmospherePSO"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -11666,6 +11853,52 @@ void Engine::DrawRenderItemsScene15TAA(ID3D12GraphicsCommandList* cmdList, const
     }
 }
 
+void Engine::DrawTerrainScene16(ID3D12GraphicsCommandList* cmdList)
+{
+    DirectX::XMMATRIX view = mCamera.GetView();
+    DirectX::XMMATRIX proj = mCamera.GetProj();
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+    auto det = XMMatrixDeterminant(view);
+    DirectX::XMMATRIX inverseViewMatrix = DirectX::XMMatrixInverse(&det, view);
+    DirectX::BoundingFrustum localFrustum;
+    DirectX::BoundingFrustum::CreateFromMatrix(localFrustum, proj);
+    DirectX::BoundingFrustum worldFrustum;
+    localFrustum.Transform(worldFrustum, inverseViewMatrix);
+    m_terrainQuadTree.Update(viewProj, worldFrustum);
+
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto matCB = mCurrFrameResource->MaterialCB->Resource();
+
+    for (size_t i = 0; i < m_terrainQuadTree.m_NodesToRender.size(); ++i)
+    {
+        {
+            StaticMesh mesh = m_terrainQuadTree.m_NodesToRender[i]->mesh;
+            auto ri = mAllRitems[773].get();
+
+            auto tmp1 = mesh.vertexBufferView;
+            auto tmp2 = mesh.indexBufferView;
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+            cmdList->SetGraphicsRootDescriptorTable(0, tex);
+            cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
+            cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
+
+            cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+        }
+    }
+}
+
 void Engine::DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
@@ -11973,6 +12206,12 @@ void Engine::DrawScreenQuadTAA(ID3D12GraphicsCommandList* cmdList)
     cmdList->SetGraphicsRootDescriptorTable(3, srv3);
 
     cmdList->DrawInstanced(4, 1, 0, 0);
+}
+
+void Engine::DrawScreenQuadAtmosphere(ID3D12GraphicsCommandList* cmdList)
+{
+    cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+    cmdList->DrawInstanced(3, 1, 0, 0);
 }
 
 void Engine::DrawParticles(ParticleSystem particleSystem, RenderLayer layer)
@@ -12726,6 +12965,7 @@ void Engine::RenderUI()
         ImGui::Text("Scene 13: OcTree");
         ImGui::Text("Scene 14: Terrain");
         ImGui::Text("Scene 15: TAA");
+        ImGui::Text("Scene 16: Atmosphere");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -12827,6 +13067,12 @@ void Engine::RenderUI()
             if (ImGui::Button("Scene 15", ImVec2(80, 40)))
             {
                 activeSceneID = 15;
+            }
+            ImGui::TableSetColumnIndex(7);
+
+            if (ImGui::Button("Scene 16", ImVec2(80, 40)))
+            {
+                activeSceneID = 16;
             }
 
             ImGui::EndTable();
@@ -13243,7 +13489,7 @@ void Engine::RenderUI()
         {
             ImGui::Text("");
             ImGui::Checkbox("Wireframe", &isWireframeScene14);
-            ImGui::SliderFloat("Displacement Scale", &displacementScaleScene14, 0.0f, 50.0f);
+            ImGui::SliderFloat("Displacement Scale", &displacementScaleScene14, 0.0f, 150.0f);
         }
         else if (activeSceneID == 15)
         {
@@ -13256,6 +13502,19 @@ void Engine::RenderUI()
             ImGui::RadioButton("TAA", &selectedRenderModeScene15, 1);
 
             mAllRitems[774]->NumFramesDirty = gNumFrameResources;
+        }
+        else if (activeSceneID == 16)
+        {
+            ImGui::Text("");
+            ImGui::SliderFloat("Scaterring Intensity", &scene16ScaterringIntensity, 0.0f, 100.f);
+            ImGui::ColorPicker3("Sun Color", scene16SunColor, ImGuiColorEditFlags_NoAlpha);
+
+            ImGui::Text("");
+            ImGui::SliderFloat("Mie Coef", &scene16MieCoef, 1.0e-7f, 1.0e-3f, "%.7f");
+            ImGui::Text("Rayleigh Coef");
+            ImGui::SliderFloat("Rayleigh R", &scene16RayleiCoef[0], 1.0e-6f, 50.0e-6f, "%.6f");
+            ImGui::SliderFloat("Rayleigh G", &scene16RayleiCoef[1], 1.0e-6f, 50.0e-6f, "%.6f");
+            ImGui::SliderFloat("Rayleigh B", &scene16RayleiCoef[2], 1.0e-6f, 50.0e-6f, "%.6f");
         }
     } ImGui::End();
 

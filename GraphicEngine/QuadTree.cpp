@@ -25,7 +25,7 @@ void TerrainQuadtree::BuildTree(std::unordered_map<std::string, std::unique_ptr<
 {
     DirectX::BoundingBox terrainBounds;
     terrainBounds.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-    terrainBounds.Extents = DirectX::XMFLOAT3(256.0f, 256.0f, 256.0f);
+    terrainBounds.Extents = DirectX::XMFLOAT3(256.f, 256.f, 256.f);
 
     m_root = new QuadTreeNode();
     BuildNode(m_root, terrainBounds, 0, geometries, commandList);
@@ -59,8 +59,8 @@ void TerrainQuadtree::BuildNode(QuadTreeNode* node,
         XMStoreFloat3(&vertices[j].Pos, pos);
 
         DirectX::XMFLOAT2 newTexC = DirectX::XMFLOAT2(
-            (vertices[j].Pos.x + 256.f) / 512.f,
-            (vertices[j].Pos.z + 256.f) / 512.f
+            (vertices[j].Pos.x + 256.0f) / 512.0f,
+            (vertices[j].Pos.z + 256.0f) / 512.0f
         );
 
         vertices[j].Normal = Mesh.Vertices[j].Normal;

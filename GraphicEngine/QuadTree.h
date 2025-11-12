@@ -76,6 +76,6 @@ private:
     QuadTreeNode* m_root;
     uint32_t m_maxDepth;
 
-    std::vector<float> distances = { 2048.f, 1024.f, 512.f, 256.f, 128.f, 64.f, 0.f };
+    std::vector<float> distances = { 1024.f, 512.f, 256.f, 128.f, 64.f, 32.f, 0.f };
 };
 
