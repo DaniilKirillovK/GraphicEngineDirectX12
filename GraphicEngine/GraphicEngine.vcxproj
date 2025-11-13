@@ -174,8 +174,10 @@
     <ClCompile Include="imgui\imgui_widgets.cpp" />
     <ClCompile Include="Instancing.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="MarchingCubes.cpp" />
     <ClCompile Include="MathHelper.cpp" />
     <ClCompile Include="ModelLoader.cpp" />
+    <ClCompile Include="Noise3DGenerator.cpp" />
     <ClCompile Include="OcTree.cpp" />
     <ClCompile Include="Particles.cpp" />
     <ClCompile Include="ParticleSystem.cpp" />
@@ -204,9 +206,11 @@
     <ClInclude Include="imgui\imstb_textedit.h" />
     <ClInclude Include="imgui\imstb_truetype.h" />
     <ClInclude Include="Instancing.h" />
+    <ClInclude Include="MarchingCubes.h" />
     <ClInclude Include="MathHelper.h" />
     <ClInclude Include="ModelHelper.h" />
     <ClInclude Include="ModelLoader.h" />
+    <ClInclude Include="Noise3DGenerator.h" />
     <ClInclude Include="OcTree.h" />
     <ClInclude Include="Particles.h" />
     <ClInclude Include="ParticleSystem.h" />

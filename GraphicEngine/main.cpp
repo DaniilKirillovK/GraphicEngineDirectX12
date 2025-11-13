@@ -24,6 +24,7 @@
 #include "OcTree.h"
 #include "QuadTree.h"
 #include "TAAUtility.h"
+#include "MarchingCubes.h"
 
 extern "C" { _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
 
@@ -82,6 +83,7 @@ enum class RenderLayer : int
     Scene14 = 24,
     Scene15 = 25,
     Scene16 = 26,
+    Scene17 = 27,
     Count
 };
 
@@ -245,6 +247,7 @@ private:
     virtual void InitInstanceBufferRMDemo() override;
     virtual void InitInstanceBufferMoreLight() override;
     virtual void InitParticleSystem() override;
+    virtual void InitMarchingCubesSystem() override;
 
     void CreateRootSignature(CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc, std::string rootSigName);
     
@@ -275,6 +278,7 @@ private:
     void DrawRenderItemsScene15TAA(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
     void DrawTerrainScene16(ID3D12GraphicsCommandList* cmdList);
+    void DrawMarchingCubesScene17(ID3D12GraphicsCommandList* cmdList);
 
     void DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawDebugGeometryScene10(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -324,6 +328,7 @@ private:
     std::vector<D3D12_INPUT_ELEMENT_DESC> mPostProcessingInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mDebugInputLayout;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mTerrainDebugInputLayout;
+    std::vector<D3D12_INPUT_ELEMENT_DESC> mCubeMarchingInputLayout;
 
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
@@ -427,6 +432,8 @@ private:
     DirectX::XMFLOAT4X4 PreviousWorld = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 PreviousView = MathHelper::Identity4x4();
     DirectX::XMFLOAT4X4 PreviousProj = MathHelper::Identity4x4();
+
+    MarchingCubes* m_MarchingCubes;
 };
 
 bool isFirstExecution = true;
@@ -2500,12 +2507,42 @@ void Engine::Draw(const GameTimer& gt)
             mCommandList->ResourceBarrier(1, barrierOpen);
         }
     }
+
+    else if (activeSceneID == 17)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
+
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+        mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->SetGraphicsRootSignature(mRootSignatures["mRootSignatureCubeMarching"].Get());
+
+        mCommandList->SetPipelineState(mPSOs["CubeMarchingPSO"].Get());
+
+        passCB = mCurrFrameResource->PassCB->Resource();
+        mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+        DrawMarchingCubesScene17(mCommandList.Get());
+
+        // Indicate a state transition on the resource usage.
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+        mCommandList->ResourceBarrier(1, &barrier1);
+    }
     
 
     // Draw screen quad
     if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
         && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9 && activeSceneID != 12
-        && activeSceneID != 13 && activeSceneID != 14 && activeSceneID != 15 && activeSceneID != 16)
+        && activeSceneID != 13 && activeSceneID != 14 && activeSceneID != 15 && activeSceneID != 16 && activeSceneID != 17)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -5971,6 +6008,8 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_PARAMETER slotRootParameterAtmosphere[2];
 
+    CD3DX12_ROOT_PARAMETER slotRootParameterCubeMarching[2];
+
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
     slotRootParameter[1].InitAsDescriptorTable(1, &texTableSpace1);
@@ -6138,6 +6177,9 @@ void Engine::BuildRootSignature()
     slotRootParameterAtmosphere[0].InitAsConstantBufferView(0);
     slotRootParameterAtmosphere[1].InitAsDescriptorTable(1, &texTableAtmosphere);
 
+    slotRootParameterCubeMarching[0].InitAsConstantBufferView(0);
+    slotRootParameterCubeMarching[1].InitAsConstantBufferView(1);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -6272,6 +6314,10 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescCubeMarching(2, slotRootParameterCubeMarching,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     CreateRootSignature(rootSigDesc, "mRootSignature");
     CreateRootSignature(rootSigDesc2, "mRootSignatureLight");
@@ -6306,6 +6352,7 @@ void Engine::BuildRootSignature()
     CreateRootSignature(rootSigDescTAA, "mRootSignatureTAA");
     CreateRootSignature(rootSigDescTAASecondPass, "mRootSignatureTAASecondPass");
     CreateRootSignature(rootSigDescAtmosphere, "mRootSignatureAtmosphere");
+    CreateRootSignature(rootSigDescCubeMarching, "mRootSignatureCubeMarching");
 }
 
 
@@ -6459,6 +6506,9 @@ void Engine::BuildShadersAndInputLayout()
     mShaders["AtmosphereVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Atmosphere.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["AtmospherePS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\Atmosphere.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["CubeMarchingVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\CubeMarching.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["CubeMarchingPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\CubeMarching.hlsl", nullptr, "PS", "ps_5_1");
+
     mInputLayout =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -6504,6 +6554,12 @@ void Engine::BuildShadersAndInputLayout()
         { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
         { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 44, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+    };
+
+    mCubeMarchingInputLayout = 
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
 }
 
@@ -9246,6 +9302,34 @@ void Engine::BuildPSOs()
     AtmospherePsoDesc.SampleDesc.Quality = 0;
     AtmospherePsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&AtmospherePsoDesc, IID_PPV_ARGS(&mPSOs["AtmospherePSO"])));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC cubeMarchingPsoDesc;
+    ZeroMemory(&cubeMarchingPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+    cubeMarchingPsoDesc.InputLayout = { mCubeMarchingInputLayout.data(), (UINT)mCubeMarchingInputLayout.size() };
+    cubeMarchingPsoDesc.pRootSignature = mRootSignatures["mRootSignatureCubeMarching"].Get();
+    cubeMarchingPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["CubeMarchingVS"]->GetBufferPointer()),
+        mShaders["CubeMarchingVS"]->GetBufferSize()
+    };
+    cubeMarchingPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(mShaders["CubeMarchingPS"]->GetBufferPointer()),
+        mShaders["CubeMarchingPS"]->GetBufferSize()
+    };
+    cubeMarchingPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    cubeMarchingPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+    cubeMarchingPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    cubeMarchingPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    cubeMarchingPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    cubeMarchingPsoDesc.SampleMask = UINT_MAX;
+    cubeMarchingPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    cubeMarchingPsoDesc.NumRenderTargets = 1;
+    cubeMarchingPsoDesc.RTVFormats[0] = mBackBufferFormat;
+    cubeMarchingPsoDesc.SampleDesc.Count = 1;
+    cubeMarchingPsoDesc.SampleDesc.Quality = 0;
+    cubeMarchingPsoDesc.DSVFormat = mDepthStencilFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&cubeMarchingPsoDesc, IID_PPV_ARGS(&mPSOs["CubeMarchingPSO"])));
 }
 
 void Engine::BuildPostProcessingResources()
@@ -10158,6 +10242,17 @@ void Engine::BuildRenderItems()
     mRitemLayer[(int)RenderLayer::Scene15].push_back(hamburgerRitem.get());
     mAllRitems.push_back(std::move(hamburgerRitem));
 
+    auto marchingCubesRitem = std::make_unique<RenderItem>();
+    marchingCubesRitem->ObjCBIndex = 775;
+    marchingCubesRitem->World = MathHelper::Identity4x4();
+    marchingCubesRitem->TexTransform = MathHelper::Identity4x4();
+    marchingCubesRitem->Mat = mMaterials["HamburgerMaterial"].get();
+    marchingCubesRitem->Geo = mGeometries["MarchingCubes"].get();
+    marchingCubesRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+
+    mRitemLayer[(int)RenderLayer::Scene17].push_back(marchingCubesRitem.get());
+    mAllRitems.push_back(std::move(marchingCubesRitem));
+
 
     for (int i = 0; i < mAllRitems.size(); ++i)
     {
@@ -10902,6 +10997,12 @@ void Engine::InitParticleSystem()
     mParticleSystemRain->BuildSystemVertexBuffers(mGeometries,
         md3dDevice,
         mCommandList);
+}
+
+void Engine::InitMarchingCubesSystem()
+{
+    m_MarchingCubes = new MarchingCubes(300, 200, 300);
+    m_MarchingCubes->Initialize(md3dDevice.Get(), mCommandList.Get(), mGeometries);
 }
 
 void Engine::CreateRootSignature(CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc, std::string rootSigName)
@@ -11898,6 +11999,23 @@ void Engine::DrawTerrainScene16(ID3D12GraphicsCommandList* cmdList)
         }
     }
 }
+
+void Engine::DrawMarchingCubesScene17(ID3D12GraphicsCommandList* cmdList)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+
+    auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+    auto ri = mAllRitems[775].get();
+    auto tmp1 = ri->Geo->VertexBufferView();
+    cmdList->IASetVertexBuffers(0, 1, &tmp1);
+    cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+    D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+
+    cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+    cmdList->DrawInstanced(m_MarchingCubes->m_vertices.size(), 1, 0, 0);
+}
+
 
 void Engine::DrawOctreeScene13(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
@@ -12966,6 +13084,7 @@ void Engine::RenderUI()
         ImGui::Text("Scene 14: Terrain");
         ImGui::Text("Scene 15: TAA");
         ImGui::Text("Scene 16: Atmosphere");
+        ImGui::Text("Scene 17: Cube Marching");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -13073,6 +13192,13 @@ void Engine::RenderUI()
             if (ImGui::Button("Scene 16", ImVec2(80, 40)))
             {
                 activeSceneID = 16;
+            }
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (ImGui::Button("Scene 17", ImVec2(80, 40)))
+            {
+                activeSceneID = 17;
             }
 
             ImGui::EndTable();
@@ -13514,6 +13640,10 @@ void Engine::RenderUI()
             ImGui::SliderFloat("Rayleigh R", &scene16RayleiCoef[0], 1.0e-6f, 4.0e-5f, "%.6f");
             ImGui::SliderFloat("Rayleigh G", &scene16RayleiCoef[1], 1.0e-6f, 4.0e-5f, "%.6f");
             ImGui::SliderFloat("Rayleigh B", &scene16RayleiCoef[2], 1.0e-6f, 4.0e-5f, "%.6f");
+        }
+        else if (activeSceneID == 17)
+        {
+            ImGui::Text("");
         }
     } ImGui::End();
 

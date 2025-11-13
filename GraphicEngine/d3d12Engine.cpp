@@ -530,6 +530,7 @@ BuildQuadTreeTerrain();
 BuildSponzaGeometryAndTextures();
 BuildBillboardSpritesGeometry();
 InitParticleSystem();
+InitMarchingCubesSystem();
 BuildMaterials();
 BuildRenderItems();
 BuildFrameResources();

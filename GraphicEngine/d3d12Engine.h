@@ -136,6 +136,7 @@ protected:
     virtual void InitInstanceBufferMoreLight() {}
 
     virtual void InitParticleSystem() {}
+    virtual void InitMarchingCubesSystem() {}
     virtual void BuildPostProcessingResources() {}
     virtual void CreateNoiseTexture() {}
 
