@@ -156,6 +156,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Camera.cpp" />
+    <ClCompile Include="CBManager.cpp" />
     <ClCompile Include="ComputeShaderBuffer.cpp" />
     <ClCompile Include="D3D12Engine.cpp" />
     <ClCompile Include="d3dUtil.cpp" />
@@ -165,6 +166,7 @@
     <ClCompile Include="GBuffer.cpp" />
     <ClCompile Include="Geometry.cpp" />
     <ClCompile Include="GeometryGenerator.cpp" />
+    <ClCompile Include="GeometryManager.cpp" />
     <ClCompile Include="imgui\imgui.cpp" />
     <ClCompile Include="imgui\imgui_demo.cpp" />
     <ClCompile Include="imgui\imgui_draw.cpp" />
@@ -172,6 +174,7 @@
     <ClCompile Include="imgui\imgui_impl_win32.cpp" />
     <ClCompile Include="imgui\imgui_tables.cpp" />
     <ClCompile Include="imgui\imgui_widgets.cpp" />
+    <ClCompile Include="InputLayoutShaderManager.cpp" />
     <ClCompile Include="Instancing.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MarchingCubes.cpp" />
@@ -181,12 +184,17 @@
     <ClCompile Include="OcTree.cpp" />
     <ClCompile Include="Particles.cpp" />
     <ClCompile Include="ParticleSystem.cpp" />
+    <ClCompile Include="PSOManager.cpp" />
     <ClCompile Include="QuadTree.cpp" />
+    <ClCompile Include="RootSignatureManager.cpp" />
+    <ClCompile Include="SamplerManager.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
     <ClCompile Include="TAAUtility.cpp" />
+    <ClCompile Include="UIManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
+    <ClInclude Include="CBManager.h" />
     <ClInclude Include="ComputeShaderBuffer.h" />
     <ClInclude Include="D3D12Engine.h" />
     <ClInclude Include="d3dUtil.h" />
@@ -197,6 +205,7 @@
     <ClInclude Include="GBuffer.h" />
     <ClInclude Include="Geometry.h" />
     <ClInclude Include="GeometryGenerator.h" />
+    <ClInclude Include="GeometryManager.h" />
     <ClInclude Include="imgui\imconfig.h" />
     <ClInclude Include="imgui\imgui.h" />
     <ClInclude Include="imgui\imgui_impl_dx12.h" />
@@ -205,6 +214,7 @@
     <ClInclude Include="imgui\imstb_rectpack.h" />
     <ClInclude Include="imgui\imstb_textedit.h" />
     <ClInclude Include="imgui\imstb_truetype.h" />
+    <ClInclude Include="InputLayoutShaderManager.h" />
     <ClInclude Include="Instancing.h" />
     <ClInclude Include="MarchingCubes.h" />
     <ClInclude Include="MathHelper.h" />
@@ -214,11 +224,15 @@
     <ClInclude Include="OcTree.h" />
     <ClInclude Include="Particles.h" />
     <ClInclude Include="ParticleSystem.h" />
+    <ClInclude Include="PSOManager.h" />
     <ClInclude Include="QuadTree.h" />
+    <ClInclude Include="RootSignatureManager.h" />
+    <ClInclude Include="SamplerManager.h" />
     <ClInclude Include="ShadowMap.h" />
     <ClInclude Include="SponzaLoader.h" />
     <ClInclude Include="stb_image.h" />
     <ClInclude Include="TAAUtility.h" />
+    <ClInclude Include="UIManager.h" />
     <ClInclude Include="UploadBuffer.h" />
   </ItemGroup>
   <ItemGroup>
