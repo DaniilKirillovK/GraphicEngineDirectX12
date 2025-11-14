@@ -17,9 +17,12 @@ void Noise3DGenerator::GenerateMountainDensity(uint32_t width, uint32_t height, 
 {
     std::fill(output, output + width * height * depth, 0.0f);
 
-    for (uint32_t z = 0; z < depth; ++z) {
-        for (uint32_t y = 0; y < height; ++y) {
-            for (uint32_t x = 0; x < width; ++x) {
+    for (uint32_t z = 0; z < depth; ++z) 
+    {
+        for (uint32_t y = 0; y < height; ++y) 
+        {
+            for (uint32_t x = 0; x < width; ++x) 
+            {
                 float nx = (float)x / width;
                 float ny = (float)y / height;
                 float nz = (float)z / depth;

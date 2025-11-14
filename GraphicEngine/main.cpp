@@ -358,6 +358,8 @@ private:
 
     POINT mLastMousePos;
 
+    float mCameraSpeed = 1.0f;
+
     Camera mCamera;
     Camera mCamera2Scene3;
     Camera mCamera2Scene13;
@@ -791,8 +793,8 @@ void Engine::Update(const GameTimer& gt)
         UpdateInstanceData(gt);
 
     UpdateObjectCBs(gt);
-
     UpdateMaterialCBs(gt);
+
     if (activeSceneID != 10)
         UpdateMainPassCB(gt);
 
@@ -2790,52 +2792,63 @@ void Engine::OnKeyboardInput(const GameTimer& gt)
 {
     const float dt = gt.DeltaTime();
 
+    float speed = dt * mCameraSpeed;
+
     if (GetAsyncKeyState('W') & 0x8000)
     {
-        mCamera.Walk(10.0f * dt);
+        mCamera.Walk(10.0f * speed);
         if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
         {
-            mCameraFrustum0.Walk(10.0f * dt);
-            mCameraFrustum1.Walk(10.0f * dt);
-            mCameraFrustum2.Walk(10.0f * dt);
-            mCameraFrustum3.Walk(10.0f * dt);
+            mCameraFrustum0.Walk(10.0f * speed);
+            mCameraFrustum1.Walk(10.0f * speed);
+            mCameraFrustum2.Walk(10.0f * speed);
+            mCameraFrustum3.Walk(10.0f * speed);
         }
     }
 
     if (GetAsyncKeyState('S') & 0x8000)
     {
-        mCamera.Walk(-10.0f * dt);
+        mCamera.Walk(-10.0f * speed);
         if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
         {
-            mCameraFrustum0.Walk(-10.0f * dt);
-            mCameraFrustum1.Walk(-10.0f * dt);
-            mCameraFrustum2.Walk(-10.0f * dt);
-            mCameraFrustum3.Walk(-10.0f * dt);
+            mCameraFrustum0.Walk(-10.0f * speed);
+            mCameraFrustum1.Walk(-10.0f * speed);
+            mCameraFrustum2.Walk(-10.0f * speed);
+            mCameraFrustum3.Walk(-10.0f * speed);
         }
     }
 
     if (GetAsyncKeyState('A') & 0x8000)
     {
-        mCamera.Strafe(-10.0f * dt);
+        mCamera.Strafe(-10.0f * speed);
         if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
         {
-            mCameraFrustum0.Strafe(-10.0f * dt);
-            mCameraFrustum1.Strafe(-10.0f * dt);
-            mCameraFrustum2.Strafe(-10.0f * dt);
-            mCameraFrustum3.Strafe(-10.0f * dt);
+            mCameraFrustum0.Strafe(-10.0f * speed);
+            mCameraFrustum1.Strafe(-10.0f * speed);
+            mCameraFrustum2.Strafe(-10.0f * speed);
+            mCameraFrustum3.Strafe(-10.0f * speed);
         }
     }
 
     if (GetAsyncKeyState('D') & 0x8000)
     {
-        mCamera.Strafe(10.0f * dt);
+        mCamera.Strafe(10.0f * speed);
         if (activeSceneID == 7 && isUsingCascadedShadowsScene7)
         {
-            mCameraFrustum0.Strafe(10.0f * dt);
-            mCameraFrustum1.Strafe(10.0f * dt);
-            mCameraFrustum2.Strafe(10.0f * dt);
-            mCameraFrustum3.Strafe(10.0f * dt);
+            mCameraFrustum0.Strafe(10.0f * speed);
+            mCameraFrustum1.Strafe(10.0f * speed);
+            mCameraFrustum2.Strafe(10.0f * speed);
+            mCameraFrustum3.Strafe(10.0f * speed);
         }
+    }
+
+    if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
+    {
+        mCameraSpeed = 5.0f;
+    }
+    else
+    {
+        mCameraSpeed = 1.0f;
     }
 
     mCamera.UpdateViewMatrix();
@@ -5957,6 +5970,9 @@ void Engine::BuildRootSignature()
     CD3DX12_DESCRIPTOR_RANGE texTableAtmosphere;
     texTableAtmosphere.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableCubeMarching;
+    texTableCubeMarching.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -6008,7 +6024,7 @@ void Engine::BuildRootSignature()
 
     CD3DX12_ROOT_PARAMETER slotRootParameterAtmosphere[2];
 
-    CD3DX12_ROOT_PARAMETER slotRootParameterCubeMarching[2];
+    CD3DX12_ROOT_PARAMETER slotRootParameterCubeMarching[3];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -6179,6 +6195,7 @@ void Engine::BuildRootSignature()
 
     slotRootParameterCubeMarching[0].InitAsConstantBufferView(0);
     slotRootParameterCubeMarching[1].InitAsConstantBufferView(1);
+    slotRootParameterCubeMarching[2].InitAsDescriptorTable(1, &texTableCubeMarching);
 
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
@@ -6314,7 +6331,7 @@ void Engine::BuildRootSignature()
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescCubeMarching(2, slotRootParameterCubeMarching,
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescCubeMarching(3, slotRootParameterCubeMarching,
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -10246,7 +10263,7 @@ void Engine::BuildRenderItems()
     marchingCubesRitem->ObjCBIndex = 775;
     marchingCubesRitem->World = MathHelper::Identity4x4();
     marchingCubesRitem->TexTransform = MathHelper::Identity4x4();
-    marchingCubesRitem->Mat = mMaterials["HamburgerMaterial"].get();
+    marchingCubesRitem->Mat = mMaterials["TerrainMaterial2"].get();
     marchingCubesRitem->Geo = mGeometries["MarchingCubes"].get();
     marchingCubesRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 
@@ -11001,7 +11018,7 @@ void Engine::InitParticleSystem()
 
 void Engine::InitMarchingCubesSystem()
 {
-    m_MarchingCubes = new MarchingCubes(300, 200, 300);
+    m_MarchingCubes = new MarchingCubes(300, 200, 300, 2.0f);
     m_MarchingCubes->Initialize(md3dDevice.Get(), mCommandList.Get(), mGeometries);
 }
 
@@ -12010,9 +12027,13 @@ void Engine::DrawMarchingCubesScene17(ID3D12GraphicsCommandList* cmdList)
     cmdList->IASetVertexBuffers(0, 1, &tmp1);
     cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
+    CD3DX12_GPU_DESCRIPTOR_HANDLE tex(mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+    tex.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+
     D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
 
     cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+    cmdList->SetGraphicsRootDescriptorTable(2, tex);
     cmdList->DrawInstanced(m_MarchingCubes->m_vertices.size(), 1, 0, 0);
 }
 

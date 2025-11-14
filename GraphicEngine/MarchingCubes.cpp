@@ -296,8 +296,8 @@ const int MarchingCubes::triTable[256][16] = {
     {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1}
 };
 
-MarchingCubes::MarchingCubes(UINT width, UINT height, UINT depth)
-    : m_width(width), m_height(height), m_depth(depth), m_cellSize(1.0f), m_time(0.0f), m_noiseGenerator(12345) 
+MarchingCubes::MarchingCubes(UINT width, UINT height, UINT depth, float cellSize)
+    : m_width(width), m_height(height), m_depth(depth), m_cellSize(cellSize), m_time(0.0f), m_noiseGenerator(12345)
 {
     m_densityData.resize(width * height * depth);
 }
@@ -391,6 +391,14 @@ void MarchingCubes::GenerateGeometry(float isoLevel)
                     v1.position = edgeVertices[triTable[cubeIndex][i]];
                     v2.position = edgeVertices[triTable[cubeIndex][i + 1]];
                     v3.position = edgeVertices[triTable[cubeIndex][i + 2]];
+
+                    v1.position.y -= 30.f;
+                    v2.position.y -= 30.f;
+                    v3.position.y -= 30.f;
+
+                    v1.position = DirectX::XMFLOAT3(v1.position.x * m_cellSize, v1.position.y * m_cellSize, v1.position.z * m_cellSize);
+                    v2.position = DirectX::XMFLOAT3(v2.position.x * m_cellSize, v2.position.y * m_cellSize, v2.position.z * m_cellSize);
+                    v3.position = DirectX::XMFLOAT3(v3.position.x * m_cellSize, v3.position.y * m_cellSize, v3.position.z * m_cellSize);
 
                     DirectX::XMFLOAT3 normal;
                     CalculateNormal(v1.position, v2.position, v3.position, normal);

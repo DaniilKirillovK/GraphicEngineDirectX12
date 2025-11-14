@@ -19,7 +19,7 @@ struct MarchingCubeVertex
 class MarchingCubes {
 public:
     MarchingCubes() {}
-    MarchingCubes(UINT width, UINT height, UINT depth);
+    MarchingCubes(UINT width, UINT height, UINT depth, float cellSize);
     ~MarchingCubes();
 
     bool Initialize(ID3D12Device* device, ID3D12GraphicsCommandList* commandList,

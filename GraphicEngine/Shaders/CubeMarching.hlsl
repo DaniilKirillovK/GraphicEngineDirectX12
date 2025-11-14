@@ -12,6 +12,15 @@
 
 #include "LightingUtil.hlsl"
 
+Texture2D<float4> gTexture : register(t0, space0);
+
+SamplerState gsamPointWrap : register(s0);
+SamplerState gsamPointClamp : register(s1);
+SamplerState gsamLinearWrap : register(s2);
+SamplerState gsamLinearClamp : register(s3);
+SamplerState gsamAnisotropicWrap : register(s4);
+SamplerState gsamAnisotropicClamp : register(s5);
+
 struct VertexInput
 {
     float3 position : POSITION;
@@ -41,13 +50,6 @@ cbuffer cbPass : register(b1)
     float4x4 gInvProj;
     float4x4 gViewProj;
     float4x4 gInvViewProj;
-    
-    float4x4 gPrevView;
-    float4x4 gPrevInvView;
-    float4x4 gPrevProj;
-    float4x4 gPrevInvProj;
-    float4x4 gPrevViewProj;
-    float4x4 gPrevInvViewProj;
     
     float3 gEyePosW;
     float cbPerObjectPad1;
@@ -93,18 +95,38 @@ VertexOutput VS(VertexInput input)
 
 float4 PS(VertexOutput input) : SV_TARGET
 {
-    float3 normal = normalize(input.normal);
-    float3 lightDir = normalize(float3(0, 0, 1));
+    float2 xCoord = (input.worldPos.zy + 150.f) / 300.f;
+    float2 yCoord = (input.worldPos.xz + 150.f) / 300.f;
+    float2 zCoord = (input.worldPos.xy + 150.f) / 300.f;
     
-    float diffuse = max(0, dot(normal, lightDir));
-    float ambient = 0.3f;
+    float4 xSample = gTexture.Sample(gsamLinearWrap, xCoord);
+    float4 ySample = gTexture.Sample(gsamLinearWrap, yCoord);
+    float4 zSample = gTexture.Sample(gsamLinearWrap, zCoord);
     
-    float3 viewDir = normalize(gEyePosW - input.worldPos);
-    float3 reflectDir = reflect(-lightDir, normal);
-    float specular = pow(max(dot(viewDir, reflectDir), 0.0), 32.0f) * 0.5f;
+    float4 Position = float4(input.worldPos, 1.0f);
+    float3 Normal = -input.normal;
     
-    float3 color = float3(0.2f, 0.5f, 1.0f);
-    color = color * (ambient + diffuse) + specular;
+    float3 weights = abs(Normal);
+    weights = pow(weights, 2.0f);
+    weights = weights / (weights.x + weights.y + weights.z);
     
-    return float4(color, 1.0f);
+    float4 Color = xSample * weights.x + ySample * weights.y + zSample * weights.z;
+    
+    float3 Roughness = float3(0.1f, 0.1f, 0.1f);
+    float3 AO = float3(0.5f, 0.5f, 0.5f);
+    
+    float3 toEyeW = normalize(gEyePosW - Position.xyz);
+    float4 ambient = gAmbientLight * Color;
+
+    float3 gFresnelR0 = float3(0.01f, 0.01f, 0.01f);
+    
+    const float shininess = 1.0f - Roughness.x;
+    Material mat = { Color, gFresnelR0, shininess };
+    float3 shadowFactor = float3(AO.x, AO.x, AO.x);
+    float4 directLight = ComputeLighting(gLights, mat, Position.xyz,
+        Normal.xyz, toEyeW, shadowFactor);
+    
+    float4 litColor = ambient + directLight * 1.5f;
+
+    return litColor;
 }
