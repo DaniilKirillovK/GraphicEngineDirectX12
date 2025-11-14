@@ -2,24 +2,24 @@
 
 int CBManager::mClientWidth = 1280;
 int CBManager::mClientHeight = 800;
-Camera* CBManager::mCamera = nullptr;
-Camera* CBManager::mCamera2Scene3 = nullptr;
-Camera* CBManager::mCamera2Scene13 = nullptr;
+Camera* CBManager::mCamera = new Camera();
+Camera* CBManager::mCamera2Scene3 = new Camera();
+Camera* CBManager::mCamera2Scene13 = new Camera();
 
-Camera* CBManager::mCameraFrustum3 = nullptr;
-Camera* CBManager::mCameraFrustum2 = nullptr;
-Camera* CBManager::mCameraFrustum1 = nullptr;
-Camera* CBManager::mCameraFrustum0 = nullptr;
+Camera* CBManager::mCameraFrustum3 = new Camera();
+Camera* CBManager::mCameraFrustum2 = new Camera();
+Camera* CBManager::mCameraFrustum1 = new Camera();
+Camera* CBManager::mCameraFrustum0 = new Camera();
 
-Camera* CBManager::mCameraShadowMap256 = nullptr;
-Camera* CBManager::mCameraShadowMap512 = nullptr;
-Camera* CBManager::mCameraShadowMap1024 = nullptr;
-Camera* CBManager::mCameraShadowMap2048 = nullptr;
+Camera* CBManager::mCameraShadowMap256 = new Camera();
+Camera* CBManager::mCameraShadowMap512 = new Camera();
+Camera* CBManager::mCameraShadowMap1024 = new Camera();
+Camera* CBManager::mCameraShadowMap2048 = new Camera();
 
-ParticleSystem* CBManager::mParticleSystem = nullptr;
-ParticleSystem* CBManager::mParticleSystem2 = nullptr;
-ParticleSystem* CBManager::mParticleSystemSmoke = nullptr;
-ParticleSystem* CBManager::mParticleSystemRain = nullptr;
+ParticleSystem* CBManager::mParticleSystem = new ParticleSystem();
+ParticleSystem* CBManager::mParticleSystem2 = new ParticleSystem();
+ParticleSystem* CBManager::mParticleSystemSmoke = new ParticleSystem();
+ParticleSystem* CBManager::mParticleSystemRain = new ParticleSystem();
 
 int CBManager::mCurrFrameResourceIndex = 0;
 FrameResource* CBManager::mCurrFrameResource;

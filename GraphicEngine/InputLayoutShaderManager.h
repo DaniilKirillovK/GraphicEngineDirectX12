@@ -8,7 +8,10 @@
 class InputLayoutShaderManager
 {
 public:
-	static void BuildShadersAndInputLayout(std::unordered_map<std::string, std::vector<D3D12_INPUT_ELEMENT_DESC>>& inputLayouts,
-		std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3DBlob>>& shaders);
+	static std::unordered_map<std::string, std::vector<D3D12_INPUT_ELEMENT_DESC>> mInputLayouts;
+	static std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3DBlob>> mShaders;
+
+
+	static void BuildShadersAndInputLayout();
 };
 

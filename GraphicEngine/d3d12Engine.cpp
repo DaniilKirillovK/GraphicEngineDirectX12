@@ -100,26 +100,6 @@ bool D3D12Engine::Initialize()
 	return true;
 }
 
-void D3D12Engine::CreateRtvAndDsvDescriptorHeaps()
-{
-	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = 12;
-	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	rtvHeapDesc.NodeMask = 0;
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
-		&rtvHeapDesc, IID_PPV_ARGS(mRtvHeap.GetAddressOf())));
-
-
-	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 8;
-	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	dsvHeapDesc.NodeMask = 0;
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
-		&dsvHeapDesc, IID_PPV_ARGS(mDsvHeap.GetAddressOf())));
-}
-
 void D3D12Engine::OnResize()
 {
 	assert(md3dDevice);
@@ -145,12 +125,12 @@ void D3D12Engine::OnResize()
 
 	mCurrBackBuffer = 0;
 
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
 	for (UINT i = 0; i < SwapChainBufferCount; i++)
 	{
 		ThrowIfFailed(mSwapChain->GetBuffer(i, IID_PPV_ARGS(&mSwapChainBuffer[i])));
 		md3dDevice->CreateRenderTargetView(mSwapChainBuffer[i].Get(), nullptr, rtvHeapHandle);
-		rtvHeapHandle.Offset(1, mRtvDescriptorSize);
+		rtvHeapHandle.Offset(1, DescriptorHeapManager::mRtvDescriptorSize);
 	}
 
 	// Create the depth/stencil buffer and view.
@@ -469,9 +449,9 @@ if (FAILED(hardwareResult))
 ThrowIfFailed(md3dDevice->CreateFence(0, D3D12_FENCE_FLAG_NONE,
 	IID_PPV_ARGS(&mFence)));
 
-mRtvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-mDsvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-mCbvSrvUavDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+DescriptorHeapManager::mRtvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+DescriptorHeapManager::mDsvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+DescriptorHeapManager::mCbvSrvUavDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
 // Check 4X MSAA quality support for our back buffer format.
 // All Direct3D 11 capable devices support 4X MSAA for all render 
@@ -496,19 +476,19 @@ LogAdapters();
 
 CreateCommandObjects();
 CreateSwapChain();
-CreateRtvAndDsvDescriptorHeaps();
+DescriptorHeapManager::CreateRtvAndDsvDescriptorHeaps(md3dDevice);
 
 // Reset the command list to prep for initialization commands.
 ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
-mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+DescriptorHeapManager::mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-LoadTextures();
-BuildRootSignature();
+GeometryManager::LoadTextures(mCommandList, md3dDevice);
+RootSignatureManager::BuildRootSignature(md3dDevice);
 BuildShadowMaps();
-BuildDescriptorHeaps();
-UploadTextures();
-BuildShadersAndInputLayout();
+DescriptorHeapManager::BuildDescriptorHeaps(md3dDevice);
+DescriptorHeapManager::UploadTextures(md3dDevice);
+InputLayoutShaderManager::BuildShadersAndInputLayout();
 BuildSkyboxGeometry();
 BuildShapeGeometry();
 BuildScene3Geometry();
@@ -531,21 +511,21 @@ BuildSponzaGeometryAndTextures();
 BuildBillboardSpritesGeometry();
 InitParticleSystem();
 InitMarchingCubesSystem();
-BuildMaterials();
-BuildRenderItems();
+GeometryManager::BuildMaterials();
+GeometryManager::BuildRenderItems();
 BuildFrameResources();
 InitGBuffer();
 CreateScene3RTV();
 CreateScene13RTV();
 CreateScene15RTV();
-BuildPSOs();
+PSOManager::BuildPSOs(RootSignatureManager::mRootSignatures, InputLayoutShaderManager::mInputLayouts, InputLayoutShaderManager::mShaders, mBackBufferFormat, mDepthStencilFormat, md3dDevice);
 
 InitInstanceBuffer();
 InitInstanceBufferRMDemo();
 InitInstanceBufferMoreLight();
 
-UploadTextures2();
-UploadTextures3();
+DescriptorHeapManager::UploadTextures2(md3dDevice);
+DescriptorHeapManager::UploadTextures3(md3dDevice);
 
 BuildPostProcessingResources();
 CreateNoiseTexture();
@@ -588,9 +568,9 @@ void D3D12Engine::InitImgui()
 
 	// Allocating SRV descriptors (for textures) is up to the application, so we provide callbacks.
 	// (current version of the backend will only allocate one descriptor, future versions will need to allocate more)
-	init_info.SrvDescriptorHeap = mSrvHeap.Get();
-	init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) { return mSrvHeapAllocator.Alloc(out_cpu_handle, out_gpu_handle); };
-	init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle) { return mSrvHeapAllocator.Free(cpu_handle, gpu_handle); };
+	init_info.SrvDescriptorHeap = DescriptorHeapManager::mSrvHeap.Get();
+	init_info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_handle) { return DescriptorHeapManager::mSrvHeapAllocator.Alloc(out_cpu_handle, out_gpu_handle); };
+	init_info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo*, D3D12_CPU_DESCRIPTOR_HANDLE cpu_handle, D3D12_GPU_DESCRIPTOR_HANDLE gpu_handle) { return DescriptorHeapManager::mSrvHeapAllocator.Free(cpu_handle, gpu_handle); };
 	ImGui_ImplDX12_Init(&init_info);
 }
 
@@ -681,28 +661,28 @@ ID3D12Resource* D3D12Engine::CurrentBackBuffer()const
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::CurrentBackBufferView()const
 {
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
-		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
+		DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
 		mCurrBackBuffer,
-		mRtvDescriptorSize);
+		DescriptorHeapManager::mRtvDescriptorSize);
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::OtherBackBufferView() const
 {
 	return CD3DX12_CPU_DESCRIPTOR_HANDLE(
-		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
+		DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
 		1 - mCurrBackBuffer,
-		mRtvDescriptorSize);
+		DescriptorHeapManager::mRtvDescriptorSize);
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::DepthStencilView()const
 {
-	return mDsvHeap->GetCPUDescriptorHandleForHeapStart();
+	return DescriptorHeapManager::mDsvHeap->GetCPUDescriptorHandleForHeapStart();
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::DepthStencilShadowsView() const
 {
-	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mDsvHeap->GetCPUDescriptorHandleForHeapStart());
-	handle.Offset(2, mDsvDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(DescriptorHeapManager::mDsvHeap->GetCPUDescriptorHandleForHeapStart());
+	handle.Offset(2, DescriptorHeapManager::mDsvDescriptorSize);
 	return handle;
 }
 
@@ -713,16 +693,16 @@ ID3D12Resource* D3D12Engine::Scene3RenderTargetBuffer() const
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::Scene3RenderTargetBufferView() const
 {
-	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
-	handle.Offset(6, mRtvDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	handle.Offset(6, DescriptorHeapManager::mRtvDescriptorSize);
 
 	return handle;
 }
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE D3D12Engine::DepthStencilViewScene3() const
 {
-	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mDsvHeap->GetCPUDescriptorHandleForHeapStart());
-	handle.Offset(1, mDsvDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(DescriptorHeapManager::mDsvHeap->GetCPUDescriptorHandleForHeapStart());
+	handle.Offset(1, DescriptorHeapManager::mDsvDescriptorSize);
 	return handle;
 }
 
@@ -733,16 +713,16 @@ ID3D12Resource* D3D12Engine::Scene13RenderTargetBuffer() const
 
 D3D12_CPU_DESCRIPTOR_HANDLE D3D12Engine::Scene13RenderTargetBufferView() const
 {
-	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
-	handle.Offset(8, mRtvDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	handle.Offset(8, DescriptorHeapManager::mRtvDescriptorSize);
 
 	return handle;
 }
 
 CD3DX12_CPU_DESCRIPTOR_HANDLE D3D12Engine::DepthStencilViewScene13() const
 {
-	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(mDsvHeap->GetCPUDescriptorHandleForHeapStart());
-	handle.Offset(7, mDsvDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE handle(DescriptorHeapManager::mDsvHeap->GetCPUDescriptorHandleForHeapStart());
+	handle.Offset(7, DescriptorHeapManager::mDsvDescriptorSize);
 	return handle;
 }
 

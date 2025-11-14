@@ -7,8 +7,9 @@
 class PSOManager
 {
 public:
+	static std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>> mPSOs;
+
 	static void BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> rootSignatures,
-		std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>>& PSOs,
 		std::unordered_map<std::string, std::vector<D3D12_INPUT_ELEMENT_DESC>> inputLayouts,
 		std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3DBlob>> shaders,
 		DXGI_FORMAT backBufferFormat, DXGI_FORMAT depthStencilFormat,

@@ -19,52 +19,13 @@
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx12.h"
 
+#include "GeometryManager.h"
+#include "InputLayoutShaderManager.h"
+#include "RootSignatureManager.h"
+#include "PSOManager.h"
+#include "DescriptorHeapManager.h"
+
 // Simple free list based allocator
-struct ExampleDescriptorHeapAllocator
-{
-    ID3D12DescriptorHeap* Heap = nullptr;
-    D3D12_DESCRIPTOR_HEAP_TYPE  HeapType = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
-    D3D12_CPU_DESCRIPTOR_HANDLE HeapStartCpu;
-    D3D12_GPU_DESCRIPTOR_HANDLE HeapStartGpu;
-    UINT                        HeapHandleIncrement;
-    ImVector<int>               FreeIndices;
-
-    void Create(ID3D12Device* device, ID3D12DescriptorHeap* heap)
-    {
-        IM_ASSERT(Heap == nullptr && FreeIndices.empty());
-        Heap = heap;
-        D3D12_DESCRIPTOR_HEAP_DESC desc = heap->GetDesc();
-        HeapType = desc.Type;
-        HeapStartCpu = Heap->GetCPUDescriptorHandleForHeapStart();
-        HeapStartGpu = Heap->GetGPUDescriptorHandleForHeapStart();
-        HeapHandleIncrement = device->GetDescriptorHandleIncrementSize(HeapType);
-        FreeIndices.reserve((int)desc.NumDescriptors);
-        for (int n = desc.NumDescriptors; n > 0; n--)
-            FreeIndices.push_back(n - 1);
-    }
-    void Destroy()
-    {
-        Heap = nullptr;
-        FreeIndices.clear();
-    }
-    void Alloc(D3D12_CPU_DESCRIPTOR_HANDLE* out_cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE* out_gpu_desc_handle)
-    {
-        IM_ASSERT(FreeIndices.Size > 0);
-        int idx = FreeIndices.back();
-        FreeIndices.pop_back();
-        out_cpu_desc_handle->ptr = HeapStartCpu.ptr + (idx * HeapHandleIncrement);
-        out_gpu_desc_handle->ptr = HeapStartGpu.ptr + (idx * HeapHandleIncrement);
-    }
-    void Free(D3D12_CPU_DESCRIPTOR_HANDLE out_cpu_desc_handle, D3D12_GPU_DESCRIPTOR_HANDLE out_gpu_desc_handle)
-    {
-        int cpu_idx = (int)((out_cpu_desc_handle.ptr - HeapStartCpu.ptr) / HeapHandleIncrement);
-        int gpu_idx = (int)((out_gpu_desc_handle.ptr - HeapStartGpu.ptr) / HeapHandleIncrement);
-        IM_ASSERT(cpu_idx == gpu_idx);
-        FreeIndices.push_back(cpu_idx);
-    }
-};
-
-extern ExampleDescriptorHeapAllocator mSrvHeapAllocator;
 
 class D3D12Engine
 {
@@ -92,7 +53,6 @@ public:
     virtual LRESULT MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 protected:
-    virtual void CreateRtvAndDsvDescriptorHeaps();
     virtual void OnResize();
     virtual void Update(const GameTimer& gt) = 0;
     virtual void Draw(const GameTimer& gt) = 0;
@@ -104,9 +64,6 @@ protected:
 
     virtual void BuildSkyboxGeometry() {}
     virtual void BuildShadowMaps() {}
-    virtual void BuildDescriptorHeaps() {}
-    virtual void BuildRootSignature() {}
-    virtual void BuildShadersAndInputLayout() {}
     virtual void BuildShapeGeometry() {}
     virtual void BuildScene3Geometry() {}
     virtual void BuildScene3LODGeometry() {}
@@ -125,7 +82,6 @@ protected:
     virtual void BuildScene15Geometry() {}
     virtual void BuildQuadTreeTerrain() {}
     virtual void BuildSponzaGeometryAndTextures() {}
-    virtual void BuildPSOs() {}
     virtual void InitGBuffer() {}
     virtual void CreateScene3RTV() {}
     virtual void CreateScene13RTV() {}
@@ -140,13 +96,7 @@ protected:
     virtual void BuildPostProcessingResources() {}
     virtual void CreateNoiseTexture() {}
 
-    virtual void LoadTextures() {}
-    virtual void UploadTextures() {}
-    virtual void UploadTextures2() {}
-    virtual void UploadTextures3() {}
     virtual void BuildFrameResources() {}
-    virtual void BuildMaterials() {}
-    virtual void BuildRenderItems() {}
     virtual void BuildBillboardSpritesGeometry() {}
 
 protected:
@@ -255,14 +205,6 @@ protected:
     Microsoft::WRL::ComPtr<ID3D12Resource> noiseTexture;
     Microsoft::WRL::ComPtr<ID3D12Resource> sponzaTextures[24];
     Microsoft::WRL::ComPtr<ID3D12Resource> sponzaTexturesUpload[24];
-    
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mRtvHeap;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mDsvHeap;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSrvHeap;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mUavHeap;
-
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mParticlesSrvUavHeap;
-    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mSponzaSrvHeap;
 
     D3D12_VIEWPORT mScreenViewportFull;
     D3D12_VIEWPORT mScreenViewport;
@@ -275,11 +217,6 @@ protected:
     D3D12_RECT mScissorRect2;
     D3D12_RECT mScissorRect3;
     D3D12_RECT mScissorRect4;
-
-    UINT mRtvDescriptorSize = 0;
-    UINT mDsvDescriptorSize = 0;
-    UINT mCbvSrvUavDescriptorSize = 0;
-    UINT mCbvSrvDescriptorSize = 0;
 
     // Derived class should set these in derived constructor to customize starting values.
     std::wstring mMainWndCaption = L"D3D12Engine";

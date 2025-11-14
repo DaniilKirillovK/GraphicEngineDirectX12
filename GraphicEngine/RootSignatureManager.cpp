@@ -1,7 +1,9 @@
 #include "RootSignatureManager.h"
 
+std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> RootSignatureManager::mRootSignatures = std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>>();
+
 void RootSignatureManager::CreateRootSignature(CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc, std::string rootSigName,
-    Microsoft::WRL::ComPtr<ID3D12Device> device, std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>>& rootSignatures)
+    Microsoft::WRL::ComPtr<ID3D12Device> device, std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>>& mRootSignatures)
 {
     Microsoft::WRL::ComPtr<ID3DBlob> serializedRootSig = nullptr;
     Microsoft::WRL::ComPtr<ID3DBlob> errorBlob = nullptr;
@@ -18,11 +20,10 @@ void RootSignatureManager::CreateRootSignature(CD3DX12_ROOT_SIGNATURE_DESC rootS
         0,
         serializedRootSig->GetBufferPointer(),
         serializedRootSig->GetBufferSize(),
-        IID_PPV_ARGS(&rootSignatures[rootSigName])));
+        IID_PPV_ARGS(&mRootSignatures[rootSigName])));
 }
 
-void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Device> device,
-    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>>& rootSignatures)
+void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Device> device)
 {
     CD3DX12_DESCRIPTOR_RANGE texTable;
     texTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0, 0);
@@ -484,38 +485,38 @@ void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Devic
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
-    CreateRootSignature(rootSigDesc, "mRootSignature", device, rootSignatures);
-    CreateRootSignature(rootSigDesc2, "mRootSignatureLight", device, rootSignatures);
-    CreateRootSignature(rootSigDescMoreSamplers, "mRootSignatureMoreSamplers", device, rootSignatures);
-    CreateRootSignature(rootSigDescDefaultForward, "mRootSignatureDefaultForward", device, rootSignatures);
-    CreateRootSignature(rootSigDescDefaultForwardFrustumCulling, "mRootSignatureDefaultForwardFrustumCulling", device, rootSignatures);
-    CreateRootSignature(rootSigDescDebug, "mRootSignatureDebug", device, rootSignatures);
-    CreateRootSignature(rootSigDescBillboard, "mRootSignatureBillboard", device, rootSignatures);
-    CreateRootSignature(rootSigDescDebug, "mRootSignatureDebug", device, rootSignatures);
-    CreateRootSignature(rootSigDescParticlesRender, "mRootSignatureParticlesRender", device, rootSignatures);
-    CreateRootSignature(rootSigDescParticlesCompute, "mRootSignatureParticlesCompute", device, rootSignatures);
-    CreateRootSignature(rootSigDescPostProcessing, "mRootSignaturePostProcessing", device, rootSignatures);
-    CreateRootSignature(rootSigDescComputeNoise, "mRootSignatureComputeNoise", device, rootSignatures);
-    CreateRootSignature(rootSigDescTess, "mRootSignatureTess", device, rootSignatures);
-    CreateRootSignature(rootSigDescRT, "mRootSignatureRT", device, rootSignatures);
-    CreateRootSignature(rootSigDescShadowsPass, "mRootSignatureShadows", device, rootSignatures);
-    CreateRootSignature(rootSigDescShadowsForward, "mRootSignatureShadowsForward", device, rootSignatures);
-    CreateRootSignature(rootSigDescShadowsParticlesForward, "mRootSignatureShadowsParticlesForward", device, rootSignatures);
-    CreateRootSignature(rootSigDescDebugLayer, "mRootSignatureDebugGeometry", device, rootSignatures);
-    CreateRootSignature(rootSigDescDefferedPointSpot, "mRootSignatureDefferedPointSpotDirectional", device, rootSignatures);
-    CreateRootSignature(rootSigDescSkybox, "mRootSignatureSkyBox", device, rootSignatures);
-    CreateRootSignature(rootSigDescPBR, "mRootSignaturePBR", device, rootSignatures);
-    CreateRootSignature(rootSigDescRMDemo, "mRootSignatureRMDemo", device, rootSignatures);
-    CreateRootSignature(rootSigDescParticlesArgsCompute, "mRootSignatureParticlesArgsCompute", device, rootSignatures);
-    CreateRootSignature(rootSigDescParticlesGPU, "mRootSignatureParticlesGPU", device, rootSignatures);
-    CreateRootSignature(rootSigDescHeightMap, "mRootSignatureHeightMap", device, rootSignatures);
-    CreateRootSignature(rootSigDescMoreLight, "mRootSignatureMoreLight", device, rootSignatures);
-    CreateRootSignature(rootSigDescObjectsScene13, "mRootSignatureObjectsScene13", device, rootSignatures);
-    CreateRootSignature(rootSigDescOctreeScene13, "mRootSignatureOctreeScene13", device, rootSignatures);
-    CreateRootSignature(rootSigDescParticlesRain, "mRootSignatureParticlesRain", device, rootSignatures);
-    CreateRootSignature(rootSigDescTerrain, "mRootSignatureTerrain", device, rootSignatures);
-    CreateRootSignature(rootSigDescTAA, "mRootSignatureTAA", device, rootSignatures);
-    CreateRootSignature(rootSigDescTAASecondPass, "mRootSignatureTAASecondPass", device, rootSignatures);
-    CreateRootSignature(rootSigDescAtmosphere, "mRootSignatureAtmosphere", device, rootSignatures);
-    CreateRootSignature(rootSigDescCubeMarching, "mRootSignatureCubeMarching", device, rootSignatures);
+    CreateRootSignature(rootSigDesc, "mRootSignature", device, mRootSignatures);
+    CreateRootSignature(rootSigDesc2, "mRootSignatureLight", device, mRootSignatures);
+    CreateRootSignature(rootSigDescMoreSamplers, "mRootSignatureMoreSamplers", device, mRootSignatures);
+    CreateRootSignature(rootSigDescDefaultForward, "mRootSignatureDefaultForward", device, mRootSignatures);
+    CreateRootSignature(rootSigDescDefaultForwardFrustumCulling, "mRootSignatureDefaultForwardFrustumCulling", device, mRootSignatures);
+    CreateRootSignature(rootSigDescDebug, "mRootSignatureDebug", device, mRootSignatures);
+    CreateRootSignature(rootSigDescBillboard, "mRootSignatureBillboard", device, mRootSignatures);
+    CreateRootSignature(rootSigDescDebug, "mRootSignatureDebug", device, mRootSignatures);
+    CreateRootSignature(rootSigDescParticlesRender, "mRootSignatureParticlesRender", device, mRootSignatures);
+    CreateRootSignature(rootSigDescParticlesCompute, "mRootSignatureParticlesCompute", device, mRootSignatures);
+    CreateRootSignature(rootSigDescPostProcessing, "mRootSignaturePostProcessing", device, mRootSignatures);
+    CreateRootSignature(rootSigDescComputeNoise, "mRootSignatureComputeNoise", device, mRootSignatures);
+    CreateRootSignature(rootSigDescTess, "mRootSignatureTess", device, mRootSignatures);
+    CreateRootSignature(rootSigDescRT, "mRootSignatureRT", device, mRootSignatures);
+    CreateRootSignature(rootSigDescShadowsPass, "mRootSignatureShadows", device, mRootSignatures);
+    CreateRootSignature(rootSigDescShadowsForward, "mRootSignatureShadowsForward", device, mRootSignatures);
+    CreateRootSignature(rootSigDescShadowsParticlesForward, "mRootSignatureShadowsParticlesForward", device, mRootSignatures);
+    CreateRootSignature(rootSigDescDebugLayer, "mRootSignatureDebugGeometry", device, mRootSignatures);
+    CreateRootSignature(rootSigDescDefferedPointSpot, "mRootSignatureDefferedPointSpotDirectional", device, mRootSignatures);
+    CreateRootSignature(rootSigDescSkybox, "mRootSignatureSkyBox", device, mRootSignatures);
+    CreateRootSignature(rootSigDescPBR, "mRootSignaturePBR", device, mRootSignatures);
+    CreateRootSignature(rootSigDescRMDemo, "mRootSignatureRMDemo", device, mRootSignatures);
+    CreateRootSignature(rootSigDescParticlesArgsCompute, "mRootSignatureParticlesArgsCompute", device, mRootSignatures);
+    CreateRootSignature(rootSigDescParticlesGPU, "mRootSignatureParticlesGPU", device, mRootSignatures);
+    CreateRootSignature(rootSigDescHeightMap, "mRootSignatureHeightMap", device, mRootSignatures);
+    CreateRootSignature(rootSigDescMoreLight, "mRootSignatureMoreLight", device, mRootSignatures);
+    CreateRootSignature(rootSigDescObjectsScene13, "mRootSignatureObjectsScene13", device, mRootSignatures);
+    CreateRootSignature(rootSigDescOctreeScene13, "mRootSignatureOctreeScene13", device, mRootSignatures);
+    CreateRootSignature(rootSigDescParticlesRain, "mRootSignatureParticlesRain", device, mRootSignatures);
+    CreateRootSignature(rootSigDescTerrain, "mRootSignatureTerrain", device, mRootSignatures);
+    CreateRootSignature(rootSigDescTAA, "mRootSignatureTAA", device, mRootSignatures);
+    CreateRootSignature(rootSigDescTAASecondPass, "mRootSignatureTAASecondPass", device, mRootSignatures);
+    CreateRootSignature(rootSigDescAtmosphere, "mRootSignatureAtmosphere", device, mRootSignatures);
+    CreateRootSignature(rootSigDescCubeMarching, "mRootSignatureCubeMarching", device, mRootSignatures);
 }

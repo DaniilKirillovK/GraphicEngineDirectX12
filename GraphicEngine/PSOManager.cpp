@@ -1,7 +1,8 @@
 #include "PSOManager.h"
 
+std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>> PSOManager::mPSOs = std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>>();
+
 void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> rootSignatures,
-    std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>>& PSOs,
     std::unordered_map<std::string, std::vector<D3D12_INPUT_ELEMENT_DESC>> inputLayouts,
     std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3DBlob>> shaders,
     DXGI_FORMAT backBufferFormat, DXGI_FORMAT depthStencilFormat,
@@ -36,7 +37,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     defaultForwardPsoDesc.SampleDesc.Count = 1;
     defaultForwardPsoDesc.SampleDesc.Quality = 0;
     defaultForwardPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defaultForwardPsoDesc, IID_PPV_ARGS(&PSOs["forwardDefault"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defaultForwardPsoDesc, IID_PPV_ARGS(&mPSOs["forwardDefault"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defaultForwardFrustumCullingPsoDesc;
     //
@@ -44,7 +45,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     //
     defaultForwardFrustumCullingPsoDesc = defaultForwardPsoDesc;
     defaultForwardFrustumCullingPsoDesc.pRootSignature = rootSignatures["mRootSignatureDefaultForwardFrustumCulling"].Get();
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defaultForwardFrustumCullingPsoDesc, IID_PPV_ARGS(&PSOs["forwardDefaultFrustumCulling"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defaultForwardFrustumCullingPsoDesc, IID_PPV_ARGS(&mPSOs["forwardDefaultFrustumCulling"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
 
@@ -88,7 +89,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     opaquePsoDesc.SampleDesc.Count = 1;
     opaquePsoDesc.SampleDesc.Quality = 0;
     opaquePsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&PSOs["opaqueSolid"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueSolid"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC moreSamplersPsoDesc = opaquePsoDesc;
     moreSamplersPsoDesc.pRootSignature = rootSignatures["mRootSignatureMoreSamplers"].Get();
@@ -112,7 +113,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["moreSamplersPS"]->GetBufferPointer()),
         shaders["moreSamplersPS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&moreSamplersPsoDesc, IID_PPV_ARGS(&PSOs["moreSamplers"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&moreSamplersPsoDesc, IID_PPV_ARGS(&mPSOs["moreSamplers"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaqueWireframePsoDesc;
 
@@ -156,7 +157,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     opaqueWireframePsoDesc.SampleDesc.Count = 1;
     opaqueWireframePsoDesc.SampleDesc.Quality = 0;
     opaqueWireframePsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, IID_PPV_ARGS(&PSOs["opaqueWireframe"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaqueWireframePsoDesc, IID_PPV_ARGS(&mPSOs["opaqueWireframe"])));
 
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDescPixel;
@@ -167,7 +168,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["PSPixel"]->GetBufferPointer()),
         shaders["PSPixel"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDescPixel, IID_PPV_ARGS(&PSOs["opaquePixel"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDescPixel, IID_PPV_ARGS(&mPSOs["opaquePixel"])));
 
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc;
@@ -201,7 +202,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     debugPsoDesc.SampleDesc.Count = 1;
     debugPsoDesc.SampleDesc.Quality = 0;
     debugPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc, IID_PPV_ARGS(&PSOs["debug"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc, IID_PPV_ARGS(&mPSOs["debug"])));
 
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPsoDesc;
@@ -230,7 +231,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     lightPsoDesc.SampleDesc.Count = 1;
     lightPsoDesc.SampleDesc.Quality = 0;
     lightPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&PSOs["deferredLighting"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLighting"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC lightMoreLightPsoDesc;
     ZeroMemory(&lightMoreLightPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -245,7 +246,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["DefferedPSLightingMoreLight"]->GetBufferPointer()),
         shaders["DefferedPSLightingMoreLight"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightMoreLightPsoDesc, IID_PPV_ARGS(&PSOs["defferedLightingMoreLight"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightMoreLightPsoDesc, IID_PPV_ARGS(&mPSOs["defferedLightingMoreLight"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedLightingNoPosPsoDesc;
     ZeroMemory(&defferedLightingNoPosPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -260,7 +261,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["DefferedLightingNoPosRT_PS"]->GetBufferPointer()),
         shaders["DefferedLightingNoPosRT_PS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedLightingNoPosPsoDesc, IID_PPV_ARGS(&PSOs["deferredLightingNoPos"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedLightingNoPosPsoDesc, IID_PPV_ARGS(&mPSOs["deferredLightingNoPos"])));
 
     //
     // PSO for billboard sprites
@@ -300,7 +301,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     billboardSpritePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
     billboardSpritePsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&billboardSpritePsoDesc, IID_PPV_ARGS(&PSOs["billboardSprites"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&billboardSpritePsoDesc, IID_PPV_ARGS(&mPSOs["billboardSprites"])));
 
     //
     // PSO for particles compute
@@ -317,7 +318,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     particlesComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
 
-    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesComputePsoDesc, IID_PPV_ARGS(&PSOs["computeParticles"])));
+    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeParticles"])));
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC particlesArgsComputePsoDesc;
     ZeroMemory(&particlesArgsComputePsoDesc, sizeof(D3D12_COMPUTE_PIPELINE_STATE_DESC));
@@ -331,7 +332,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     particlesArgsComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
 
-    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesArgsComputePsoDesc, IID_PPV_ARGS(&PSOs["computeParticlesArgs"])));
+    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesArgsComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeParticlesArgs"])));
 
 
     //
@@ -378,7 +379,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     particlesPsoDesc.DSVFormat = depthStencilFormat;
     particlesPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
 
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesPsoDesc, IID_PPV_ARGS(&PSOs["renderParticles"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticles"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesForwardPsoDesc;
     ZeroMemory(&particlesForwardPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -404,7 +405,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     particlesForwardPsoDesc.RTVFormats[2] = DXGI_FORMAT_UNKNOWN;
     particlesForwardPsoDesc.RTVFormats[3] = DXGI_FORMAT_UNKNOWN;
 
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardPsoDesc, IID_PPV_ARGS(&PSOs["renderParticlesForward"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticlesForward"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesForwardVertexLightingPsoDesc;
     ZeroMemory(&particlesForwardVertexLightingPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -425,7 +426,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         shaders["particlesForwardVertexLightingPS"]->GetBufferSize()
     };
 
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardVertexLightingPsoDesc, IID_PPV_ARGS(&PSOs["renderParticlesForwardVertexLighting"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardVertexLightingPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticlesForwardVertexLighting"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesForwardGPUPsoDesc;
     ZeroMemory(&particlesForwardGPUPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -447,10 +448,10 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         shaders["particlesForwardPS"]->GetBufferSize()
     };
 
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardVertexLightingPsoDesc, IID_PPV_ARGS(&PSOs["renderParticlesForwardGPU"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesForwardVertexLightingPsoDesc, IID_PPV_ARGS(&mPSOs["renderParticlesForwardGPU"])));
 
 
-    // Post Processing PSOs
+    // Post Processing mPSOs
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingGCPsoDesc;
     ZeroMemory(&postProcessingGCPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     postProcessingGCPsoDesc.InputLayout = { inputLayouts["PostProcessingInputLayout"].data(), (UINT)inputLayouts["PostProcessingInputLayout"].size() };
@@ -477,7 +478,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     postProcessingGCPsoDesc.SampleDesc.Count = 1;
     postProcessingGCPsoDesc.SampleDesc.Quality = 0;
     postProcessingGCPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingGCPsoDesc, IID_PPV_ARGS(&PSOs["postProcessing_GC"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingGCPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_GC"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingGBPsoDesc = postProcessingGCPsoDesc;
     postProcessingGBPsoDesc.PS =
@@ -485,7 +486,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["PostProcessingPS_GB"]->GetBufferPointer()),
         shaders["PostProcessingPS_GB"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingGBPsoDesc, IID_PPV_ARGS(&PSOs["postProcessing_GB"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingGBPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_GB"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingCAPsoDesc = postProcessingGCPsoDesc;
     postProcessingCAPsoDesc.PS =
@@ -493,7 +494,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["PostProcessingPS_CA"]->GetBufferPointer()),
         shaders["PostProcessingPS_CA"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingCAPsoDesc, IID_PPV_ARGS(&PSOs["postProcessing_CA"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingCAPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_CA"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingVigPsoDesc = postProcessingGCPsoDesc;
     postProcessingVigPsoDesc.PS =
@@ -501,7 +502,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["PostProcessingPS_Vig"]->GetBufferPointer()),
         shaders["PostProcessingPS_Vig"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingVigPsoDesc, IID_PPV_ARGS(&PSOs["postProcessing_Vig"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingVigPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_Vig"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingNoisePsoDesc = postProcessingGCPsoDesc;
     postProcessingNoisePsoDesc.PS =
@@ -509,7 +510,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["PostProcessingPS_Noise"]->GetBufferPointer()),
         shaders["PostProcessingPS_Noise"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingNoisePsoDesc, IID_PPV_ARGS(&PSOs["postProcessing_Noise"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingNoisePsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_Noise"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC postProcessingDefaultPsoDesc = postProcessingGCPsoDesc;
     postProcessingDefaultPsoDesc.PS =
@@ -517,7 +518,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["PostProcessingPS_Default"]->GetBufferPointer()),
         shaders["PostProcessingPS_Default"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingDefaultPsoDesc, IID_PPV_ARGS(&PSOs["postProcessing_Default"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&postProcessingDefaultPsoDesc, IID_PPV_ARGS(&mPSOs["postProcessing_Default"])));
 
     //
    // PSO for noise compute
@@ -534,7 +535,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     noiseComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
 
-    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&noiseComputePsoDesc, IID_PPV_ARGS(&PSOs["computeNoise"])));
+    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&noiseComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeNoise"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC forwardRTPsoDesc;
     ZeroMemory(&forwardRTPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -561,7 +562,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     forwardRTPsoDesc.SampleDesc.Count = 1;
     forwardRTPsoDesc.SampleDesc.Quality = 0;
     forwardRTPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&forwardRTPsoDesc, IID_PPV_ARGS(&PSOs["forwardRT"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&forwardRTPsoDesc, IID_PPV_ARGS(&mPSOs["forwardRT"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC forwardRTMoreLightPsoDesc;
     ZeroMemory(&forwardRTMoreLightPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -576,7 +577,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["forwardRTMoreLight_PS"]->GetBufferPointer()),
         shaders["forwardRTMoreLight_PS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&forwardRTMoreLightPsoDesc, IID_PPV_ARGS(&PSOs["forwardRTMoreLight"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&forwardRTMoreLightPsoDesc, IID_PPV_ARGS(&mPSOs["forwardRTMoreLight"])));
 
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedRTPsoDesc;
@@ -607,7 +608,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     defferedRTPsoDesc.SampleDesc.Count = 1;
     defferedRTPsoDesc.SampleDesc.Quality = 0;
     defferedRTPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedRTPsoDesc, IID_PPV_ARGS(&PSOs["defferedRT"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedRTPsoDesc, IID_PPV_ARGS(&mPSOs["defferedRT"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedRTNoPosPsoDesc;
     ZeroMemory(&defferedRTNoPosPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -622,7 +623,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["defferedNoPosRT_PS"]->GetBufferPointer()),
         shaders["defferedNoPosRT_PS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedRTNoPosPsoDesc, IID_PPV_ARGS(&PSOs["defferedRTNoPos"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedRTNoPosPsoDesc, IID_PPV_ARGS(&mPSOs["defferedRTNoPos"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC decalsTessPsoDesc;
     ZeroMemory(&decalsTessPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -663,13 +664,13 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     decalsTessPsoDesc.SampleDesc.Count = 1;
     decalsTessPsoDesc.SampleDesc.Quality = 0;
     decalsTessPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&decalsTessPsoDesc, IID_PPV_ARGS(&PSOs["decalsTess"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&decalsTessPsoDesc, IID_PPV_ARGS(&mPSOs["decalsTess"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC decalsTessWireframePsoDesc;
     ZeroMemory(&decalsTessWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     decalsTessWireframePsoDesc = decalsTessPsoDesc;
     decalsTessWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&decalsTessWireframePsoDesc, IID_PPV_ARGS(&PSOs["decalsTessWireframe"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&decalsTessWireframePsoDesc, IID_PPV_ARGS(&mPSOs["decalsTessWireframe"])));
 
     //
     // PSO for shadow map pass.
@@ -695,7 +696,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     // Shadow map pass does not have a render target.
     smapPsoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
     smapPsoDesc.NumRenderTargets = 0;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapPsoDesc, IID_PPV_ARGS(&PSOs["shadowPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapPsoDesc, IID_PPV_ARGS(&mPSOs["shadowPSO"])));
 
     //
     // PSO for particles shadow map pass.
@@ -728,7 +729,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     smapParticlesPsoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
     smapParticlesPsoDesc.NumRenderTargets = 0;
     smapParticlesPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapParticlesPsoDesc, IID_PPV_ARGS(&PSOs["shadowParticlesPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapParticlesPsoDesc, IID_PPV_ARGS(&mPSOs["shadowParticlesPSO"])));
 
     //
     // PSO for shadows forward pass
@@ -747,7 +748,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["cascadedShadowsForwardPS"]->GetBufferPointer()),
         shaders["cascadedShadowsForwardPS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapForwardPsoDesc, IID_PPV_ARGS(&PSOs["shadowForwardPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapForwardPsoDesc, IID_PPV_ARGS(&mPSOs["shadowForwardPSO"])));
 
     //
     // PSO for shadows forward pass with particles
@@ -766,7 +767,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["shadowsForwardPS"]->GetBufferPointer()),
         shaders["shadowsForwardPS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapForwardParticlesPsoDesc, IID_PPV_ARGS(&PSOs["shadowForwardParticlesPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapForwardParticlesPsoDesc, IID_PPV_ARGS(&mPSOs["shadowForwardParticlesPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC debugGeometryPsoDesc;
     ZeroMemory(&debugGeometryPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -796,7 +797,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     debugGeometryPsoDesc.SampleDesc.Count = 1;
     debugGeometryPsoDesc.SampleDesc.Quality = 0;
     debugGeometryPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugGeometryPsoDesc, IID_PPV_ARGS(&PSOs["debugGeometry"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugGeometryPsoDesc, IID_PPV_ARGS(&mPSOs["debugGeometry"])));
 
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedPointSpotLightPso;
@@ -834,7 +835,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     defferedPointSpotLightPso.SampleDesc.Count = 1;
     defferedPointSpotLightPso.SampleDesc.Quality = 0;
     defferedPointSpotLightPso.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedPointSpotLightPso, IID_PPV_ARGS(&PSOs["defferedPointSpot"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedPointSpotLightPso, IID_PPV_ARGS(&mPSOs["defferedPointSpot"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedPointSpotLightMoreLightPso;
     ZeroMemory(&defferedPointSpotLightMoreLightPso, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -850,7 +851,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["defferedPointSpotMoreLightPS"]->GetBufferPointer()),
         shaders["defferedPointSpotMoreLightPS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedPointSpotLightMoreLightPso, IID_PPV_ARGS(&PSOs["defferedPointSpotMoreLight"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedPointSpotLightMoreLightPso, IID_PPV_ARGS(&mPSOs["defferedPointSpotMoreLight"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC defferedDirectionalLightPso;
     ZeroMemory(&defferedDirectionalLightPso, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -867,7 +868,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["defferedDirectionalPS"]->GetBufferPointer()),
         shaders["defferedDirectionalPS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedDirectionalLightPso, IID_PPV_ARGS(&PSOs["defferedDirectional"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&defferedDirectionalLightPso, IID_PPV_ARGS(&mPSOs["defferedDirectional"])));
 
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC skyboxPsoDesc;
@@ -897,7 +898,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     skyboxPsoDesc.SampleDesc.Count = 1;
     skyboxPsoDesc.SampleDesc.Quality = 0;
     skyboxPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyboxPsoDesc, IID_PPV_ARGS(&PSOs["skyboxPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyboxPsoDesc, IID_PPV_ARGS(&mPSOs["skyboxPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC PBRPsoDesc;
     ZeroMemory(&PBRPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -913,7 +914,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["PBR_PS"]->GetBufferPointer()),
         shaders["PBR_PS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&PBRPsoDesc, IID_PPV_ARGS(&PSOs["PBRPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&PBRPsoDesc, IID_PPV_ARGS(&mPSOs["PBRPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC StandartPBRPsoDesc;
     ZeroMemory(&StandartPBRPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -928,7 +929,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["StandartPBR_PS"]->GetBufferPointer()),
         shaders["StandartPBR_PS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&StandartPBRPsoDesc, IID_PPV_ARGS(&PSOs["StandartPBRPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&StandartPBRPsoDesc, IID_PPV_ARGS(&mPSOs["StandartPBRPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC IBLPsoDesc;
     ZeroMemory(&IBLPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -944,7 +945,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["IBL_PS"]->GetBufferPointer()),
         shaders["IBL_PS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&IBLPsoDesc, IID_PPV_ARGS(&PSOs["IBLPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&IBLPsoDesc, IID_PPV_ARGS(&mPSOs["IBLPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC RMDemoPsoDesc;
     ZeroMemory(&RMDemoPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -960,7 +961,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["RMDemoPS"]->GetBufferPointer()),
         shaders["RMDemoPS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&RMDemoPsoDesc, IID_PPV_ARGS(&PSOs["RMDemoPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&RMDemoPsoDesc, IID_PPV_ARGS(&mPSOs["RMDemoPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC heightMapPsoDesc;
     ZeroMemory(&heightMapPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -997,13 +998,13 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     heightMapPsoDesc.SampleDesc.Count = 1;
     heightMapPsoDesc.SampleDesc.Quality = 0;
     heightMapPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&heightMapPsoDesc, IID_PPV_ARGS(&PSOs["heightMapSolidPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&heightMapPsoDesc, IID_PPV_ARGS(&mPSOs["heightMapSolidPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC heightMapWireframePsoDesc;
     ZeroMemory(&heightMapWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
     heightMapWireframePsoDesc = heightMapPsoDesc;
     heightMapWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&heightMapWireframePsoDesc, IID_PPV_ARGS(&PSOs["heightMapWireframePSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&heightMapWireframePsoDesc, IID_PPV_ARGS(&mPSOs["heightMapWireframePSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC scene13ObjectsPsoDesc;
     ZeroMemory(&scene13ObjectsPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1019,7 +1020,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["Scene13PS"]->GetBufferPointer()),
         shaders["Scene13PS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&scene13ObjectsPsoDesc, IID_PPV_ARGS(&PSOs["Scene13ObjectsPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&scene13ObjectsPsoDesc, IID_PPV_ARGS(&mPSOs["Scene13ObjectsPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC scene13OctreePsoDesc;
     ZeroMemory(&scene13OctreePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1038,7 +1039,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["Scene13OcTreePS"]->GetBufferPointer()),
         shaders["Scene13OcTreePS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&scene13OctreePsoDesc, IID_PPV_ARGS(&PSOs["Scene13OctreePSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&scene13OctreePsoDesc, IID_PPV_ARGS(&mPSOs["Scene13OctreePSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC particlesRainPsoDesc;
     ZeroMemory(&particlesRainPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1074,7 +1075,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     particlesRainPsoDesc.DSVFormat = depthStencilFormat;
     particlesRainPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
 
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesRainPsoDesc, IID_PPV_ARGS(&PSOs["particlesRain"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&particlesRainPsoDesc, IID_PPV_ARGS(&mPSOs["particlesRain"])));
 
     D3D12_COMPUTE_PIPELINE_STATE_DESC particlesRainComputePsoDesc;
     ZeroMemory(&particlesRainComputePsoDesc, sizeof(D3D12_COMPUTE_PIPELINE_STATE_DESC));
@@ -1086,7 +1087,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     particlesRainComputePsoDesc.NodeMask = 0;
     particlesRainComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
-    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesRainComputePsoDesc, IID_PPV_ARGS(&PSOs["computeParticlesRain"])));
+    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&particlesRainComputePsoDesc, IID_PPV_ARGS(&mPSOs["computeParticlesRain"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDesc;
     ZeroMemory(&terrainPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1113,7 +1114,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["TerrainPS"]->GetBufferPointer()),
         shaders["TerrainPS"]->GetBufferSize()
     };
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainPsoDesc, IID_PPV_ARGS(&PSOs["terrainPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainPsoDesc, IID_PPV_ARGS(&mPSOs["terrainPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainWireframePsoDesc;
     ZeroMemory(&terrainWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1140,7 +1141,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         shaders["TerrainDebugPS"]->GetBufferSize()
     };
     terrainWireframePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainWireframePsoDesc, IID_PPV_ARGS(&PSOs["terrainWireframePSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainWireframePsoDesc, IID_PPV_ARGS(&mPSOs["terrainWireframePSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC TAAPsoDesc;
     ZeroMemory(&TAAPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1159,7 +1160,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     TAAPsoDesc.NumRenderTargets = 2;
     TAAPsoDesc.RTVFormats[0] = backBufferFormat;
     TAAPsoDesc.RTVFormats[1] = backBufferFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&TAAPsoDesc, IID_PPV_ARGS(&PSOs["TAAPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&TAAPsoDesc, IID_PPV_ARGS(&mPSOs["TAAPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC TAASecondPassPsoDesc;
     ZeroMemory(&TAASecondPassPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1198,7 +1199,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     TAASecondPassPsoDesc.SampleDesc.Count = 1;
     TAASecondPassPsoDesc.SampleDesc.Quality = 0;
     TAASecondPassPsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&TAASecondPassPsoDesc, IID_PPV_ARGS(&PSOs["TAASecondPassPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&TAASecondPassPsoDesc, IID_PPV_ARGS(&mPSOs["TAASecondPassPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC AtmospherePsoDesc;
     ZeroMemory(&AtmospherePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1236,7 +1237,7 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     AtmospherePsoDesc.SampleDesc.Count = 1;
     AtmospherePsoDesc.SampleDesc.Quality = 0;
     AtmospherePsoDesc.DSVFormat = DXGI_FORMAT_UNKNOWN;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&AtmospherePsoDesc, IID_PPV_ARGS(&PSOs["AtmospherePSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&AtmospherePsoDesc, IID_PPV_ARGS(&mPSOs["AtmospherePSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC cubeMarchingPsoDesc;
     ZeroMemory(&cubeMarchingPsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
@@ -1264,5 +1265,5 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     cubeMarchingPsoDesc.SampleDesc.Count = 1;
     cubeMarchingPsoDesc.SampleDesc.Quality = 0;
     cubeMarchingPsoDesc.DSVFormat = depthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&cubeMarchingPsoDesc, IID_PPV_ARGS(&PSOs["CubeMarchingPSO"])));
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&cubeMarchingPsoDesc, IID_PPV_ARGS(&mPSOs["CubeMarchingPSO"])));
 }
