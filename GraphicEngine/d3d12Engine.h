@@ -62,26 +62,7 @@ protected:
     virtual void OnMouseUp(WPARAM btnState, int x, int y) {}
     virtual void OnMouseMove(WPARAM btnState, int x, int y) {}
 
-    virtual void BuildSkyboxGeometry() {}
-    virtual void BuildShadowMaps() {}
-    virtual void BuildShapeGeometry() {}
-    virtual void BuildScene3Geometry() {}
-    virtual void BuildScene3LODGeometry() {}
-    virtual void BuildScene4Geometry() {}
-    virtual void BuildScene5Geometry() {}
-    virtual void BuildScene6Geometry() {}
-    virtual void BuildScene7Geometry() {}
-    virtual void BuildScene9Geometry() {}
-    virtual void BuildScene9RMDemoGeometry() {}
-    virtual void BuildModelsGeometry() {}
-    virtual void BuildScene10DebugGeometry() {}
-    virtual void BuildScene10MoreLightGeometry() {}
-    virtual void BuildScene12Geometry() {}
-    virtual void BuildScene13Geometry() {}
-    virtual void BuildScene14Geometry() {}
-    virtual void BuildScene15Geometry() {}
-    virtual void BuildQuadTreeTerrain() {}
-    virtual void BuildSponzaGeometryAndTextures() {}
+    
     virtual void InitGBuffer() {}
     virtual void CreateScene3RTV() {}
     virtual void CreateScene13RTV() {}
@@ -183,10 +164,8 @@ protected:
     D3D12_VERTEX_BUFFER_VIEW instanceMoreLightVertexBufferView;
     Microsoft::WRL::ComPtr<ID3D12Resource> instanceMoreLightUploadBuffer;
 
-    Microsoft::WRL::ComPtr<ID3D12Resource> instanceOcTreeBuffer;
-    D3D12_VERTEX_BUFFER_VIEW instanceOcTreeVertexBufferView;
-    Microsoft::WRL::ComPtr<ID3D12Resource> instanceOcTreeUploadBuffer;
 
+    D3D12_VERTEX_BUFFER_VIEW instanceOcTreeVertexBufferView;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> particleBuffers[2];
     Microsoft::WRL::ComPtr<ID3D12Resource> particleArgsBuffer;
@@ -203,8 +182,6 @@ protected:
 
     Microsoft::WRL::ComPtr<ID3D12Resource> postProcessingBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> noiseTexture;
-    Microsoft::WRL::ComPtr<ID3D12Resource> sponzaTextures[24];
-    Microsoft::WRL::ComPtr<ID3D12Resource> sponzaTexturesUpload[24];
 
     D3D12_VIEWPORT mScreenViewportFull;
     D3D12_VIEWPORT mScreenViewport;

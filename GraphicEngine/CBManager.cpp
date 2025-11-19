@@ -1737,7 +1737,7 @@ void CBManager::UpdateAtmosphereCB()
     atmosphereConst.SunColor = DirectX::XMFLOAT3(scene16SunColor[0], scene16SunColor[1], scene16SunColor[2]);
     atmosphereConst.ScaterringIntensity = scene16ScaterringIntensity;
 
-    float theta = 30 * 3.1415926535f;
+    float theta = 2.f * 3.1415926535f;
     float z = cos(theta);
     float y = sin(theta);
     atmosphereConst.LightDirAndIntensity = DirectX::XMFLOAT4(0.f, -y, -z, 10.0f);

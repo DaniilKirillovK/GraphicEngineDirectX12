@@ -1,7 +1,7 @@
 #include "ModelLoader.h"
 #include "filesystem"
 
-bool ModelLoader::LoadModel(const std::string& filePath,
+bool ModelLoader::LoadModelML(const std::string& filePath,
     std::vector<Vertex>& vertices,
     std::vector<uint32_t>& indices)
 {
@@ -14,11 +14,11 @@ bool ModelLoader::LoadModel(const std::string& filePath,
         aiProcess_CalcTangentSpace);
 
     int totalIndexes = 0;
-    ProcessNode(scene->mRootNode, scene, vertices, indices, totalIndexes);
+    ProcessNodeML(scene->mRootNode, scene, vertices, indices, totalIndexes);
     return true;
 }
 
-void ModelLoader::ProcessNode(aiNode* node, const aiScene* scene,
+void ModelLoader::ProcessNodeML(aiNode* node, const aiScene* scene,
     std::vector<Vertex>& vertices,
     std::vector<uint32_t>& indices,
     int& totalIndexes)
@@ -26,16 +26,16 @@ void ModelLoader::ProcessNode(aiNode* node, const aiScene* scene,
     for (unsigned int i = 0; i < node->mNumMeshes; i++)
     {
         aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-        ProcessMesh(mesh, scene, vertices, indices, totalIndexes);
+        ProcessMeshML(mesh, scene, vertices, indices, totalIndexes);
     }
 
     for (unsigned int i = 0; i < node->mNumChildren; i++)
     {
-        ProcessNode(node->mChildren[i], scene, vertices, indices, totalIndexes);
+        ProcessNodeML(node->mChildren[i], scene, vertices, indices, totalIndexes);
     }
 }
 
-void ModelLoader::ProcessMesh(aiMesh* mesh, const aiScene* scene,
+void ModelLoader::ProcessMeshML(aiMesh* mesh, const aiScene* scene,
     std::vector<Vertex>& vertices,
     std::vector<uint32_t>& indices,
     int& totalIndexes)

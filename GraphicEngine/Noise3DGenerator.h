@@ -19,6 +19,9 @@ private:
     float Grad(int hash, float x, float y, float z);
     float Ridge(float h, float offset);
 
+    float GenerateRidgeNoise(float x, float z);
+    float ApplyMountainCurve(float value);
+
     std::mt19937 m_rng;
     int m_permutation[512];
 };

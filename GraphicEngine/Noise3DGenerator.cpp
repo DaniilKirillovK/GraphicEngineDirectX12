@@ -23,15 +23,31 @@ void Noise3DGenerator::GenerateMountainDensity(uint32_t width, uint32_t height, 
         {
             for (uint32_t x = 0; x < width; ++x) 
             {
-                float nx = (float)x / width;
+                float nx = (float)x / width * 2.0f;
                 float ny = (float)y / height;
-                float nz = (float)z / depth;
+                float nz = (float)z / depth * 2.0f;
 
-                float microVariation = PerlinNoise3D(nx * 15.0f, nz * 15.0f, 0) * 0.05f;
+                float baseShape = PerlinNoise3D(nx * 0.8f, nz * 0.8f, 0) * 0.4f;
 
-                float surfaceHeight = 0.2 + microVariation;
+                float mediumDetail = PerlinNoise3D(nx * 3.0f, nz * 3.0f, 100) * 0.3f;
+
+                float fineDetail = PerlinNoise3D(nx * 8.0f, nz * 8.0f, 200) * 0.15f;
+
+                float softRidge = GenerateRidgeNoise(nx * 2.5f, nz * 2.5f) * 0.25f;
+
+                float combinedNoise = baseShape +
+                    mediumDetail * 0.7f +
+                    fineDetail * 0.3f +
+                    softRidge * 0.6f;
+
+                combinedNoise = ApplyMountainCurve(combinedNoise);
+
+                float surfaceHeight = 0.15f + combinedNoise * mountainIntensity * 0.8f;
+
+                float verticalVariation = PerlinNoise3D(nx * 1.5f, ny * 2.0f, nz * 1.5f) * 0.05f;
+                surfaceHeight += verticalVariation;
+
                 float finalDensity = surfaceHeight - ny;
-
                 output[z * width * height + y * width + x] = finalDensity;
             }
         }
@@ -95,4 +111,19 @@ float Noise3DGenerator::Ridge(float h, float offset)
     h = offset - h;
     h = h * h;
     return h;
+}
+
+float Noise3DGenerator::GenerateRidgeNoise(float x, float z)
+{
+    float noise = PerlinNoise3D(x, z, 300);
+    noise = 1.0f - std::abs(noise * 0.8f);
+    return noise * noise * 0.7f;
+}
+
+float Noise3DGenerator::ApplyMountainCurve(float value)
+{
+    if (value > 0) {
+        return std::pow(value, 1.2f);
+    }
+    return value;
 }

@@ -1,3 +1,4 @@
+#pragma once
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx12.h"
@@ -6,8 +7,6 @@
 #include <tchar.h>
 #include <vector>
 #include <string>
-
-#include "ModelHelper.h"
 
 #include "MathHelper.h"
 #include "D3D12Engine.h"
@@ -19,12 +18,12 @@
 #include "Instancing.h"
 #include "ParticleSystem.h"
 #include "ModelLoader.h"
-#include "SponzaLoader.h"
 #include "ShadowMap.h"
 #include "OcTree.h"
 #include "QuadTree.h"
 #include "TAAUtility.h"
 #include "MarchingCubes.h"
+#include "SponzaLoader.h"
 
 #include "RootSignatureManager.h"
 #include "PSOManager.h"
@@ -55,12 +54,6 @@ static const int WINDOW_WIDTH = 1280;
 static const int WINDOW_HEIGHT = 800;
 
 const int gNumFrameResources = 3;
-
-struct VertexLightStage 
-{
-    DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT2 uv;
-};
 
 
 struct FrameContext
@@ -128,32 +121,6 @@ private:
 
     void ChangeTileObjectTiles();
 
-    virtual void BuildShadowMaps() override;
-    virtual void BuildSkyboxGeometry() override;
-    virtual void BuildShapeGeometry() override;
-    virtual void BuildScene3Geometry() override;
-    virtual void BuildScene3LODGeometry() override;
-    virtual void BuildScene4Geometry() override;
-    virtual void BuildScene5Geometry() override;
-    virtual void BuildScene6Geometry() override;
-    virtual void BuildScene7Geometry() override;
-    virtual void BuildScene9Geometry() override;
-    virtual void BuildScene9RMDemoGeometry() override;
-    virtual void BuildModelsGeometry() override;
-    virtual void BuildScene10DebugGeometry() override;
-    virtual void BuildScene10MoreLightGeometry() override;
-    virtual void BuildScene12Geometry() override;
-
-    virtual void BuildScene13Geometry() override;
-    void BuildScene13InstanceBuffer();
-    void BuildScene13OctreeGeometry();
-
-    virtual void BuildScene14Geometry() override;
-    virtual void BuildQuadTreeTerrain() override;
-
-    virtual void BuildScene15Geometry() override;
-
-    virtual void BuildSponzaGeometryAndTextures() override;
     virtual void BuildPostProcessingResources() override;
     virtual void CreateNoiseTexture() override;
 
@@ -226,21 +193,10 @@ private:
 private:
 
     std::vector<std::vector<StaticMesh>> terrainMeshesLOD;
-    TerrainQuadtree m_terrainQuadTree;
+
 
     // Render items divided by PSO.
     std::vector<RenderItem*> mOpaqueRitems;
-
-    PassConstants mMainPassCB;
-    TAAPassConstants mTAAMainPassCB;
-    PassConstantsShadows mMainPassCBShadows;
-    PassConstantsShadows mShadowPassCB;
-    PassConstants mReflectedPassCB;
-
-    ParticleSystem* mParticleSystem;
-    ParticleSystem* mParticleSystem2;
-    ParticleSystem* mParticleSystemSmoke;
-    ParticleSystem* mParticleSystemRain;
 
     float mTheta = 1.3f * DirectX::XM_PI;
     float mPhi = 0.4f * DirectX::XM_PI;
@@ -249,8 +205,6 @@ private:
     POINT mLastMousePos;
 
     float mCameraSpeed = 1.0f;
-
-    Model Sponza;
 };
 
 bool isFirstExecution = true;
@@ -373,10 +327,6 @@ void Engine::Update(const GameTimer& gt)
 
     CBManager::CBManager::mCurrFrameResource = CBManager::mCurrFrameResource;
     CBManager::CBManager::mCurrFrameResource = CBManager::mCurrFrameResource;
-    CBManager::mParticleSystem = mParticleSystem;
-    CBManager::mParticleSystem2 = mParticleSystem2;
-    CBManager::mParticleSystemRain = mParticleSystemRain;
-    CBManager::mParticleSystemSmoke = mParticleSystemSmoke;
 
     // Has the GPU finished processing the commands of the current frame resource?
     // If not, wait until the GPU has completed commands up to this fence point.
@@ -1133,7 +1083,7 @@ void Engine::Draw(const GameTimer& gt)
 
                 mCommandList->SetPipelineState(PSOManager::mPSOs["renderParticles"].Get());
 
-                DrawParticles(*mParticleSystem, RenderLayer::Particles1);
+                DrawParticles(*CBManager::mParticleSystem, RenderLayer::Particles1);
             }
         }
         else if (particles2IsActive && activeParticleSystemScene6 == 2)
@@ -1191,7 +1141,7 @@ void Engine::Draw(const GameTimer& gt)
 
                 mCommandList->SetPipelineState(PSOManager::mPSOs["renderParticles"].Get());
 
-                DrawParticles(*mParticleSystem2, RenderLayer::Particles2);
+                DrawParticles(*CBManager::mParticleSystem2, RenderLayer::Particles2);
             }
         }
         else if (activeParticleSystemScene6 == 3)
@@ -1354,8 +1304,8 @@ void Engine::Draw(const GameTimer& gt)
                     mCommandList->SetPipelineState(PSOManager::mPSOs["renderParticlesForward"].Get());
                 else mCommandList->SetPipelineState(PSOManager::mPSOs["renderParticlesForwardVertexLighting"].Get());
 
-                DrawParticles(*mParticleSystemSmoke, RenderLayer::Particles3);
-                //DrawParticlesGPU(*mParticleSystemSmoke, RenderLayer::Particles3);
+                DrawParticles(*CBManager::mParticleSystemSmoke, RenderLayer::Particles3);
+                //DrawParticlesGPU(*CBManager::mParticleSystemSmoke, RenderLayer::Particles3);
             }
 
             // Draw particles Rain
@@ -1380,7 +1330,7 @@ void Engine::Draw(const GameTimer& gt)
 
                 mCommandList->SetPipelineState(PSOManager::mPSOs["particlesRain"].Get());
 
-                DrawParticles(*mParticleSystemRain, RenderLayer::RainParticles);
+                DrawParticles(*CBManager::mParticleSystemRain, RenderLayer::RainParticles);
 
                 // Indicate a state transition on the resource usage.
                 auto barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -2651,1522 +2601,6 @@ void Engine::ChangeTileObjectTiles()
     }
 }
 
-void Engine::BuildShadowMaps()
-{
-    mShadowMap256 = std::make_unique<ShadowMap>(md3dDevice.Get(), 256, 256);
-    mShadowMap512 = std::make_unique<ShadowMap>(md3dDevice.Get(), 512, 512);
-    mShadowMap1024 = std::make_unique<ShadowMap>(md3dDevice.Get(), 1024, 1024);
-    mShadowMap2048 = std::make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
-
-    mShadowMapScene6 = std::make_unique<ShadowMap>(md3dDevice.Get(), 2048, 2048);
-}
-
-void Engine::BuildSkyboxGeometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData skysphere = geoGen.CreateSphere(0.5f, 20, 20, 0.0f, 0.0f, 0.0f);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry skyboxSubmesh;
-    skyboxSubmesh.IndexCount = (UINT)skysphere.Indices32.size();
-    skyboxSubmesh.StartIndexLocation = totalIndexCount;
-    skyboxSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += skyboxSubmesh.IndexCount;
-    totalVertexCount += skysphere.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < skysphere.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = skysphere.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = skysphere.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = skysphere.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = skysphere.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += skysphere.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(skysphere.GetIndices16()), std::end(skysphere.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "skyboxGeo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["skybox"] = skyboxSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildShapeGeometry()
-{
-    GeometryGenerator geoGen;
-    GeometryGenerator::MeshData box = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
-    GeometryGenerator::MeshData box2 = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 1, 1);
-    GeometryGenerator::MeshData box3 = geoGen.CreateBoxTiling(5.f, 5.f, 5.f, 5, 1);
-    GeometryGenerator::MeshData box4 = geoGen.CreateBoxTiling(1.f, 1.f, 1.f, 1, 1);
-    GeometryGenerator::MeshData boxFPS = geoGen.CreateBoxTiling(2.f, 2.f, 2.f, 5, 1);
-    GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.0f, 7, 7, 0.f, 0.f, 0.f);
-    GeometryGenerator::MeshData grid = geoGen.CreateGrid(200.0f, 200.0f, 100, 100);
-    GeometryGenerator::MeshData cone = geoGen.CreateCone(1.0f, 0.2f, 20);
-    GeometryGenerator::MeshData skyBox = geoGen.CreateBackSphere(1.f, 50.f, 50.f);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry boxSubmesh;
-    boxSubmesh.IndexCount = (UINT)box.Indices32.size();
-    boxSubmesh.StartIndexLocation = totalIndexCount;
-    boxSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += boxSubmesh.IndexCount;
-    totalVertexCount += box.Vertices.size();
-
-    SubmeshGeometry boxSubmesh2;
-    boxSubmesh2.IndexCount = (UINT)box2.Indices32.size();
-    boxSubmesh2.StartIndexLocation = totalIndexCount;
-    boxSubmesh2.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += boxSubmesh2.IndexCount;
-    totalVertexCount += box2.Vertices.size();
-
-    SubmeshGeometry boxSubmesh3;
-    boxSubmesh3.IndexCount = (UINT)box3.Indices32.size();
-    boxSubmesh3.StartIndexLocation = totalIndexCount;
-    boxSubmesh3.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += boxSubmesh3.IndexCount;
-    totalVertexCount += box3.Vertices.size();
-
-    SubmeshGeometry boxSubmesh4;
-    boxSubmesh4.IndexCount = (UINT)box4.Indices32.size();
-    boxSubmesh4.StartIndexLocation = totalIndexCount;
-    boxSubmesh4.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += boxSubmesh4.IndexCount;
-    totalVertexCount += box4.Vertices.size();
-
-    SubmeshGeometry boxSubmeshFPS;
-    boxSubmeshFPS.IndexCount = (UINT)boxFPS.Indices32.size();
-    boxSubmeshFPS.StartIndexLocation = totalIndexCount;
-    boxSubmeshFPS.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += boxSubmeshFPS.IndexCount;
-    totalVertexCount += boxFPS.Vertices.size();
-
-    SubmeshGeometry pointLight1Submesh;
-    pointLight1Submesh.IndexCount = (UINT)sphere.Indices32.size();
-    pointLight1Submesh.StartIndexLocation = totalIndexCount;
-    pointLight1Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += pointLight1Submesh.IndexCount;
-    totalVertexCount += sphere.Vertices.size();
-
-    SubmeshGeometry pointLight2Submesh;
-    pointLight2Submesh.IndexCount = (UINT)sphere.Indices32.size();
-    pointLight2Submesh.StartIndexLocation = totalIndexCount;
-    pointLight2Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += pointLight2Submesh.IndexCount;
-    totalVertexCount += sphere.Vertices.size();
-
-    SubmeshGeometry pointLight3Submesh;
-    pointLight3Submesh.IndexCount = (UINT)sphere.Indices32.size();
-    pointLight3Submesh.StartIndexLocation = totalIndexCount;
-    pointLight3Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += pointLight3Submesh.IndexCount;
-    totalVertexCount += sphere.Vertices.size();
-
-    SubmeshGeometry gridSubmesh;
-    gridSubmesh.IndexCount = (UINT)grid.Indices32.size();
-    gridSubmesh.StartIndexLocation = totalIndexCount;
-    gridSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += gridSubmesh.IndexCount;
-    totalVertexCount += grid.Vertices.size();
-
-    SubmeshGeometry coneSubmesh;
-    coneSubmesh.IndexCount = (UINT)cone.Indices32.size();
-    coneSubmesh.StartIndexLocation = totalIndexCount;
-    coneSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += coneSubmesh.IndexCount;
-    totalVertexCount += cone.Vertices.size();
-
-    SubmeshGeometry skyboxSubmesh;
-    skyboxSubmesh.IndexCount = (UINT)skyBox.Indices32.size();
-    skyboxSubmesh.StartIndexLocation = totalIndexCount;
-    skyboxSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += skyboxSubmesh.IndexCount;
-    totalVertexCount += skyBox.Vertices.size();
-
-    std::vector<VertexLightStage> verticesLightStage = 
-    {
-        { DirectX::XMFLOAT3(-1.0f, -1.0f, 0.0f), DirectX::XMFLOAT2(0.0f, 1.0f) },
-        { DirectX::XMFLOAT3(-1.0f,  1.0f, 0.0f), DirectX::XMFLOAT2(0.0f, 0.0f) },
-        { DirectX::XMFLOAT3(1.0f, -1.0f, 0.0f), DirectX::XMFLOAT2(1.0f, 1.0f) },
-        { DirectX::XMFLOAT3(1.0f,  1.0f, 0.0f), DirectX::XMFLOAT2(1.0f, 0.0f) }
-    };
-
-    const UINT vbByteSizeLight = (UINT)verticesLightStage.size() * sizeof(VertexLightStage);
-
-    auto screenQuad = std::make_unique<MeshGeometry>();
-    screenQuad->Name = "screenQuad";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSizeLight, &screenQuad->VertexBufferCPU));
-    CopyMemory(screenQuad->VertexBufferCPU->GetBufferPointer(), verticesLightStage.data(), vbByteSizeLight);
-
-    screenQuad->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), verticesLightStage.data(), vbByteSizeLight, screenQuad->VertexBufferUploader);
-
-    screenQuad->VertexByteStride = sizeof(VertexLightStage);
-    screenQuad->VertexBufferByteSize = vbByteSizeLight;
-
-    GeometryManager::mGeometries[screenQuad->Name] = std::move(screenQuad);
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    UINT totalVertexCount2 = 0;
-    // Full screen quad
-
-    for (size_t i = 0; i < box.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = box.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = box.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = box.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = box.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += box.Vertices.size();
-    for (size_t i = 0; i < box2.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = box2.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = box2.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = box2.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = box2.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += box2.Vertices.size();
-    for (size_t i = 0; i < box3.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = box3.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = box3.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = box3.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = box3.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += box3.Vertices.size();
-    for (size_t i = 0; i < box4.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = box4.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = box4.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = box4.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = box4.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += box4.Vertices.size();
-    for (size_t i = 0; i < boxFPS.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = boxFPS.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = boxFPS.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = boxFPS.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = boxFPS.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += boxFPS.Vertices.size();
-    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphere.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphere.Vertices.size();
-    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphere.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphere.Vertices.size();
-    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphere.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphere.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphere.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphere.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphere.Vertices.size();
-    for (size_t i = 0; i < grid.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = grid.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = grid.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = grid.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = grid.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += grid.Vertices.size();
-    for (size_t i = 0; i < cone.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = cone.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = cone.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = cone.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = cone.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += cone.Vertices.size();
-    for (size_t i = 0; i < skyBox.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = skyBox.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = skyBox.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = skyBox.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = skyBox.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += skyBox.Vertices.size();
-
-
-    std::vector<std::uint16_t> indices;
-    indices.insert(indices.end(), std::begin(box.GetIndices16()), std::end(box.GetIndices16()));
-    indices.insert(indices.end(), std::begin(box2.GetIndices16()), std::end(box2.GetIndices16()));
-    indices.insert(indices.end(), std::begin(box3.GetIndices16()), std::end(box3.GetIndices16()));
-    indices.insert(indices.end(), std::begin(box4.GetIndices16()), std::end(box4.GetIndices16()));
-    indices.insert(indices.end(), std::begin(boxFPS.GetIndices16()), std::end(boxFPS.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-    indices.insert(indices.end(), std::begin(grid.GetIndices16()), std::end(grid.GetIndices16()));
-    indices.insert(indices.end(), std::begin(cone.GetIndices16()), std::end(cone.GetIndices16()));
-    indices.insert(indices.end(), std::begin(skyBox.GetIndices16()), std::end(skyBox.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "boxGeo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["box"] = boxSubmesh;
-    geo->DrawArgs["box2"] = boxSubmesh2;
-    geo->DrawArgs["box3"] = boxSubmesh3;
-    geo->DrawArgs["box4"] = boxSubmesh4;
-    geo->DrawArgs["boxFPS"] = boxSubmeshFPS;
-    geo->DrawArgs["pointLight1"] = pointLight1Submesh;
-    geo->DrawArgs["pointLight2"] = pointLight2Submesh;
-    geo->DrawArgs["pointLight3"] = pointLight3Submesh;
-    geo->DrawArgs["grid"] = gridSubmesh;
-    geo->DrawArgs["cone"] = coneSubmesh;
-    geo->DrawArgs["skybox"] = skyboxSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene3Geometry()
-{
-    GeometryGenerator geoGen;
-   
-    GeometryGenerator::MeshData instancingBox = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 3);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry boxSubmesh;
-    boxSubmesh.IndexCount = (UINT)instancingBox.Indices32.size();
-    boxSubmesh.StartIndexLocation = totalIndexCount;
-    boxSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += boxSubmesh.IndexCount;
-    totalVertexCount += instancingBox.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < instancingBox.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = instancingBox.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = instancingBox.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = instancingBox.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = instancingBox.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += instancingBox.Vertices.size();
-
-    DirectX::BoundingBox bounds;
-    bounds.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-    bounds.Extents = DirectX::XMFLOAT3(0.5f, 0.5f, 0.5f);
-
-    indices.insert(indices.end(), std::begin(instancingBox.GetIndices16()), std::end(instancingBox.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene3Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-    boxSubmesh.Bounds = bounds;
-
-    geo->DrawArgs["boxInstancing"] = boxSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-
-    instanceDataScene3 = std::vector<DirectX::XMMATRIX>(729);
-    for (int i = 0; i < 729; ++i)
-    {
-        int x = i % 27;
-        int y = i / 27;
-        int index = 0;
-        if (y >= x)
-            index = y * y + x;
-        else index = (x + 1) * (x + 1) - y - 1;
-
-        instanceDataScene3[index] = DirectX::XMMatrixTranslation((float)x * 2, 0, (float)y * 2);
-    }
-}
-
-void Engine::BuildScene3LODGeometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData sphereLOD3 = geoGen.CreateSphere(3.0f, 20, 20, 0, 0, 0);
-    GeometryGenerator::MeshData sphereLOD2 = geoGen.CreateSphere(3.0f, 12, 12, 0, 0, 0);
-    GeometryGenerator::MeshData sphereLOD1 = geoGen.CreateSphere(3.0f, 8, 8, 0, 0, 0);
-    GeometryGenerator::MeshData sphereLOD0 = geoGen.CreateSphere(3.0f, 5, 5, 0, 0, 0);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry sphereLOD3Submesh;
-    sphereLOD3Submesh.IndexCount = (UINT)sphereLOD3.Indices32.size();
-    sphereLOD3Submesh.StartIndexLocation = totalIndexCount;
-    sphereLOD3Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphereLOD3Submesh.IndexCount;
-    totalVertexCount += sphereLOD3.Vertices.size();
-
-    SubmeshGeometry sphereLOD2Submesh;
-    sphereLOD2Submesh.IndexCount = (UINT)sphereLOD2.Indices32.size();
-    sphereLOD2Submesh.StartIndexLocation = totalIndexCount;
-    sphereLOD2Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphereLOD2Submesh.IndexCount;
-    totalVertexCount += sphereLOD2.Vertices.size();
-
-    SubmeshGeometry sphereLOD1Submesh;
-    sphereLOD1Submesh.IndexCount = (UINT)sphereLOD1.Indices32.size();
-    sphereLOD1Submesh.StartIndexLocation = totalIndexCount;
-    sphereLOD1Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphereLOD1Submesh.IndexCount;
-    totalVertexCount += sphereLOD1.Vertices.size();
-
-    SubmeshGeometry sphereLOD0Submesh;
-    sphereLOD0Submesh.IndexCount = (UINT)sphereLOD0.Indices32.size();
-    sphereLOD0Submesh.StartIndexLocation = totalIndexCount;
-    sphereLOD0Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphereLOD0Submesh.IndexCount;
-    totalVertexCount += sphereLOD0.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < sphereLOD3.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereLOD3.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereLOD3.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereLOD3.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereLOD3.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereLOD3.Vertices.size();
-    for (size_t i = 0; i < sphereLOD2.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereLOD2.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereLOD2.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereLOD2.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereLOD2.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereLOD2.Vertices.size();
-    for (size_t i = 0; i < sphereLOD1.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereLOD1.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereLOD1.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereLOD1.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereLOD1.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereLOD1.Vertices.size();
-    for (size_t i = 0; i < sphereLOD0.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereLOD0.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereLOD0.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereLOD0.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereLOD0.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereLOD0.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(sphereLOD3.GetIndices16()), std::end(sphereLOD3.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphereLOD2.GetIndices16()), std::end(sphereLOD2.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphereLOD1.GetIndices16()), std::end(sphereLOD1.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphereLOD0.GetIndices16()), std::end(sphereLOD0.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene3LODGeo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["sphereLOD3"] = sphereLOD3Submesh;
-    geo->DrawArgs["sphereLOD2"] = sphereLOD2Submesh;
-    geo->DrawArgs["sphereLOD1"] = sphereLOD1Submesh;
-    geo->DrawArgs["sphereLOD0"] = sphereLOD0Submesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene4Geometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData animateBox = geoGen.CreateBox(2.0f, 2.0f, 2.0f, 0);
-    GeometryGenerator::MeshData tilingBox = geoGen.CreateBoxTiling(2.0f, 2.0f, 2.0f, 0, 1);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry animateBoxSubmesh;
-    animateBoxSubmesh.IndexCount = (UINT)animateBox.Indices32.size();
-    animateBoxSubmesh.StartIndexLocation = totalIndexCount;
-    animateBoxSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += animateBoxSubmesh.IndexCount;
-    totalVertexCount += animateBox.Vertices.size();
-
-    SubmeshGeometry tilingBoxSubmesh;
-    tilingBoxSubmesh.IndexCount = (UINT)tilingBox.Indices32.size();
-    tilingBoxSubmesh.StartIndexLocation = totalIndexCount;
-    tilingBoxSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += tilingBoxSubmesh.IndexCount;
-    totalVertexCount += tilingBox.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < animateBox.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = animateBox.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = animateBox.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = animateBox.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = animateBox.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += animateBox.Vertices.size();
-    for (size_t i = 0; i < tilingBox.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = tilingBox.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = tilingBox.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = tilingBox.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = tilingBox.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += tilingBox.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(animateBox.GetIndices16()), std::end(animateBox.GetIndices16()));
-    indices.insert(indices.end(), std::begin(tilingBox.GetIndices16()), std::end(tilingBox.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene4Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["animateBox"] = animateBoxSubmesh;
-    geo->DrawArgs["tilingBox"] = tilingBoxSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene5Geometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData tessellationBox = geoGen.CreateBox(5.0f, 5.0f, 5.0f, 0);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry tessellationBoxSubmesh;
-    tessellationBoxSubmesh.IndexCount = (UINT)tessellationBox.Indices32.size();
-    tessellationBoxSubmesh.StartIndexLocation = totalIndexCount;
-    tessellationBoxSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += tessellationBoxSubmesh.IndexCount;
-    totalVertexCount += tessellationBox.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < tessellationBox.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = tessellationBox.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = tessellationBox.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = tessellationBox.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = tessellationBox.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += tessellationBox.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(tessellationBox.GetIndices16()), std::end(tessellationBox.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene5Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["tessellationBox"] = tessellationBoxSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene6Geometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData grassPlatform = geoGen.CreateBoxTiling(100.0f, 0.1f, 100.0f, 0, 10);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry grassPlatformSubmesh;
-    grassPlatformSubmesh.IndexCount = (UINT)grassPlatform.Indices32.size();
-    grassPlatformSubmesh.StartIndexLocation = totalIndexCount;
-    grassPlatformSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += grassPlatformSubmesh.IndexCount;
-    totalVertexCount += grassPlatform.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < grassPlatform.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = grassPlatform.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = grassPlatform.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = grassPlatform.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = grassPlatform.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += grassPlatform.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(grassPlatform.GetIndices16()), std::end(grassPlatform.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene6GrassPlatform";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["GrassPlatform"] = grassPlatformSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene7Geometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData boxMesh1 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
-    GeometryGenerator::MeshData boxMesh2 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
-    GeometryGenerator::MeshData boxMesh3 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry box1Submesh;
-    box1Submesh.IndexCount = (UINT)boxMesh1.Indices32.size();
-    box1Submesh.StartIndexLocation = totalIndexCount;
-    box1Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += box1Submesh.IndexCount;
-    totalVertexCount += boxMesh1.Vertices.size();
-    SubmeshGeometry box2Submesh;
-    box2Submesh.IndexCount = (UINT)boxMesh2.Indices32.size();
-    box2Submesh.StartIndexLocation = totalIndexCount;
-    box2Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += box2Submesh.IndexCount;
-    totalVertexCount += boxMesh2.Vertices.size();
-    SubmeshGeometry box3Submesh;
-    box3Submesh.IndexCount = (UINT)boxMesh3.Indices32.size();
-    box3Submesh.StartIndexLocation = totalIndexCount;
-    box3Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += box3Submesh.IndexCount;
-    totalVertexCount += boxMesh3.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < boxMesh1.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = boxMesh1.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = boxMesh1.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = boxMesh1.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = boxMesh1.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += boxMesh1.Vertices.size();
-    for (size_t i = 0; i < boxMesh2.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = boxMesh2.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = boxMesh2.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = boxMesh2.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = boxMesh2.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += boxMesh2.Vertices.size();
-    for (size_t i = 0; i < boxMesh3.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = boxMesh3.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = boxMesh3.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = boxMesh3.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = boxMesh3.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += boxMesh3.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(boxMesh1.GetIndices16()), std::end(boxMesh1.GetIndices16()));
-    indices.insert(indices.end(), std::begin(boxMesh2.GetIndices16()), std::end(boxMesh2.GetIndices16()));
-    indices.insert(indices.end(), std::begin(boxMesh3.GetIndices16()), std::end(boxMesh3.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene7Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["box1"] = box1Submesh;
-    geo->DrawArgs["box2"] = box2Submesh;
-    geo->DrawArgs["box3"] = box3Submesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene9Geometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData sphereMesh1 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
-    GeometryGenerator::MeshData sphereMesh2 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
-    GeometryGenerator::MeshData sphereMesh3 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
-    GeometryGenerator::MeshData sphereMesh4 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
-    GeometryGenerator::MeshData sphereMesh5 = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry sphere1Submesh;
-    sphere1Submesh.IndexCount = (UINT)sphereMesh1.Indices32.size();
-    sphere1Submesh.StartIndexLocation = totalIndexCount;
-    sphere1Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphere1Submesh.IndexCount;
-    totalVertexCount += sphereMesh1.Vertices.size();
-    SubmeshGeometry sphere2Submesh;
-    sphere2Submesh.IndexCount = (UINT)sphereMesh2.Indices32.size();
-    sphere2Submesh.StartIndexLocation = totalIndexCount;
-    sphere2Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphere2Submesh.IndexCount;
-    totalVertexCount += sphereMesh2.Vertices.size();
-    SubmeshGeometry sphere3Submesh;
-    sphere3Submesh.IndexCount = (UINT)sphereMesh3.Indices32.size();
-    sphere3Submesh.StartIndexLocation = totalIndexCount;
-    sphere3Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphere3Submesh.IndexCount;
-    totalVertexCount += sphereMesh3.Vertices.size();
-    SubmeshGeometry sphere4Submesh;
-    sphere4Submesh.IndexCount = (UINT)sphereMesh4.Indices32.size();
-    sphere4Submesh.StartIndexLocation = totalIndexCount;
-    sphere4Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphere4Submesh.IndexCount;
-    totalVertexCount += sphereMesh4.Vertices.size();
-    SubmeshGeometry sphere5Submesh;
-    sphere5Submesh.IndexCount = (UINT)sphereMesh5.Indices32.size();
-    sphere5Submesh.StartIndexLocation = totalIndexCount;
-    sphere5Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphere5Submesh.IndexCount;
-    totalVertexCount += sphereMesh5.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < sphereMesh1.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereMesh1.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereMesh1.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereMesh1.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereMesh1.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereMesh1.Vertices.size();
-    for (size_t i = 0; i < sphereMesh2.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereMesh2.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereMesh2.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereMesh2.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereMesh2.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereMesh2.Vertices.size();
-    for (size_t i = 0; i < sphereMesh3.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereMesh3.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereMesh3.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereMesh3.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereMesh3.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereMesh3.Vertices.size();
-    for (size_t i = 0; i < sphereMesh4.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereMesh4.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereMesh4.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereMesh4.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereMesh4.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereMesh4.Vertices.size();
-    for (size_t i = 0; i < sphereMesh5.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereMesh5.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereMesh5.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereMesh5.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereMesh5.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereMesh5.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(sphereMesh1.GetIndices16()), std::end(sphereMesh1.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphereMesh2.GetIndices16()), std::end(sphereMesh2.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphereMesh3.GetIndices16()), std::end(sphereMesh3.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphereMesh4.GetIndices16()), std::end(sphereMesh4.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphereMesh5.GetIndices16()), std::end(sphereMesh5.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene9Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["sphere1"] = sphere1Submesh;
-    geo->DrawArgs["sphere2"] = sphere2Submesh;
-    geo->DrawArgs["sphere3"] = sphere3Submesh;
-    geo->DrawArgs["sphere4"] = sphere4Submesh;
-    geo->DrawArgs["sphere5"] = sphere5Submesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene9RMDemoGeometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData sphereMesh = geoGen.CreateSphere(2.2f, 30, 30, 0, 0, 0);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry sphereSubmesh;
-    sphereSubmesh.IndexCount = (UINT)sphereMesh.Indices32.size();
-    sphereSubmesh.StartIndexLocation = totalIndexCount;
-    sphereSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphereSubmesh.IndexCount;
-    totalVertexCount += sphereMesh.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < sphereMesh.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereMesh.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereMesh.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereMesh.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereMesh.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereMesh.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(sphereMesh.GetIndices16()), std::end(sphereMesh.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene9RMDemoGeo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["sphere"] = sphereSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildModelsGeometry()
-{
-    std::vector<Vertex> vertices;
-    std::vector<std::uint32_t> indices;
-
-    ModelLoader::LoadModel("Obj/bonfire.obj", vertices, indices);
-    for (int i = 0; i < vertices.size(); ++i)
-    {
-        vertices[i].Pos = DirectX::XMFLOAT3(vertices[i].Pos.x / 10 + 10.8f, vertices[i].Pos.y / 10, vertices[i].Pos.z / 10 + 1.f);
-    }
-
-    SubmeshGeometry bonfireSubmesh;
-    bonfireSubmesh.IndexCount = indices.size();
-    bonfireSubmesh.StartIndexLocation = 0;
-    bonfireSubmesh.BaseVertexLocation = 0;
-    bonfireSubmesh.VertexCount = vertices.size();
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene6Bonfire";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R32_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["Bonfire"] = bonfireSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene10DebugGeometry()
-{
-    GeometryGenerator geoGen;
-    GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.0f, 7, 7, 0.f, 0.f, 0.f);
-    GeometryGenerator::MeshData cone = geoGen.CreateCone(1.0f, 0.2f, 20);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry pointLight1Submesh;
-    pointLight1Submesh.IndexCount = (UINT)sphere.Indices32.size();
-    pointLight1Submesh.StartIndexLocation = totalIndexCount;
-    pointLight1Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += pointLight1Submesh.IndexCount;
-    totalVertexCount += sphere.Vertices.size();
-
-    SubmeshGeometry pointLight2Submesh;
-    pointLight2Submesh.IndexCount = (UINT)sphere.Indices32.size();
-    pointLight2Submesh.StartIndexLocation = totalIndexCount;
-    pointLight2Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += pointLight2Submesh.IndexCount;
-    totalVertexCount += sphere.Vertices.size();
-
-    SubmeshGeometry pointLight3Submesh;
-    pointLight3Submesh.IndexCount = (UINT)sphere.Indices32.size();
-    pointLight3Submesh.StartIndexLocation = totalIndexCount;
-    pointLight3Submesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += pointLight3Submesh.IndexCount;
-    totalVertexCount += sphere.Vertices.size();
-
-    SubmeshGeometry coneSubmesh;
-    coneSubmesh.IndexCount = (UINT)cone.Indices32.size();
-    coneSubmesh.StartIndexLocation = totalIndexCount;
-    coneSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += coneSubmesh.IndexCount;
-    totalVertexCount += cone.Vertices.size();
-
-    std::vector<DebugVertex> vertices(totalVertexCount);
-    UINT totalVertexCount2 = 0;
-
-    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Position = sphere.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    }
-    totalVertexCount2 += sphere.Vertices.size();
-    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Position = sphere.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    }
-    totalVertexCount2 += sphere.Vertices.size();
-    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Position = sphere.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    }
-    totalVertexCount2 += sphere.Vertices.size();
-    for (size_t i = 0; i < cone.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Position = cone.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    }
-    totalVertexCount2 += cone.Vertices.size();
-
-
-    std::vector<std::uint16_t> indices;
-    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-    indices.insert(indices.end(), std::begin(cone.GetIndices16()), std::end(cone.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(DebugVertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "debugGeo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(DebugVertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["pointLight1"] = pointLight1Submesh;
-    geo->DrawArgs["pointLight2"] = pointLight2Submesh;
-    geo->DrawArgs["pointLight3"] = pointLight3Submesh;
-    geo->DrawArgs["cone"] = coneSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene10MoreLightGeometry()
-{
-    GeometryGenerator geoGen;
-    GeometryGenerator::MeshData sphere = geoGen.CreateSphere(1.f, 7, 7, 0.f, 0.f, 0.f);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry pointLightSubmesh;
-    pointLightSubmesh.IndexCount = (UINT)sphere.Indices32.size();
-    pointLightSubmesh.StartIndexLocation = totalIndexCount;
-    pointLightSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += pointLightSubmesh.IndexCount;
-    totalVertexCount += sphere.Vertices.size();
-
-
-    std::vector<DebugVertex> vertices(totalVertexCount);
-    UINT totalVertexCount2 = 0;
-
-    for (size_t i = 0; i < sphere.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Position = sphere.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
-    }
-    totalVertexCount2 += sphere.Vertices.size();
-
-
-    std::vector<std::uint16_t> indices;
-    indices.insert(indices.end(), std::begin(sphere.GetIndices16()), std::end(sphere.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(DebugVertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "moreLightGeo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(DebugVertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["pointLight"] = pointLightSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene12Geometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData planeMesh = geoGen.CreateGrid(100, 100, 50, 50);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry planeSubmesh;
-    planeSubmesh.IndexCount = (UINT)planeMesh.Indices32.size();
-    planeSubmesh.StartIndexLocation = totalIndexCount;
-    planeSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += planeSubmesh.IndexCount;
-    totalVertexCount += planeMesh.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < planeMesh.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = planeMesh.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = planeMesh.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = planeMesh.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = planeMesh.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += planeMesh.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(planeMesh.GetIndices16()), std::end(planeMesh.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene12Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["plane"] = planeSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene13Geometry()
-{
-    GeometryGenerator geoGen;
-
-    GeometryGenerator::MeshData sphereMesh = geoGen.CreateSphere(1.0f, 250, 250, 0, 0, 0);
-
-    UINT totalIndexCount = 0;
-    UINT totalVertexCount = 0;
-
-    SubmeshGeometry sphereSubmesh;
-    sphereSubmesh.IndexCount = (UINT)sphereMesh.Indices32.size();
-    sphereSubmesh.StartIndexLocation = totalIndexCount;
-    sphereSubmesh.BaseVertexLocation = totalVertexCount;
-    totalIndexCount += sphereSubmesh.IndexCount;
-    totalVertexCount += sphereMesh.Vertices.size();
-
-    std::vector<Vertex> vertices(totalVertexCount);
-    std::vector<std::uint16_t> indices;
-
-    UINT totalVertexCount2 = 0;
-    for (size_t i = 0; i < sphereMesh.Vertices.size(); ++i)
-    {
-        vertices[i + totalVertexCount2].Pos = sphereMesh.Vertices[i].Position;
-        vertices[i + totalVertexCount2].Normal = sphereMesh.Vertices[i].Normal;
-        vertices[i + totalVertexCount2].TexC = sphereMesh.Vertices[i].TexC;
-        vertices[i + totalVertexCount2].TangentU = sphereMesh.Vertices[i].TangentU;
-    }
-    totalVertexCount2 += sphereMesh.Vertices.size();
-
-    indices.insert(indices.end(), std::begin(sphereMesh.GetIndices16()), std::end(sphereMesh.GetIndices16()));
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene13Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["sphere"] = sphereSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-
-    BuildScene13InstanceBuffer();
-    BuildScene13OctreeGeometry();
-}
-
-void Engine::BuildScene13InstanceBuffer()
-{
-    int instanceCount = 150;
-    std::vector<InstanceDataGameObject> instanceData(instanceCount);
-    for (UINT i = 0; i < instanceCount; ++i)
-    {
-        float xTranslation = std::rand() % 40 - 20;
-        float yTranslation = std::rand() % 40 - 20;
-        float zTranslation = std::rand() % 40 - 20;
-
-        DirectX::XMStoreFloat4x4(&instanceData[i].WorldMatrix,
-            DirectX::XMMatrixTranspose(DirectX::XMMatrixTranslation(xTranslation, yTranslation, zTranslation)));
-        instanceData[i].Color = DirectX::XMFLOAT4(sin(i), cos(i), sin(2 * i), 1.0f);
-
-        GameObject* gameObject = new GameObject();
-        DirectX::BoundingBox boundingBox;
-        boundingBox.Center = DirectX::XMFLOAT3(xTranslation, yTranslation, zTranslation);
-        boundingBox.Extents = DirectX::XMFLOAT3(1.0f, 1.0f, 1.0f);
-        gameObject->boundingBox = boundingBox;
-        gameObject->objectID = i;
-        gameObjects.push_back(gameObject);
-    }
-    instancesDataOcTree = instanceData;
-
-    const UINT instanceBufferSize = instanceCount * sizeof(InstanceDataGameObject);
-
-    D3D12_HEAP_PROPERTIES defaultHeapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
-    D3D12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(instanceBufferSize);
-
-    md3dDevice->CreateCommittedResource(
-        &defaultHeapProps,
-        D3D12_HEAP_FLAG_NONE,
-        &bufferDesc,
-        D3D12_RESOURCE_STATE_COMMON,
-        nullptr,
-        IID_PPV_ARGS(&instanceOcTreeBuffer));
-
-    D3D12_HEAP_PROPERTIES uploadHeapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
-
-    md3dDevice->CreateCommittedResource(
-        &uploadHeapProps,
-        D3D12_HEAP_FLAG_NONE,
-        &bufferDesc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&instanceOcTreeUploadBuffer));
-
-    D3D12_SUBRESOURCE_DATA instanceDataSub =
-    {
-        .pData = instanceData.data(),
-        .RowPitch = instanceBufferSize,
-        .SlicePitch = instanceBufferSize
-    };
-
-    CD3DX12_RESOURCE_BARRIER barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
-        instanceOcTreeBuffer.Get(),
-        D3D12_RESOURCE_STATE_COMMON,
-        D3D12_RESOURCE_STATE_COPY_DEST);
-    mCommandList->ResourceBarrier(1, &barrier1);
-
-    UpdateSubresources<1>(mCommandList.Get(),
-        instanceOcTreeBuffer.Get(),
-        instanceOcTreeUploadBuffer.Get(),
-        0, 0, 1, &instanceDataSub);
-
-    CD3DX12_RESOURCE_BARRIER barrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
-        instanceOcTreeBuffer.Get(),
-        D3D12_RESOURCE_STATE_COPY_DEST,
-        D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
-    mCommandList->ResourceBarrier(1, &barrier2);
-
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
-    srvDesc.Format = DXGI_FORMAT_UNKNOWN;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-    srvDesc.Buffer.NumElements = 150;
-    srvDesc.Buffer.StructureByteStride = sizeof(InstanceDataGameObject);
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-
-    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(DescriptorHeapManager::mSrvHeap->GetCPUDescriptorHandleForHeapStart());
-    hDescriptor.Offset(57, DescriptorHeapManager::mCbvSrvDescriptorSize);
-    md3dDevice->CreateShaderResourceView(
-        instanceOcTreeBuffer.Get(),
-        &srvDesc,
-        hDescriptor);
-
-    DirectX::BoundingBox worldBoundingBox;
-    worldBoundingBox.Center = DirectX::XMFLOAT3(0.0f, 0.0f, 0.0f);
-    worldBoundingBox.Extents = DirectX::XMFLOAT3(20.0f, 20.0f, 20.0f);
-    octreeScene13 = new Octree(md3dDevice.Get(), worldBoundingBox);
-    octreeScene13->Build(gameObjects);
-}
-
-void Engine::BuildScene13OctreeGeometry()
-{
-    std::vector<DebugVertexOcTree> vertices;
-    std::vector<std::uint16_t> indices;
-
-    octreeScene13->CollectDebugNodes(octreeScene13->GetRoot(), vertices, indices);
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(DebugVertexOcTree);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene13OctreeGeo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(DebugVertexOcTree);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    SubmeshGeometry octreeSubmesh;
-    octreeSubmesh.IndexCount = indices.size();
-    octreeSubmesh.StartIndexLocation = 0;
-    octreeSubmesh.BaseVertexLocation = 0;
-
-    geo->DrawArgs["octree"] = octreeSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildScene14Geometry()
-{
-   
-}
-
-void Engine::BuildQuadTreeTerrain()
-{
-    m_terrainQuadTree.Initialize(md3dDevice.Get(), 6, GeometryManager::mGeometries, mCommandList);
-}
-
-void Engine::BuildScene15Geometry()
-{
-    std::vector<Vertex> vertices;
-    std::vector<std::uint32_t> indices;
-
-    ModelLoader::LoadModel("Obj/hamburger.obj", vertices, indices);
-    for (int i = 0; i < vertices.size(); ++i)
-    {
-        vertices[i].Pos = DirectX::XMFLOAT3(vertices[i].Pos.x * 10.f, vertices[i].Pos.y * 10.f, vertices[i].Pos.z * 10.f);
-    }
-
-    SubmeshGeometry hamburgerSubmesh;
-    hamburgerSubmesh.IndexCount = indices.size();
-    hamburgerSubmesh.StartIndexLocation = 0;
-    hamburgerSubmesh.BaseVertexLocation = 0;
-    hamburgerSubmesh.VertexCount = vertices.size();
-
-    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
-    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint32_t);
-
-    auto geo = std::make_unique<MeshGeometry>();
-    geo->Name = "scene15Geo";
-
-    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
-    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
-
-    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
-    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
-
-    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
-
-    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(md3dDevice.Get(),
-        mCommandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
-
-    geo->VertexByteStride = sizeof(Vertex);
-    geo->VertexBufferByteSize = vbByteSize;
-    geo->IndexFormat = DXGI_FORMAT_R32_UINT;
-    geo->IndexBufferByteSize = ibByteSize;
-
-    geo->DrawArgs["Hamburger"] = hamburgerSubmesh;
-
-    GeometryManager::mGeometries[geo->Name] = std::move(geo);
-}
-
-void Engine::BuildSponzaGeometryAndTextures()
-{
-    LoadModel("Sponza/sponza.obj", Sponza, md3dDevice.Get(),
-        GeometryManager::mGeometries, mCommandList, DescriptorHeapManager::mSponzaSrvHeap, DescriptorHeapManager::mCbvSrvDescriptorSize,
-        sponzaTextures, sponzaTexturesUpload);
-}
-
 void Engine::BuildPostProcessingResources()
 {
     D3D12_RESOURCE_DESC texDesc = {};
@@ -4261,7 +2695,6 @@ void Engine::BuildFrameResources()
             2, (UINT)GeometryManager::mAllRitems.size(), (UINT)GeometryManager::mMaterials.size()));
     }
 }
-
 
 void Engine::BuildBillboardSpritesGeometry()
 {
@@ -4945,63 +3378,63 @@ void Engine::InitInstanceBufferMoreLight()
 
 void Engine::InitParticleSystem()
 {
-    mParticleSystem = new ParticleSystem(64, DirectX::XMFLOAT3(0.f, 0.f, 0.f), 1);
+    CBManager::mParticleSystem = new ParticleSystem(64, DirectX::XMFLOAT3(0.f, 0.f, 0.f), 1);
 
-    mParticleSystem->InitializeSystem(md3dDevice,
+    CBManager::mParticleSystem->InitializeSystem(md3dDevice,
         particleBuffers,
         particleArgsBuffer,
         DescriptorHeapManager::mParticlesSrvUavHeap,
         DescriptorHeapManager::mCbvSrvUavDescriptorSize,
         0);
 
-    mParticleSystem->BuildSystemVertexBuffers(GeometryManager::mGeometries,
+    CBManager::mParticleSystem->BuildSystemVertexBuffers(GeometryManager::mGeometries,
         md3dDevice,
         mCommandList);
 
 
-    mParticleSystem2 = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 0.f, 0.f), 2);
+    CBManager::mParticleSystem2 = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 0.f, 0.f), 2);
 
-    mParticleSystem2->InitializeSystem(md3dDevice,
+    CBManager::mParticleSystem2->InitializeSystem(md3dDevice,
         particle2Buffers,
         particle2ArgsBuffer,
         DescriptorHeapManager::mParticlesSrvUavHeap,
         DescriptorHeapManager::mCbvSrvUavDescriptorSize, 
         1);
 
-    mParticleSystem2->BuildSystemVertexBuffers(GeometryManager::mGeometries,
+    CBManager::mParticleSystem2->BuildSystemVertexBuffers(GeometryManager::mGeometries,
         md3dDevice,
         mCommandList);
 
-    mParticleSystemSmoke = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 0.5f, 0.f), 3);
+    CBManager::mParticleSystemSmoke = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 0.5f, 0.f), 3);
 
-    mParticleSystemSmoke->InitializeSystem(md3dDevice,
+    CBManager::mParticleSystemSmoke->InitializeSystem(md3dDevice,
         particleSmokeBuffers,
         particleSmokeArgsBuffer,
         DescriptorHeapManager::mParticlesSrvUavHeap,
         DescriptorHeapManager::mCbvSrvUavDescriptorSize,
         2);
 
-    mParticleSystemSmoke->BuildSystemVertexBuffers(GeometryManager::mGeometries,
+    CBManager::mParticleSystemSmoke->BuildSystemVertexBuffers(GeometryManager::mGeometries,
         md3dDevice,
         mCommandList);
 
-    mParticleSystemRain = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 30.f, 0.f), 4);
+    CBManager::mParticleSystemRain = new ParticleSystem(512, DirectX::XMFLOAT3(0.f, 30.f, 0.f), 4);
 
-    mParticleSystemRain->InitializeSystem(md3dDevice,
+    CBManager::mParticleSystemRain->InitializeSystem(md3dDevice,
         particleRainBuffers,
         particleRainArgsBuffer,
         DescriptorHeapManager::mParticlesSrvUavHeap,
         DescriptorHeapManager::mCbvSrvUavDescriptorSize,
         3);
 
-    mParticleSystemRain->BuildSystemVertexBuffers(GeometryManager::mGeometries,
+    CBManager::mParticleSystemRain->BuildSystemVertexBuffers(GeometryManager::mGeometries,
         md3dDevice,
         mCommandList);
 }
 
 void Engine::InitMarchingCubesSystem()
 {
-    m_MarchingCubes = new MarchingCubes(300, 200, 300, 2.0f);
+    m_MarchingCubes = new MarchingCubes(400, 200, 400, 2.0f);
     m_MarchingCubes->Initialize(md3dDevice.Get(), mCommandList.Get(), GeometryManager::mGeometries);
 }
 
@@ -5394,18 +3827,18 @@ void Engine::DrawRenderItemsScene7(ID3D12GraphicsCommandList* cmdList, const std
     auto objectCB = CBManager::mCurrFrameResource->ObjectCB->Resource();
     auto matCB = CBManager::mCurrFrameResource->MaterialCB->Resource();
 
-    for (int i = 0; i < Sponza.meshes.size(); ++i)
+    for (int i = 0; i < GeometryManager::Sponza.meshes.size(); ++i)
     {
         auto ri = GeometryManager::mAllRitems[747].get();
 
-        auto tmp1 = Sponza.meshes[i].vertexBufferView;
-        auto tmp2 = Sponza.meshes[i].indexBufferView;
+        auto tmp1 = GeometryManager::Sponza.meshes[i].vertexBufferView;
+        auto tmp2 = GeometryManager::Sponza.meshes[i].indexBufferView;
         cmdList->IASetVertexBuffers(0, 1, &tmp1);
         cmdList->IASetIndexBuffer(&tmp2);
         cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
         CD3DX12_GPU_DESCRIPTOR_HANDLE tex(DescriptorHeapManager::mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
-        tex.Offset(Sponza.meshes[i].materialIndex, DescriptorHeapManager::mCbvSrvDescriptorSize);
+        tex.Offset(GeometryManager::Sponza.meshes[i].materialIndex, DescriptorHeapManager::mCbvSrvDescriptorSize);
 
         D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
         D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
@@ -5417,7 +3850,7 @@ void Engine::DrawRenderItemsScene7(ID3D12GraphicsCommandList* cmdList, const std
         cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
         cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
 
-        cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
+        cmdList->DrawIndexedInstanced(GeometryManager::Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
     }
 
     if (isObjectsActiveScene7)
@@ -5458,22 +3891,22 @@ void Engine::DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, c
     auto objectCB = CBManager::mCurrFrameResource->ObjectCB->Resource();
     auto matCB = CBManager::mCurrFrameResource->MaterialCB->Resource();
 
-    for (int i = 0; i < Sponza.meshes.size(); ++i)
+    for (int i = 0; i < GeometryManager::Sponza.meshes.size(); ++i)
     {
         DirectX::XMFLOAT4X4 worldMat = MathHelper::Identity4x4();
         DirectX::XMMATRIX world = DirectX::XMLoadFloat4x4(&worldMat);
-        if (IsInCameraView(*CBManager::mCamera, world, Sponza.meshes[i].boundingBox))
+        if (IsInCameraView(*CBManager::mCamera, world, GeometryManager::Sponza.meshes[i].boundingBox))
         {
             auto ri = GeometryManager::mAllRitems[747].get();
 
-            auto tmp1 = Sponza.meshes[i].vertexBufferView;
-            auto tmp2 = Sponza.meshes[i].indexBufferView;
+            auto tmp1 = GeometryManager::Sponza.meshes[i].vertexBufferView;
+            auto tmp2 = GeometryManager::Sponza.meshes[i].indexBufferView;
             cmdList->IASetVertexBuffers(0, 1, &tmp1);
             cmdList->IASetIndexBuffer(&tmp2);
             cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
             CD3DX12_GPU_DESCRIPTOR_HANDLE tex(DescriptorHeapManager::mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
-            tex.Offset(Sponza.meshes[i].materialIndex, DescriptorHeapManager::mCbvSrvDescriptorSize);
+            tex.Offset(GeometryManager::Sponza.meshes[i].materialIndex, DescriptorHeapManager::mCbvSrvDescriptorSize);
 
             D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
             D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
@@ -5485,7 +3918,7 @@ void Engine::DrawRenderItemsScene7Cascaded(ID3D12GraphicsCommandList* cmdList, c
             cmdList->SetGraphicsRootConstantBufferView(2, objCBAddress);
             cmdList->SetGraphicsRootConstantBufferView(4, matCBAddress);
 
-            cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
+            cmdList->DrawIndexedInstanced(GeometryManager::Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
         }
     }
 
@@ -5528,18 +3961,18 @@ void Engine::DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, co
     auto matCB = CBManager::mCurrFrameResource->MaterialCB->Resource();
 
 
-    for (int i = 0; i < Sponza.meshes.size(); ++i)
+    for (int i = 0; i < GeometryManager::Sponza.meshes.size(); ++i)
     {
         auto ri = GeometryManager::mAllRitems[747].get();
 
-        auto tmp1 = Sponza.meshes[i].vertexBufferView;
-        auto tmp2 = Sponza.meshes[i].indexBufferView;
+        auto tmp1 = GeometryManager::Sponza.meshes[i].vertexBufferView;
+        auto tmp2 = GeometryManager::Sponza.meshes[i].indexBufferView;
         cmdList->IASetVertexBuffers(0, 1, &tmp1);
         cmdList->IASetIndexBuffer(&tmp2);
         cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
         CD3DX12_GPU_DESCRIPTOR_HANDLE tex(DescriptorHeapManager::mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
-        tex.Offset(Sponza.meshes[i].materialIndex, DescriptorHeapManager::mCbvSrvDescriptorSize);
+        tex.Offset(GeometryManager::Sponza.meshes[i].materialIndex, DescriptorHeapManager::mCbvSrvDescriptorSize);
 
         D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
         D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
@@ -5548,7 +3981,7 @@ void Engine::DrawRenderItemsScene7Shadows(ID3D12GraphicsCommandList* cmdList, co
         cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
         cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
-        cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
+        cmdList->DrawIndexedInstanced(GeometryManager::Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
     }
 
     if (isObjectsActiveScene7)
@@ -5803,7 +4236,7 @@ void Engine::DrawTerrainScene14(ID3D12GraphicsCommandList* cmdList)
     DirectX::BoundingFrustum::CreateFromMatrix(localFrustum, proj);
     DirectX::BoundingFrustum worldFrustum;
     localFrustum.Transform(worldFrustum, inverseViewMatrix);
-    m_terrainQuadTree.Update(viewProj, worldFrustum);
+    GeometryManager::m_terrainQuadTree.Update(viewProj, worldFrustum);
 
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
@@ -5811,10 +4244,10 @@ void Engine::DrawTerrainScene14(ID3D12GraphicsCommandList* cmdList)
     auto objectCB = CBManager::mCurrFrameResource->ObjectCB->Resource();
     auto matCB = CBManager::mCurrFrameResource->MaterialCB->Resource();
 
-    for (size_t i = 0; i < m_terrainQuadTree.m_NodesToRender.size(); ++i)
+    for (size_t i = 0; i < GeometryManager::m_terrainQuadTree.m_NodesToRender.size(); ++i)
     {
         {
-            StaticMesh mesh = m_terrainQuadTree.m_NodesToRender[i]->mesh;
+            StaticMesh mesh = GeometryManager::m_terrainQuadTree.m_NodesToRender[i]->mesh;
             auto ri = GeometryManager::mAllRitems[773].get();
 
             auto tmp1 = mesh.vertexBufferView;
@@ -5849,7 +4282,7 @@ void Engine::DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList)
     DirectX::BoundingFrustum::CreateFromMatrix(localFrustum, proj);
     DirectX::BoundingFrustum worldFrustum;
     localFrustum.Transform(worldFrustum, inverseViewMatrix);
-    m_terrainQuadTree.Update(viewProj, worldFrustum);
+    GeometryManager::m_terrainQuadTree.Update(viewProj, worldFrustum);
 
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
@@ -5857,10 +4290,10 @@ void Engine::DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList)
     auto objectCB = CBManager::mCurrFrameResource->ObjectCB->Resource();
     auto matCB = CBManager::mCurrFrameResource->MaterialCB->Resource();
 
-    for (size_t i = 0; i < m_terrainQuadTree.m_DebugNodesToRender.size(); ++i)
+    for (size_t i = 0; i < GeometryManager::m_terrainQuadTree.m_DebugNodesToRender.size(); ++i)
     {
         {
-            StaticMesh mesh = m_terrainQuadTree.m_DebugNodesToRender[i]->debugMesh;
+            StaticMesh mesh = GeometryManager::m_terrainQuadTree.m_DebugNodesToRender[i]->debugMesh;
             auto ri = GeometryManager::mAllRitems[773].get();
 
             auto tmp1 = mesh.vertexBufferView;
@@ -5965,7 +4398,7 @@ void Engine::DrawTerrainScene16(ID3D12GraphicsCommandList* cmdList)
     DirectX::BoundingFrustum::CreateFromMatrix(localFrustum, proj);
     DirectX::BoundingFrustum worldFrustum;
     localFrustum.Transform(worldFrustum, inverseViewMatrix);
-    m_terrainQuadTree.Update(viewProj, worldFrustum);
+    GeometryManager::m_terrainQuadTree.Update(viewProj, worldFrustum);
 
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
@@ -5973,10 +4406,10 @@ void Engine::DrawTerrainScene16(ID3D12GraphicsCommandList* cmdList)
     auto objectCB = CBManager::mCurrFrameResource->ObjectCB->Resource();
     auto matCB = CBManager::mCurrFrameResource->MaterialCB->Resource();
 
-    for (size_t i = 0; i < m_terrainQuadTree.m_NodesToRender.size(); ++i)
+    for (size_t i = 0; i < GeometryManager::m_terrainQuadTree.m_NodesToRender.size(); ++i)
     {
         {
-            StaticMesh mesh = m_terrainQuadTree.m_NodesToRender[i]->mesh;
+            StaticMesh mesh = GeometryManager::m_terrainQuadTree.m_NodesToRender[i]->mesh;
             auto ri = GeometryManager::mAllRitems[773].get();
 
             auto tmp1 = mesh.vertexBufferView;
@@ -6185,18 +4618,18 @@ void Engine::DrawSponzaScene(ID3D12GraphicsCommandList* cmdList)
     auto objectCB = CBManager::mCurrFrameResource->ObjectCB->Resource();
     auto matCB = CBManager::mCurrFrameResource->MaterialCB->Resource();
 
-    for (int i = 0; i < Sponza.meshes.size(); ++i)
+    for (int i = 0; i < GeometryManager::Sponza.meshes.size(); ++i)
     {
         auto ri = GeometryManager::mAllRitems[747].get();
 
-        auto tmp1 = Sponza.meshes[i].vertexBufferView;
-        auto tmp2 = Sponza.meshes[i].indexBufferView;
+        auto tmp1 = GeometryManager::Sponza.meshes[i].vertexBufferView;
+        auto tmp2 = GeometryManager::Sponza.meshes[i].indexBufferView;
         cmdList->IASetVertexBuffers(0, 1, &tmp1);
         cmdList->IASetIndexBuffer(&tmp2);
         cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
         CD3DX12_GPU_DESCRIPTOR_HANDLE tex(DescriptorHeapManager::mSponzaSrvHeap->GetGPUDescriptorHandleForHeapStart());
-        tex.Offset(Sponza.meshes[i].materialIndex, DescriptorHeapManager::mCbvSrvDescriptorSize);
+        tex.Offset(GeometryManager::Sponza.meshes[i].materialIndex, DescriptorHeapManager::mCbvSrvDescriptorSize);
 
         D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
         D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
@@ -6205,7 +4638,7 @@ void Engine::DrawSponzaScene(ID3D12GraphicsCommandList* cmdList)
         cmdList->SetGraphicsRootConstantBufferView(1, objCBAddress);
         cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
-        cmdList->DrawIndexedInstanced(Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
+        cmdList->DrawIndexedInstanced(GeometryManager::Sponza.meshes[i].indices.size(), 1, 0, 0, 0);
     }
 }
 
@@ -6505,7 +4938,7 @@ void Engine::DrawParticlesSceneToShadowMap()
 
     mCommandList->SetPipelineState(PSOManager::mPSOs["shadowParticlesPSO"].Get());
 
-    DrawParticles(*mParticleSystemSmoke, RenderLayer::Particles3);
+    DrawParticles(*CBManager::mParticleSystemSmoke, RenderLayer::Particles3);
     
     // Change back to GENERIC_READ so we can read the texture in a shader.
     mCommandList->ResourceBarrier(1, &barrier2);

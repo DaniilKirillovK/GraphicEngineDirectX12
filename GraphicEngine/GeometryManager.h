@@ -7,6 +7,16 @@
 #include "FrameResource.h"
 #include <vector>
 #include <string>
+#include "ModelLoader.h"
+#include "QuadTree.h"
+
+class Model;
+
+struct VertexLightStage
+{
+    DirectX::XMFLOAT3 position;
+    DirectX::XMFLOAT2 uv;
+};
 
 enum class RenderLayer : int
 {
@@ -55,5 +65,79 @@ public:
     static void BuildRenderItems();
     static void LoadTextures(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
         Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildSkyboxGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildShadowMaps(Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildShapeGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene3Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene3LODGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene4Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene5Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene6Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene7Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene9Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene9RMDemoGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildModelsGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene10DebugGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene10MoreLightGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene12Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene13Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene13InstanceBuffer(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene13OctreeGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene14Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene15Geometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildQuadTreeTerrain(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildSponzaGeometryAndTextures(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+
+    static Model Sponza;
+    static Microsoft::WRL::ComPtr<ID3D12Resource> sponzaTextures[24];
+    static Microsoft::WRL::ComPtr<ID3D12Resource> sponzaTexturesUpload[24];
+    static TerrainQuadtree m_terrainQuadTree;
+
+    static Microsoft::WRL::ComPtr<ID3D12Resource> instanceOcTreeBuffer;
+    static Microsoft::WRL::ComPtr<ID3D12Resource> instanceOcTreeUploadBuffer;
 };
 

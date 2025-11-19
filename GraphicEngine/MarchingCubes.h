@@ -25,7 +25,7 @@ public:
     bool Initialize(ID3D12Device* device, ID3D12GraphicsCommandList* commandList,
         std::unordered_map<std::string, std::unique_ptr<MeshGeometry>>& geometries);
     void Update(float time);
-    void GenerateGeometry(float isoLevel = 0.1f);
+    void GenerateGeometry(float isoLevel = 0.0f);
 
     void Create3DTexture(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList);
     void Update3DTexture(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList);

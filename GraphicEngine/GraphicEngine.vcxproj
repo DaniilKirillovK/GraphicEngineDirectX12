@@ -190,6 +190,7 @@
     <ClCompile Include="RootSignatureManager.cpp" />
     <ClCompile Include="SamplerManager.cpp" />
     <ClCompile Include="ShadowMap.cpp" />
+    <ClCompile Include="SponzaLoader.cpp" />
     <ClCompile Include="TAAUtility.cpp" />
     <ClCompile Include="UIManager.cpp" />
   </ItemGroup>
