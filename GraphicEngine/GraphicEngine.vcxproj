@@ -157,6 +157,7 @@
   <ItemGroup>
     <ClCompile Include="Camera.cpp" />
     <ClCompile Include="CBManager.cpp" />
+    <ClCompile Include="CommonData.cpp" />
     <ClCompile Include="ComputeShaderBuffer.cpp" />
     <ClCompile Include="D3D12Engine.cpp" />
     <ClCompile Include="d3dUtil.cpp" />
@@ -183,6 +184,7 @@
     <ClCompile Include="ModelLoader.cpp" />
     <ClCompile Include="Noise3DGenerator.cpp" />
     <ClCompile Include="OcTree.cpp" />
+    <ClCompile Include="PaintUtility.cpp" />
     <ClCompile Include="Particles.cpp" />
     <ClCompile Include="ParticleSystem.cpp" />
     <ClCompile Include="PSOManager.cpp" />
@@ -198,6 +200,7 @@
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CBManager.h" />
     <ClInclude Include="Common.h" />
+    <ClInclude Include="CommonData.h" />
     <ClInclude Include="ComputeShaderBuffer.h" />
     <ClInclude Include="D3D12Engine.h" />
     <ClInclude Include="d3dUtil.h" />
@@ -226,6 +229,7 @@
     <ClInclude Include="ModelLoader.h" />
     <ClInclude Include="Noise3DGenerator.h" />
     <ClInclude Include="OcTree.h" />
+    <ClInclude Include="PaintUtility.h" />
     <ClInclude Include="Particles.h" />
     <ClInclude Include="ParticleSystem.h" />
     <ClInclude Include="PSOManager.h" />

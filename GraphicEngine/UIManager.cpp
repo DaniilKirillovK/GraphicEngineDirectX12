@@ -1,5 +1,6 @@
 #include "UIManager.h"
 #include <cmath>
+#include "CommonData.h"
 
 
 static const int WINDOW_WIDTH = 1280;
@@ -203,6 +204,8 @@ bool isUsingOctreeCullingScene13 = false;
 
 float displacementScaleScene14 = 1.0f;
 bool isWireframeScene14 = false;
+bool bIsPaintingScene14 = false;
+float PaintColorScene14[3] = { 0.0f, 0.0f, 0.0f };
 
 bool isMovingObjectScene15 = false;
 int selectedRenderModeScene15 = 0;
@@ -766,6 +769,14 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
             ImGui::Text("");
             ImGui::Checkbox("Wireframe", &isWireframeScene14);
             ImGui::SliderFloat("Displacement Scale", &displacementScaleScene14, 0.0f, 150.0f);
+
+            ImGui::Text("");
+            ImGui::Checkbox("Painting", &bIsPaintingScene14);
+            ImGui::ColorPicker3("Paint Color", PaintColorScene14, ImGuiColorEditFlags_NoAlpha);
+
+            CommonData::PaintColor.x = PaintColorScene14[0];
+            CommonData::PaintColor.y = PaintColorScene14[1];
+            CommonData::PaintColor.z = PaintColorScene14[2];
         }
         else if (activeSceneID == 15)
         {

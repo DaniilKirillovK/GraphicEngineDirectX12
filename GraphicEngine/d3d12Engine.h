@@ -67,6 +67,7 @@ protected:
     virtual void CreateScene3RTV() {}
     virtual void CreateScene13RTV() {}
     virtual void CreateScene15RTV() {}
+    virtual void CreateScene14RTVsSRVs() {}
 
     virtual void InitInstanceBuffer() {}
     virtual void InitInstanceBufferRMDemo() {}

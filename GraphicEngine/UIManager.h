@@ -202,6 +202,7 @@ extern bool isUsingOctreeCullingScene13;
 
 extern float displacementScaleScene14;
 extern bool isWireframeScene14;
+extern bool bIsPaintingScene14;
 
 extern bool isMovingObjectScene15;
 extern int selectedRenderModeScene15;
@@ -213,6 +214,7 @@ extern float scene16ScaterringIntensity;
 extern float scene16RayleiCoef[3];
 extern float scene16MieCoef;
 extern DirectX::XMFLOAT3 scene16SunPosition;
+
 
 
 static class UIManager

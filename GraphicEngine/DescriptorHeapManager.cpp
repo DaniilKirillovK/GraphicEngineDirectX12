@@ -1,4 +1,5 @@
 #include "DescriptorHeapManager.h"
+#include "Common.h"
 
 ExampleDescriptorHeapAllocator DescriptorHeapManager::mSrvHeapAllocator = ExampleDescriptorHeapAllocator();
 ExampleDescriptorHeapAllocator DescriptorHeapManager::mSrvHeapAllocator2 = ExampleDescriptorHeapAllocator();
@@ -22,7 +23,7 @@ Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> DescriptorHeapManager::mSponzaSrvHe
 void DescriptorHeapManager::CreateRtvAndDsvDescriptorHeaps(Microsoft::WRL::ComPtr<ID3D12Device> device)
 {
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = 12;
+	rtvHeapDesc.NumDescriptors = 13;
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -766,3 +767,4 @@ void DescriptorHeapManager::CreateScene3RTV(Microsoft::WRL::ComPtr<ID3D12Device>
 {
 
 }
+

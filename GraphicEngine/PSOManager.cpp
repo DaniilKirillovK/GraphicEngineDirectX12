@@ -1114,7 +1114,20 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
         reinterpret_cast<BYTE*>(shaders["TerrainPS"]->GetBufferPointer()),
         shaders["TerrainPS"]->GetBufferSize()
     };
+    terrainPsoDesc.NumRenderTargets = 2;
+    terrainPsoDesc.RTVFormats[1] = DXGI_FORMAT_R32G32B32A32_FLOAT;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainPsoDesc, IID_PPV_ARGS(&mPSOs["terrainPSO"])));
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC terrainPaintComputePsoDesc;
+    ZeroMemory(&terrainPaintComputePsoDesc, sizeof(D3D12_COMPUTE_PIPELINE_STATE_DESC));
+    terrainPaintComputePsoDesc.pRootSignature = rootSignatures["mRootSignatureTerrainPaint"].Get();
+    terrainPaintComputePsoDesc.CS = {
+        reinterpret_cast<BYTE*>(shaders["TerrainPaintingCS"]->GetBufferPointer()),
+        shaders["TerrainPaintingCS"]->GetBufferSize()
+    };
+    terrainPaintComputePsoDesc.NodeMask = 0;
+    terrainPaintComputePsoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+    ThrowIfFailed(md3dDevice->CreateComputePipelineState(&terrainPaintComputePsoDesc, IID_PPV_ARGS(&mPSOs["terrainPaintPSO"])));
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainWireframePsoDesc;
     ZeroMemory(&terrainWireframePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));

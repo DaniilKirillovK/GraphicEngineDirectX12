@@ -33,6 +33,8 @@
 #include "CBManager.h"
 #include "GeometryManager.h"
 
+#include "CommonData.h"
+
 extern "C" { _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
 
 
@@ -104,7 +106,6 @@ private:
     virtual void OnResize()override;
     virtual void Update(const GameTimer& gt)override;
     virtual void Draw(const GameTimer& gt)override;
-    static void StaticDraw();
 
     virtual void OnMouseDown(WPARAM btnState, int x, int y)override;
     virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
@@ -132,6 +133,7 @@ private:
     virtual void CreateScene3RTV() override;
     virtual void CreateScene13RTV() override;
     virtual void CreateScene15RTV() override;
+    virtual void CreateScene14RTVsSRVs() override;
     void ResizeGBuffer();
 
     virtual void InitInstanceBuffer() override;
@@ -206,6 +208,9 @@ private:
     POINT mLastMousePos;
 
     float mCameraSpeed = 1.0f;
+
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_UVTexScene14;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_PaintTextureScene14;
 };
 
 bool isFirstExecution = true;
@@ -436,6 +441,7 @@ void Engine::Update(const GameTimer& gt)
     if (activeSceneID == 14)
     {
         CBManager::UpdateTerrainCB();
+        CBManager::UpdatePaintClickCB();
     }
     if (activeSceneID == 15)
     {
@@ -1857,7 +1863,48 @@ void Engine::Draw(const GameTimer& gt)
 
     else if (activeSceneID == 14)
     {
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
+        //Paint Compute
+        if (bIsPaintingScene14 && CommonData::bIsClicked)
+        {
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+            CD3DX12_RESOURCE_BARRIER computeBarrier1 = CD3DX12_RESOURCE_BARRIER::Transition(
+                m_PaintTextureScene14.Get(),
+                D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            mCommandList->ResourceBarrier(1, &computeBarrier1);
+
+            auto paintCB = CBManager::mCurrFrameResource->PaintCB->Resource();
+
+            mCommandList->SetComputeRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureTerrainPaint"].Get());
+     
+            mCommandList->SetComputeRootConstantBufferView(0, paintCB->GetGPUVirtualAddress());
+
+            CD3DX12_GPU_DESCRIPTOR_HANDLE texUV(DescriptorHeapManager::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            texUV.Offset(70, DescriptorHeapManager::mCbvSrvDescriptorSize);
+            mCommandList->SetComputeRootDescriptorTable(1, texUV);
+            CD3DX12_GPU_DESCRIPTOR_HANDLE texPaint(DescriptorHeapManager::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            texPaint.Offset(72, DescriptorHeapManager::mCbvSrvDescriptorSize);
+            mCommandList->SetComputeRootDescriptorTable(2, texPaint);
+
+            mCommandList->SetPipelineState(PSOManager::mPSOs["terrainPaintPSO"].Get());
+
+            UINT threadGroupCount = 1;
+            mCommandList->Dispatch(threadGroupCount, 1, 1);
+
+            CD3DX12_RESOURCE_BARRIER computeBarrier2 = CD3DX12_RESOURCE_BARRIER::Transition(
+                m_PaintTextureScene14.Get(),
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE);
+            mCommandList->ResourceBarrier(1, &computeBarrier2);
+        }
+
+        mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 12, DescriptorHeapManager::mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvMain = CurrentBackBufferView();
+        CD3DX12_CPU_DESCRIPTOR_HANDLE uvTextureRtv = CD3DX12_CPU_DESCRIPTOR_HANDLE(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 12, DescriptorHeapManager::mRtvDescriptorSize);
+
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvs[] = { rtvMain, uvTextureRtv };
 
         auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
             D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -1865,7 +1912,7 @@ void Engine::Draw(const GameTimer& gt)
 
         mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-        mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+        mCommandList->OMSetRenderTargets(2, rtvs, false, &dsv);
 
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -1880,6 +1927,12 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
         auto terrainCB = CBManager::mCurrFrameResource->TerrainCB->Resource();
         mCommandList->SetGraphicsRootConstantBufferView(4, terrainCB->GetGPUVirtualAddress());
+        if (!isWireframeScene14)
+        {
+            CD3DX12_GPU_DESCRIPTOR_HANDLE texPaint(DescriptorHeapManager::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+            texPaint.Offset(71, DescriptorHeapManager::mCbvSrvDescriptorSize);
+            mCommandList->SetGraphicsRootDescriptorTable(5, texPaint);
+        }
 
         if (isWireframeScene14)
             DrawDebugTerrainScene14(mCommandList.Get());
@@ -3079,6 +3132,91 @@ void Engine::CreateScene15RTV()
     srvVelocityDesc.Texture2D.MipLevels = 1;
     hDescriptor.Offset(1, DescriptorHeapManager::mCbvSrvDescriptorSize);
     md3dDevice->CreateShaderResourceView(TAAUtility::m_VelocityBuffer.Get(), &srvVelocityDesc, hDescriptor);
+}
+
+void Engine::CreateScene14RTVsSRVs()
+{
+    D3D12_RESOURCE_DESC texDescUV = {};
+    texDescUV.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDescUV.Alignment = 0;
+    texDescUV.Width = mClientWidth;
+    texDescUV.Height = mClientHeight;
+    texDescUV.DepthOrArraySize = 1;
+    texDescUV.MipLevels = 1;
+    texDescUV.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    texDescUV.SampleDesc.Count = 1;
+    texDescUV.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDescUV.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+    auto heapType = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT);
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDescUV,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        nullptr,
+        IID_PPV_ARGS(&m_UVTexScene14));
+
+    D3D12_RESOURCE_DESC texDescPaint = {};
+    texDescPaint.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDescPaint.Alignment = 0;
+    texDescPaint.Width = 1024;
+    texDescPaint.Height = 1024;
+    texDescPaint.DepthOrArraySize = 1;
+    texDescPaint.MipLevels = 1;
+    texDescPaint.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    texDescPaint.SampleDesc.Count = 1;
+    texDescPaint.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDescPaint.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+    md3dDevice->CreateCommittedResource(
+        &heapType,
+        D3D12_HEAP_FLAG_NONE,
+        &texDescPaint,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        nullptr,
+        IID_PPV_ARGS(&m_PaintTextureScene14));
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+    rtvHandle.Offset(12, DescriptorHeapManager::mRtvDescriptorSize);
+
+    md3dDevice->CreateRenderTargetView(m_UVTexScene14.Get(), nullptr, rtvHandle);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor(DescriptorHeapManager::mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor.Offset(70, DescriptorHeapManager::mCbvSrvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvUVDesc = {};
+    srvUVDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvUVDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srvUVDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvUVDesc.Texture2D.MostDetailedMip = 0;
+    srvUVDesc.Texture2D.MipLevels = 1;
+    md3dDevice->CreateShaderResourceView(m_UVTexScene14.Get(), &srvUVDesc, hDescriptor);
+
+    hDescriptor.Offset(1, DescriptorHeapManager::mCbvSrvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels = 1;
+    md3dDevice->CreateShaderResourceView(m_PaintTextureScene14.Get(), &srvDesc, hDescriptor);
+
+    hDescriptor.Offset(1, DescriptorHeapManager::mCbvSrvDescriptorSize);
+
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+    uavDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    uavDesc.Texture2D.MipSlice = 0;
+    uavDesc.Texture2D.PlaneSlice = 0;
+
+    md3dDevice->CreateUnorderedAccessView(
+        m_PaintTextureScene14.Get(),
+        nullptr,  // No counter resource
+        &uavDesc,
+        hDescriptor
+    );
 }
 
 void Engine::ResizeGBuffer()

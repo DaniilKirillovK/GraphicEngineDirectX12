@@ -14,6 +14,7 @@
 #include "Common.hlsl"
 
 Texture2D<float4> gTextures[3] : register(t0, space0);
+Texture2D<float4> gPaintTexture : register(t0, space1);
 
 SamplerState gsamPointWrap : register(s0);
 SamplerState gsamPointClamp : register(s1);
@@ -21,6 +22,12 @@ SamplerState gsamLinearWrap : register(s2);
 SamplerState gsamLinearClamp : register(s3);
 SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
+
+struct RTVBuffer
+{
+    float4 Output : SV_TARGET0;
+    float4 UV : SV_TARGET1;
+};
 
 cbuffer cbPerObject : register(b0)
 {
@@ -249,10 +256,18 @@ DomainOut DS(PatchTess patchTess,
 }
 
 
-float4 PS(DomainOut pin) : SV_Target
+RTVBuffer PS(DomainOut pin)
 {
+    RTVBuffer OutputBuffer;
+    
     float4 diffuseAlbedo;
     diffuseAlbedo = gTextures[0].Sample(gsamLinearWrap, pin.TexC) * gDiffuseAlbedo;
+    
+    float4 paintColor = gPaintTexture.Sample(gsamPointWrap, pin.TexC);
+    if (paintColor.x != 0.0f || paintColor.y != 0.0f || paintColor.z != 0.0f)
+    {
+        diffuseAlbedo = paintColor * gDiffuseAlbedo;
+    }
 
     // Interpolating normal can unnormalize it, so renormalize it.
     pin.NormalW = normalize(pin.NormalW);
@@ -273,6 +288,9 @@ float4 PS(DomainOut pin) : SV_Target
 
     // Common convention to take alpha from diffuse material.
     litColor.a = diffuseAlbedo.a;
+    
+    OutputBuffer.Output = litColor;
+    OutputBuffer.UV = float4(pin.TexC, 0.0f, 1.0f);
 
-    return litColor;
+    return OutputBuffer;
 }

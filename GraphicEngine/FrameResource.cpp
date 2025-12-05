@@ -34,6 +34,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     TAAPassCB = std::make_unique<UploadBuffer<TAAPassConstants>>(device, 1, true);
     TAAObjectsCB = std::make_unique<UploadBuffer<TAAObjectConstants>>(device, objectCount, true);
     AtmosphereCB = std::make_unique<UploadBuffer<AtmosphereConstants>>(device, 1, true);
+    PaintCB = std::make_unique<UploadBuffer<PaintConstants>>(device, 1, true);
 }
 
 FrameResource::~FrameResource()

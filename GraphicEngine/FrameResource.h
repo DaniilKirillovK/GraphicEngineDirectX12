@@ -255,6 +255,13 @@ struct AtmosphereConstants
     DirectX::XMFLOAT3 SunColor;
 };
 
+struct PaintConstants
+{
+    DirectX::XMFLOAT2 ClickPosition;
+    DirectX::XMFLOAT2 Pad;
+    DirectX::XMFLOAT3 PaintColor;
+};
+
 struct Vertex
 {
     Vertex() = default;
@@ -322,6 +329,7 @@ public:
     std::unique_ptr<UploadBuffer<TAAPassConstants>> TAAPassCB = nullptr;
     std::unique_ptr<UploadBuffer<TAAObjectConstants>> TAAObjectsCB = nullptr;
     std::unique_ptr<UploadBuffer<AtmosphereConstants>> AtmosphereCB = nullptr;
+    std::unique_ptr<UploadBuffer<PaintConstants>> PaintCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.

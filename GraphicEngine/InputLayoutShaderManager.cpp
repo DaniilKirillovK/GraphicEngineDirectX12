@@ -157,6 +157,8 @@ void InputLayoutShaderManager::BuildShadersAndInputLayout()
     mShaders["CubeMarchingVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\CubeMarching.hlsl", nullptr, "VS", "vs_5_1");
     mShaders["CubeMarchingPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\CubeMarching.hlsl", nullptr, "PS", "ps_5_1");
 
+    mShaders["TerrainPaintingCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PaintCompute.hlsl", nullptr, "CSMain", "cs_5_1");
+
     mInputLayouts["InputLayout"] =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },

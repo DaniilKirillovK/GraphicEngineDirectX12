@@ -1,5 +1,6 @@
 #include "CBManager.h"
 #include "UIManager.h"
+#include "CommonData.h"
 
 int CBManager::mClientWidth = 1280;
 int CBManager::mClientHeight = 800;
@@ -1745,4 +1746,15 @@ void CBManager::UpdateAtmosphereCB()
 
     auto currPassCB = mCurrFrameResource->AtmosphereCB.get();
     currPassCB->CopyData(0, atmosphereConst);
+}
+
+void CBManager::UpdatePaintClickCB()
+{
+    PaintConstants paintConst;
+
+    paintConst.ClickPosition = CommonData::ClickPosition;
+    paintConst.PaintColor = CommonData::PaintColor;
+
+    auto currPassCB = mCurrFrameResource->PaintCB.get();
+    currPassCB->CopyData(0, paintConst);
 }

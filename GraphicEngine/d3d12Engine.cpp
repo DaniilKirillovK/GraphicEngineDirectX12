@@ -9,6 +9,8 @@
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx12.h"
 
+#include "CommonData.h"
+
 using Microsoft::WRL::ComPtr;
 using namespace std;
 using namespace DirectX;
@@ -234,6 +236,10 @@ void D3D12Engine::OnResize()
 
 LRESULT D3D12Engine::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+	POINT mousePos;
+	GetCursorPos(&mousePos);
+	ScreenToClient(hwnd, &mousePos);
+	CommonData::ClickPosition = DirectX::XMFLOAT2(mousePos.x, mousePos.y);
 
 	switch (msg)
 	{
@@ -344,18 +350,20 @@ LRESULT D3D12Engine::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		return 0;
 
 	case WM_LBUTTONDOWN:
+		CommonData::bIsClicked = true;
+		return 0;
+
 	case WM_MBUTTONDOWN:
 	case WM_RBUTTONDOWN:
 		OnMouseDown(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-		return 0;
 	case WM_LBUTTONUP:
+		CommonData::bIsClicked = false;
+		return 0;
 	case WM_MBUTTONUP:
 	case WM_RBUTTONUP:
 		OnMouseUp(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-		return 0;
 	case WM_MOUSEMOVE:
 		OnMouseMove(wParam, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-		return 0;
 	case WM_KEYDOWN:
 	{
 
@@ -518,6 +526,7 @@ InitGBuffer();
 CreateScene3RTV();
 CreateScene13RTV();
 CreateScene15RTV();
+CreateScene14RTVsSRVs();
 PSOManager::BuildPSOs(RootSignatureManager::mRootSignatures, InputLayoutShaderManager::mInputLayouts, InputLayoutShaderManager::mShaders, mBackBufferFormat, mDepthStencilFormat, md3dDevice);
 
 InitInstanceBuffer();
