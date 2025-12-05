@@ -104,6 +104,7 @@ private:
     virtual void OnResize()override;
     virtual void Update(const GameTimer& gt)override;
     virtual void Draw(const GameTimer& gt)override;
+    static void StaticDraw();
 
     virtual void OnMouseDown(WPARAM btnState, int x, int y)override;
     virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
@@ -519,8 +520,9 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->ResourceBarrier(1, &barrierClear);
     }
 
-    
-    mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
+    if (!bIsPausedScene15)
+        mCommandList->ClearRenderTargetView(CurrentBackBufferView(), DirectX::Colors::Black, 0, nullptr);
+
     if (activeSceneID != 7)
     {
         mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, DescriptorHeapManager::mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
@@ -1889,8 +1891,13 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->ResourceBarrier(1, &barrier1);
     }
 
-    else if (activeSceneID == 15)
+    else if (activeSceneID == 15 && !bIsPausedScene15 || (activeSceneID == 15 && drawScene15))
     {
+        if (drawScene15)
+        {
+            drawScene15 = false;
+        }
+
         if (selectedRenderModeScene15 == 0)
         {
             D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
@@ -1927,12 +1934,10 @@ void Engine::Draw(const GameTimer& gt)
             {
                 CD3DX12_CPU_DESCRIPTOR_HANDLE handle(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
                 CD3DX12_CPU_DESCRIPTOR_HANDLE velocityTextureRTVHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE(DescriptorHeapManager::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 11, DescriptorHeapManager::mRtvDescriptorSize);
-                handle.Offset(9 + TAAUtility::m_CurrentRTV, DescriptorHeapManager::mRtvDescriptorSize);
+                handle.Offset(9, DescriptorHeapManager::mRtvDescriptorSize);
 
                 mCommandList->ClearRenderTargetView(handle, DirectX::Colors::White, 0, nullptr);
                 mCommandList->ClearRenderTargetView(velocityTextureRTVHandle, DirectX::Colors::Black, 0, nullptr);
-
-                TAAUtility::m_CurrentRTV = (TAAUtility::m_CurrentRTV + 1) % 2;
 
                 D3D12_CPU_DESCRIPTOR_HANDLE rtvsTaa[] =
                 {
@@ -1989,6 +1994,8 @@ void Engine::Draw(const GameTimer& gt)
                 mCommandList->SetPipelineState(PSOManager::mPSOs["TAASecondPassPSO"].Get());
 
                 DrawScreenQuadTAA(mCommandList.Get());
+
+                mCommandList->CopyResource(TAAUtility::m_RTVs[1].Get(), CurrentBackBuffer());
             }
         }
     }
@@ -3028,10 +3035,22 @@ void Engine::CreateScene15RTV()
 
     rtvHandle.Offset(1, DescriptorHeapManager::mRtvDescriptorSize);
 
+    D3D12_RESOURCE_DESC texDescVelocity = {};
+    texDescVelocity.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+    texDescVelocity.Alignment = 0;
+    texDescVelocity.Width = mClientWidth;
+    texDescVelocity.Height = mClientHeight;
+    texDescVelocity.DepthOrArraySize = 1;
+    texDescVelocity.MipLevels = 1;
+    texDescVelocity.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    texDescVelocity.SampleDesc.Count = 1;
+    texDescVelocity.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+    texDescVelocity.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
     md3dDevice->CreateCommittedResource(
         &heapType,
         D3D12_HEAP_FLAG_NONE,
-        &texDesc,
+        &texDescVelocity,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         nullptr,
         IID_PPV_ARGS(&TAAUtility::m_VelocityBuffer));
@@ -3052,8 +3071,14 @@ void Engine::CreateScene15RTV()
     hDescriptor.Offset(1, DescriptorHeapManager::mCbvSrvDescriptorSize);
     md3dDevice->CreateShaderResourceView(TAAUtility::m_RTVs[1].Get(), &srvDRDesc, hDescriptor);
 
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvVelocityDesc = {};
+    srvVelocityDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvVelocityDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    srvVelocityDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvVelocityDesc.Texture2D.MostDetailedMip = 0;
+    srvVelocityDesc.Texture2D.MipLevels = 1;
     hDescriptor.Offset(1, DescriptorHeapManager::mCbvSrvDescriptorSize);
-    md3dDevice->CreateShaderResourceView(TAAUtility::m_VelocityBuffer.Get(), &srvDRDesc, hDescriptor);
+    md3dDevice->CreateShaderResourceView(TAAUtility::m_VelocityBuffer.Get(), &srvVelocityDesc, hDescriptor);
 }
 
 void Engine::ResizeGBuffer()
@@ -3434,7 +3459,7 @@ void Engine::InitParticleSystem()
 
 void Engine::InitMarchingCubesSystem()
 {
-    m_MarchingCubes = new MarchingCubes(400, 200, 400, 2.0f);
+    m_MarchingCubes = new MarchingCubes(10, 10, 10, 2.0f);
     m_MarchingCubes->Initialize(md3dDevice.Get(), mCommandList.Get(), GeometryManager::mGeometries);
 }
 
@@ -4750,9 +4775,9 @@ void Engine::DrawScreenQuadTAA(ID3D12GraphicsCommandList* cmdList)
     cmdList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE srv1(DescriptorHeapManager::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-    srv1.Offset(67 + (TAAUtility::m_CurrentRTV + 1) % 2, DescriptorHeapManager::mCbvSrvDescriptorSize);
+    srv1.Offset(67 + 0, DescriptorHeapManager::mCbvSrvDescriptorSize);
     CD3DX12_GPU_DESCRIPTOR_HANDLE srv2(DescriptorHeapManager::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
-    srv2.Offset(67 + TAAUtility::m_CurrentRTV, DescriptorHeapManager::mCbvSrvDescriptorSize);
+    srv2.Offset(67 + 1, DescriptorHeapManager::mCbvSrvDescriptorSize);
     CD3DX12_GPU_DESCRIPTOR_HANDLE srv3(DescriptorHeapManager::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
     srv3.Offset(69, DescriptorHeapManager::mCbvSrvDescriptorSize);
 

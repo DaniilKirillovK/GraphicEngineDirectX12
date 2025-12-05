@@ -1,4 +1,5 @@
 #include "CBManager.h"
+#include "UIManager.h"
 
 int CBManager::mClientWidth = 1280;
 int CBManager::mClientHeight = 800;
@@ -1404,9 +1405,6 @@ void CBManager::UpdateMainPassCBScene15(const GameTimer& gt)
     XMStoreFloat4x4(&mTAAMainPassCB.PrevViewProj, XMMatrixTranspose(prevViewProj));
     XMStoreFloat4x4(&mTAAMainPassCB.PrevInvViewProj, XMMatrixTranspose(prevInvViewProj));
 
-    DirectX::XMStoreFloat4x4(&PreviousView, view);
-    DirectX::XMStoreFloat4x4(&PreviousProj, proj);
-
     mTAAMainPassCB.EyePosW = (*mCamera).GetPosition3f();
     mTAAMainPassCB.RenderTargetSize = DirectX::XMFLOAT2((float)mClientWidth, (float)mClientHeight);
     mTAAMainPassCB.InvRenderTargetSize = DirectX::XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
@@ -1431,6 +1429,9 @@ void CBManager::UpdateMainPassCBScene15(const GameTimer& gt)
 
     auto currPassCB = mCurrFrameResource->TAAPassCB.get();
     currPassCB->CopyData(0, mTAAMainPassCB);
+
+    DirectX::XMStoreFloat4x4(&PreviousView, view);
+    DirectX::XMStoreFloat4x4(&PreviousProj, proj);
 }
 
 void CBManager::UpdateShadowTransformCascaded(Camera camera, int MapID, DirectX::XMFLOAT3 center,
@@ -1701,7 +1702,7 @@ void CBManager::UpdateTerrainCB()
 
 void CBManager::UpdateScene15ObjectPosition(const GameTimer& gt)
 {
-    float newX = sin(gt.TotalTime() * 4.f) * 2.f;
+    float newX = sin(gt.TotalTime() * 1.f) * 2.f;
     m_Scene15ObjectPostion = DirectX::XMFLOAT3(
         newX,
         m_Scene15ObjectPostion.y,
@@ -1737,10 +1738,10 @@ void CBManager::UpdateAtmosphereCB()
     atmosphereConst.SunColor = DirectX::XMFLOAT3(scene16SunColor[0], scene16SunColor[1], scene16SunColor[2]);
     atmosphereConst.ScaterringIntensity = scene16ScaterringIntensity;
 
-    float theta = 2.f * 3.1415926535f;
-    float z = cos(theta);
-    float y = sin(theta);
-    atmosphereConst.LightDirAndIntensity = DirectX::XMFLOAT4(0.f, -y, -z, 10.0f);
+    float posX = scene16SunPosition.x;
+    float posY = scene16SunPosition.y;
+    float posZ = scene16SunPosition.z;
+    atmosphereConst.LightDirAndIntensity = DirectX::XMFLOAT4(posX, posY, posZ, 10.0f);
 
     auto currPassCB = mCurrFrameResource->AtmosphereCB.get();
     currPassCB->CopyData(0, atmosphereConst);

@@ -118,17 +118,17 @@ struct VertexOut
     float3 TangentW : TANGENT;
 };
 
-float2 CalcVelocity(float4 newPos, float4 oldPos)
+float2 CalcVelocity(float4 currentClipPos, float4 previousClipPos)
 {
-    oldPos /= oldPos.w;
-    oldPos.xy = (oldPos.xy + 1) / 2.0f;
-    oldPos.y = 1 - oldPos.y;
+    float3 currentNDC = currentClipPos.xyz / currentClipPos.w;
+    float3 previousNDC = previousClipPos.xyz / previousClipPos.w;
     
-    newPos /= newPos.w;
-    newPos.xy = (newPos.xy + 1) / 2.0f;
-    newPos.y = 1 - newPos.y;
+    float2 currentUV = currentNDC.xy * 0.5 + 0.5;
+    float2 previousUV = previousNDC.xy * 0.5 + 0.5;
     
-    return (newPos - oldPos).xy;
+    float2 uvVelocity = currentUV - previousUV;
+    
+    return uvVelocity;
 }
 
 VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
@@ -140,8 +140,8 @@ VertexOut VS(VertexIn vin, uint instanceID : SV_InstanceID)
     vout.PosW = posW.xyz;
     
     float4x4 prevFrame_modelMatrix = gPrevWorld;
-    float4 prevFrame_worldPos = mul(prevFrame_modelMatrix, float4(vin.PosL, 1.0));
-    float4 prevFrame_clipPos = mul(gPrevViewProj, prevFrame_worldPos);
+    float3 prevFrame_worldPos = mul(float4(vin.PosL, 1.0), prevFrame_modelMatrix).xyz;
+    float4 prevFrame_clipPos = mul(float4(prevFrame_worldPos, 1.0f), gPrevViewProj);
     vout.PrevPosH = prevFrame_clipPos;
 
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
@@ -201,7 +201,7 @@ TAABuffer PS(VertexOut pin)
     
     TAABuffer buffer;
     buffer.MainRTV = litColor;
-    buffer.VelocityRTV = float4(CalcVelocity(pin.PosH, pin.PrevPosH), 1.0f, 1.0f);
+    buffer.VelocityRTV = float4(CalcVelocity(mul(float4(pin.PosW, 1.0f), gViewProj), pin.PrevPosH), 0.0f, 1.0f);
 
     return buffer;
 }

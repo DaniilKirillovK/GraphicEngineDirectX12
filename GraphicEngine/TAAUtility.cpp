@@ -1,4 +1,7 @@
 #include "TAAUtility.h"
+#include "Common.h"
+
+
 
 void TAAUtility::GenerateJitter()
 {
@@ -20,8 +23,8 @@ DirectX::XMMATRIX TAAUtility::GetJitterPerspectiveProjectionMatrix(float nearP, 
 	float h = v * aspect;
 
 	DirectX::XMFLOAT2 jitter = DirectX::XMFLOAT2(
-		JitterValue.x * h / (0.5f * 1200.f),
-		JitterValue.y * v / (0.5f * 800.f)
+		JitterValue.x * h / (0.5f * WINDOW_WIDTH),
+		JitterValue.y * v / (0.5f * WINDOW_HEIGHT)
 	);
 
 	DirectX::XMFLOAT4X4 matrix;

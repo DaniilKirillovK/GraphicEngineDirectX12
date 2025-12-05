@@ -197,6 +197,7 @@
   <ItemGroup>
     <ClInclude Include="Camera.h" />
     <ClInclude Include="CBManager.h" />
+    <ClInclude Include="Common.h" />
     <ClInclude Include="ComputeShaderBuffer.h" />
     <ClInclude Include="D3D12Engine.h" />
     <ClInclude Include="d3dUtil.h" />

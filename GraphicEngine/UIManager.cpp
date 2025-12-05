@@ -1,4 +1,5 @@
 #include "UIManager.h"
+#include <cmath>
 
 
 static const int WINDOW_WIDTH = 1280;
@@ -205,11 +206,14 @@ bool isWireframeScene14 = false;
 
 bool isMovingObjectScene15 = false;
 int selectedRenderModeScene15 = 0;
+bool bIsPausedScene15 = false;
+bool drawScene15 = false;
 
 float scene16SunColor[3] = { 1.0f, 1.0f, 1.0f };
 float scene16ScaterringIntensity = 20.f;
 float scene16RayleiCoef[3] = { 6.95e-6f, 1.18e-5f, 2.44e-5f };
 float scene16MieCoef = { 2.1e-5f };
+DirectX::XMFLOAT3 scene16SunPosition = { 0.0f, -sin(2.f * 3.1415926535f), -cos(2.f * 3.1415926535f) };
 
 
 void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
@@ -772,6 +776,15 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
             ImGui::Text("Render Mode");
             ImGui::RadioButton("Common", &selectedRenderModeScene15, 0);
             ImGui::RadioButton("TAA", &selectedRenderModeScene15, 1);
+            ImGui::Text("");
+            ImGui::Checkbox("Paused", &bIsPausedScene15);
+            if (bIsPausedScene15)
+            {
+                if (ImGui::Button("Next Step", ImVec2(80, 40)))
+                {
+                    drawScene15 = true;
+                }
+            }
 
             allRitems[774]->NumFramesDirty = gNumFrameResources;
         }
@@ -781,11 +794,34 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
             ImGui::SliderFloat("Scaterring Intensity", &scene16ScaterringIntensity, 0.0f, 30.f);
 
             ImGui::Text("");
-            ImGui::SliderFloat("Mie Coef", &scene16MieCoef, 1.0e-7f, 1.0e-2f, "%.7f");
+            ImGui::SliderFloat("Mie Coef", &scene16MieCoef, 1.0e-7f, 1.0e-5f, "%.7f");
             ImGui::Text("Rayleigh Coef");
             ImGui::SliderFloat("Rayleigh R", &scene16RayleiCoef[0], 1.0e-6f, 4.0e-5f, "%.6f");
             ImGui::SliderFloat("Rayleigh G", &scene16RayleiCoef[1], 1.0e-6f, 4.0e-5f, "%.6f");
             ImGui::SliderFloat("Rayleigh B", &scene16RayleiCoef[2], 1.0e-6f, 4.0e-5f, "%.6f");
+
+            if (ImGui::BeginTable("Sun Position", 3))
+            {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("X");
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::SliderFloat("##SunPosX", &scene16SunPosition.x, -1.0f, 1.0f);
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("Y");
+
+                ImGui::TableSetColumnIndex(1);
+                ImGui::SliderFloat("##SunPosY", &scene16SunPosition.y, 0.0f, 1.0f);
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("Z");
+
+                ImGui::TableSetColumnIndex(2);
+                ImGui::SliderFloat("##SunPosZ", &scene16SunPosition.z, -1.0f, 1.0f);
+                ImGui::EndTable();
+            }
         }
         else if (activeSceneID == 17)
         {

@@ -80,7 +80,7 @@ float3 CalculateAtmosphericScattering(float3 rayOrigin, float3 rayDir, float max
         float3 rayleighDensity = RayleiCoef * density;
         float mieDensity = MieCoef * density;
         
-        float3 lightRayDir = LightDirAndIntensity.xyz;
+        float3 lightRayDir = normalize(LightDirAndIntensity.xyz);
         float lightDistance = AtmosphereRadius * 2.0f;
         
         float lightTransmittance = float3(1.0f, 1.0f, 1.0f);
@@ -107,7 +107,7 @@ float3 CalculateAtmosphericScattering(float3 rayOrigin, float3 rayDir, float max
         transmittance *= exp(-(rayleighDensity * 100.f + mieDensity * float3(1, 1, 1)) * stepSize);
     }
     
-    float cosTheta = dot(rayDir, LightDirAndIntensity.xyz);
+    float cosTheta = dot(rayDir, normalize(LightDirAndIntensity.xyz));
     float rayleighPhase = RayleighPhase(cosTheta);
     float miePhase = MiePhase(cosTheta, 0.76f);
     

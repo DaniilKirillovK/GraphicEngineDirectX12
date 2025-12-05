@@ -205,11 +205,14 @@ extern bool isWireframeScene14;
 
 extern bool isMovingObjectScene15;
 extern int selectedRenderModeScene15;
+extern bool bIsPausedScene15;
+extern bool drawScene15;
 
 extern float scene16SunColor[3];
 extern float scene16ScaterringIntensity;
 extern float scene16RayleiCoef[3];
 extern float scene16MieCoef;
+extern DirectX::XMFLOAT3 scene16SunPosition;
 
 
 static class UIManager

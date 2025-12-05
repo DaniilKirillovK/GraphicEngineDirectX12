@@ -108,7 +108,7 @@ float4 PS(VertexOut vOut) : SV_TARGET
     
     previousColor = clamp(previousColor, BoxMin, BoxMax);
     
-    float4 litColor = float4(currentColor * 0.9f + previousColor * 0.1f, 1.0f);
+    float4 litColor = float4(currentColor * 0.1f + previousColor * 0.9f, 1.0f);
     
     return litColor;
 }
