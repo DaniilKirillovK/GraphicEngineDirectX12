@@ -1,13 +1,14 @@
 #pragma once
 #include <d3d12.h>
 #include <dxgi1_4.h>
-#include "d3dx12.h"
+#include <d3dx12.h>
 #include "d3dUtil.h"
 
 class PSOManager
 {
 public:
 	static std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>> mPSOs;
+    static Microsoft::WRL::ComPtr<ID3D12PipelineState> mMeshPipelineState;
 
 	static void BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> rootSignatures,
 		std::unordered_map<std::string, std::vector<D3D12_INPUT_ELEMENT_DESC>> inputLayouts,

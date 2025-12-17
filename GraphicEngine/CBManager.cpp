@@ -1,6 +1,7 @@
 #include "CBManager.h"
 #include "UIManager.h"
 #include "CommonData.h"
+#include "MeshPipeline.h"
 
 int CBManager::mClientWidth = 1280;
 int CBManager::mClientHeight = 800;
@@ -1757,4 +1758,19 @@ void CBManager::UpdatePaintClickCB()
 
     auto currPassCB = mCurrFrameResource->PaintCB.get();
     currPassCB->CopyData(0, paintConst);
+}
+
+void CBManager::UpdateMeshRenderCB()
+{
+    DirectX::XMMATRIX world = DirectX::XMMatrixIdentity();
+    DirectX::XMMATRIX view = (*mCamera).GetView();
+    DirectX::XMMATRIX proj = (*mCamera).GetProj();
+    DirectX::XMMATRIX viewProj = XMMatrixMultiply(view, proj);
+
+    DirectX::XMStoreFloat4x4(&MeshPipeline::m_constantBufferData.World, DirectX::XMMatrixTranspose(world));
+    DirectX::XMStoreFloat4x4(&MeshPipeline::m_constantBufferData.WorldView, DirectX::XMMatrixTranspose(world * view));
+    DirectX::XMStoreFloat4x4(&MeshPipeline::m_constantBufferData.WorldViewProj, DirectX::XMMatrixTranspose(world * view * proj));
+    MeshPipeline::m_constantBufferData.DrawMeshlets = true;
+
+    memcpy(MeshPipeline::m_cbvDataBegin, &MeshPipeline::m_constantBufferData, sizeof(MeshPipeline::m_constantBufferData));
 }

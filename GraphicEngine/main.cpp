@@ -32,6 +32,10 @@
 #include "SamplerManager.h"
 #include "CBManager.h"
 #include "GeometryManager.h"
+#include "MeshPipelineModel.h"
+#include "MeshPipeline.h"
+
+#include "Shared.h"
 
 #include "CommonData.h"
 
@@ -457,6 +461,10 @@ void Engine::Update(const GameTimer& gt)
     if (activeSceneID == 16)
     {
         CBManager::UpdateAtmosphereCB();
+    }
+    if (activeSceneID == 18)
+    {
+        CBManager::UpdateMeshRenderCB();
     }
     timeScene2 = ParseTime(gt);
 }
@@ -1977,6 +1985,20 @@ void Engine::Draw(const GameTimer& gt)
 
             DrawRenderItemsScene15(mCommandList.Get(), GeometryManager::mRitemLayer[(int)RenderLayer::Scene15]);
 
+            /*mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureSkyBox"].Get());
+
+            mCommandList->OMSetRenderTargets(1, &rtvs2, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(PSOManager::mPSOs["skyboxPSO"].Get());
+
+            passCB = CBManager::mCurrFrameResource->PassCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+            DrawSkybox(mCommandList.Get(), GeometryManager::mRitemLayer[(int)RenderLayer::Sky]);*/
+
             // Indicate a state transition on the resource usage.
             auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
@@ -2160,18 +2182,48 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
 
         DrawMarchingCubesScene17(mCommandList.Get());
+    }
 
-        // Indicate a state transition on the resource usage.
-        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
-        mCommandList->ResourceBarrier(1, &barrier1);
+    else if (activeSceneID == 18)
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
+
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+            D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+
+        mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureMeshPipeline"].Get());
+        mCommandList->RSSetViewports(1, &viewports[4]);
+        mCommandList->RSSetScissorRects(1, &rects[4]);
+
+        mCommandList->OMSetRenderTargets(1, &rtv, false, &dsv);
+
+        mCommandList->SetPipelineState(PSOManager::mMeshPipelineState.Get());
+
+        mCommandList->SetGraphicsRootConstantBufferView(0, MeshPipeline::m_constantBuffer->GetGPUVirtualAddress());
+
+        for (auto& mesh : MeshPipeline::m_model)
+        {
+            mCommandList->SetGraphicsRoot32BitConstant(1, mesh.IndexSize, 0);
+            mCommandList->SetGraphicsRootShaderResourceView(2, mesh.VertexResources[0]->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootShaderResourceView(3, mesh.MeshletResource->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootShaderResourceView(4, mesh.UniqueVertexIndexResource->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootShaderResourceView(5, mesh.PrimitiveIndexResource->GetGPUVirtualAddress());
+
+            for (auto& subset : mesh.MeshletSubsets)
+            {
+                mCommandList->SetGraphicsRoot32BitConstant(1, subset.Offset, 1);
+                mCommandList->DispatchMesh(subset.Count, 1, 1);
+            }
+        }
     }
     
 
     // Draw screen quad
     if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
         && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9 && activeSceneID != 12
-        && activeSceneID != 13 && activeSceneID != 14 && activeSceneID != 15 && activeSceneID != 16 && activeSceneID != 17)
+        && activeSceneID != 13 && activeSceneID != 14 && activeSceneID != 15 && activeSceneID != 16 && activeSceneID != 17
+        && activeSceneID != 18)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -5417,4 +5469,16 @@ void Engine::CalculateCascadedShadowsCameras()
 
     CBManager::mCameraShadowMap2048->SetLensFromCoords(minX, maxX, minY, maxY, minZ, maxZ);
     CBManager::UpdateShadowTransformCascaded(*CBManager::mCameraShadowMap2048, 3, center, minX, maxX, minY, maxY, minZ, maxZ);
+}
+
+bool CheckMeshShaderSupport(ID3D12Device* device)
+{
+    D3D12_FEATURE_DATA_D3D12_OPTIONS7 options7 = {};
+    HRESULT hr = device->CheckFeatureSupport(
+        D3D12_FEATURE_D3D12_OPTIONS7,
+        &options7,
+        sizeof(options7));
+
+    return SUCCEEDED(hr) &&
+        options7.MeshShaderTier != D3D12_MESH_SHADER_TIER_NOT_SUPPORTED;
 }

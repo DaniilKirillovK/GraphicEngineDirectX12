@@ -48,6 +48,7 @@ enum class RenderLayer : int
     Scene15 = 25,
     Scene16 = 26,
     Scene17 = 27,
+    Scene18 = 28,
     Count
 };
 

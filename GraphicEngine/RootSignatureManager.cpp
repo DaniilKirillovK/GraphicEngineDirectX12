@@ -1,4 +1,6 @@
 #include "RootSignatureManager.h"
+#include "InputLayoutShaderManager.h"
+#include "MeshPipeline.h"
 
 std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> RootSignatureManager::mRootSignatures = std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>>();
 
@@ -538,4 +540,12 @@ void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Devic
     CreateRootSignature(rootSigDescAtmosphere, "mRootSignatureAtmosphere", device, mRootSignatures);
     CreateRootSignature(rootSigDescCubeMarching, "mRootSignatureCubeMarching", device, mRootSignatures);
     CreateRootSignature(rootSigDescPaintCompute, "mRootSignatureTerrainPaint", device, mRootSignatures);
+
+    ID3D12Device2* device2 = nullptr;
+    device->QueryInterface(IID_PPV_ARGS(&device2));
+
+    device2->CreateRootSignature(0,
+       MeshPipeline::meshShader.data, 
+       MeshPipeline::meshShader.size,
+       IID_PPV_ARGS(&mRootSignatures["mRootSignatureMeshPipeline"]));
 }

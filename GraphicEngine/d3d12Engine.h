@@ -139,7 +139,7 @@ protected:
 
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> mCommandQueue;
     Microsoft::WRL::ComPtr<ID3D12CommandAllocator> mDirectCmdListAlloc;
-    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> mCommandList;
+    Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList6> mCommandList;
     Microsoft::WRL::ComPtr<ID3D12CommandSignature> mCommandSignature;
 
     static const int SwapChainBufferCount = 2;

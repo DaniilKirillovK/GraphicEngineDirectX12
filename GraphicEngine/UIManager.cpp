@@ -249,6 +249,7 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
         ImGui::Text("Scene 15: TAA");
         ImGui::Text("Scene 16: Atmosphere");
         ImGui::Text("Scene 17: Cube Marching");
+        ImGui::Text("Scene 18: Mesh Pipeline");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -363,6 +364,12 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
             if (ImGui::Button("Scene 17", ImVec2(80, 40)))
             {
                 activeSceneID = 17;
+            }
+
+            ImGui::TableSetColumnIndex(1);
+            if (ImGui::Button("Scene 18", ImVec2(80, 40)))
+            {
+                activeSceneID = 18;
             }
 
             ImGui::EndTable();
@@ -835,6 +842,10 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
             }
         }
         else if (activeSceneID == 17)
+        {
+            ImGui::Text("");
+        }
+        else if (activeSceneID == 18)
         {
             ImGui::Text("");
         }

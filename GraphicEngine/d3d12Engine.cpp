@@ -10,6 +10,7 @@
 #include "imgui_impl_dx12.h"
 
 #include "CommonData.h"
+#include "MeshPipeline.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace std;
@@ -491,12 +492,13 @@ ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
 DescriptorHeapManager::mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+MeshPipeline::LoadAssets(md3dDevice, mDirectCmdListAlloc, mCommandQueue, mCommandList);
 GeometryManager::LoadTextures(mCommandList, md3dDevice);
+InputLayoutShaderManager::BuildShadersAndInputLayout();
 RootSignatureManager::BuildRootSignature(md3dDevice);
 GeometryManager::BuildShadowMaps(md3dDevice);
 DescriptorHeapManager::BuildDescriptorHeaps(md3dDevice);
 DescriptorHeapManager::UploadTextures(md3dDevice);
-InputLayoutShaderManager::BuildShadersAndInputLayout();
 GeometryManager::BuildSkyboxGeometry(mCommandList, md3dDevice);
 GeometryManager::BuildShapeGeometry(mCommandList, md3dDevice);
 GeometryManager::BuildScene3Geometry(mCommandList, md3dDevice);
@@ -538,6 +540,7 @@ DescriptorHeapManager::UploadTextures3(md3dDevice);
 
 BuildPostProcessingResources();
 CreateNoiseTexture();
+
 
 
 

@@ -1,6 +1,9 @@
 #include "PSOManager.h"
+#include "d3dx12.h"
+#include "MeshPipeline.h"
 
 std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>> PSOManager::mPSOs = std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12PipelineState>>();
+Microsoft::WRL::ComPtr<ID3D12PipelineState> PSOManager::mMeshPipelineState = Microsoft::WRL::ComPtr<ID3D12PipelineState>();
 
 void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPtr<ID3D12RootSignature>> rootSignatures,
     std::unordered_map<std::string, std::vector<D3D12_INPUT_ELEMENT_DESC>> inputLayouts,
@@ -1279,4 +1282,32 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     cubeMarchingPsoDesc.SampleDesc.Quality = 0;
     cubeMarchingPsoDesc.DSVFormat = depthStencilFormat;
     ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&cubeMarchingPsoDesc, IID_PPV_ARGS(&mPSOs["CubeMarchingPSO"])));
+
+    D3DX12_MESH_SHADER_PIPELINE_STATE_DESC meshPsoDesc = {};
+    ZeroMemory(&meshPsoDesc, sizeof(D3DX12_MESH_SHADER_PIPELINE_STATE_DESC));
+    meshPsoDesc.pRootSignature = rootSignatures["mRootSignatureMeshPipeline"].Get();
+    meshPsoDesc.MS = { MeshPipeline::meshShader.data, MeshPipeline::meshShader.size };
+    meshPsoDesc.PS = { MeshPipeline::pixelShader.data, MeshPipeline::pixelShader.size };
+    meshPsoDesc.NumRenderTargets = 1;
+    meshPsoDesc.RTVFormats[0] = backBufferFormat;
+    meshPsoDesc.DSVFormat = depthStencilFormat;
+    meshPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);    // CW front; cull back
+    meshPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
+    meshPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);         // Opaque
+    meshPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT); // Less-equal depth test w/ writes; no stencil
+    meshPsoDesc.SampleMask = UINT_MAX;
+    meshPsoDesc.SampleDesc.Count = 1;
+    meshPsoDesc.SampleDesc.Quality = 0;
+    meshPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+
+    auto psoStream = CD3DX12_PIPELINE_MESH_STATE_STREAM(meshPsoDesc);
+
+    D3D12_PIPELINE_STATE_STREAM_DESC streamDesc;
+    streamDesc.pPipelineStateSubobjectStream = &psoStream;
+    streamDesc.SizeInBytes = sizeof(psoStream);
+
+    ID3D12Device2* device2 = nullptr;
+    md3dDevice->QueryInterface(IID_PPV_ARGS(&device2));
+
+    ThrowIfFailed(device2->CreatePipelineState(&streamDesc, IID_PPV_ARGS(&mMeshPipelineState)));
 }
