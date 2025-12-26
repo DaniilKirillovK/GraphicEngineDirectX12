@@ -218,6 +218,8 @@ float scene16RayleiCoef[3] = { 6.95e-6f, 1.18e-5f, 2.44e-5f };
 float scene16MieCoef = { 2.1e-5f };
 DirectX::XMFLOAT3 scene16SunPosition = { 0.0f, -sin(2.f * 3.1415926535f), -cos(2.f * 3.1415926535f) };
 
+bool bIsUsingTexturingScene18 = true;
+
 
 void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
     std::vector<std::unique_ptr<RenderItem>>& allRitems,
@@ -848,6 +850,7 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
         else if (activeSceneID == 18)
         {
             ImGui::Text("");
+            ImGui::Checkbox("Texturing", &bIsUsingTexturingScene18);
         }
     } ImGui::End();
 

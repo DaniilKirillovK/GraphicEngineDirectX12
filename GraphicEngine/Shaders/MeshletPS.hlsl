@@ -22,10 +22,15 @@ struct VertexOut
     float4 PositionHS : SV_Position;
     float3 PositionVS : POSITION0;
     float3 Normal : NORMAL0;
+    float2 TexCoord : TEXCOORD;
     uint MeshletIndex : COLOR0;
 };
 
 ConstantBuffer<Constants> Globals : register(b0);
+Texture2D<float4> gTexture : register(t0);
+
+SamplerState linearSampler : register(s0);
+SamplerState pointSampler : register(s1);
 
 float4 main(VertexOut input) : SV_TARGET
 {
@@ -39,15 +44,15 @@ float4 main(VertexOut input) : SV_TARGET
     {
         uint meshletIndex = input.MeshletIndex;
         diffuseColor = float3(
-            float(meshletIndex & 1),
-            float(meshletIndex & 3) / 4,
-            float(meshletIndex & 7) / 8);
+        float(meshletIndex & 1) / 2,
+        float(meshletIndex & 3) / 4,
+        float(meshletIndex & 7) / 8);
         shininess = 16.0;
     }
     else
     {
-        diffuseColor = 0.8;
-        shininess = 64.0;
+        diffuseColor = float3(gTexture.Sample(linearSampler, input.TexCoord).xyz);
+        shininess = 16.0;
     }
 
     float3 normal = normalize(input.Normal);

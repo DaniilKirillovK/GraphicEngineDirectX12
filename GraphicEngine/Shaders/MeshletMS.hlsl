@@ -10,11 +10,14 @@
 //*********************************************************
 
 #define ROOT_SIG "CBV(b0), \
+                  DescriptorTable(SRV(t0)), \
                   RootConstants(b1, num32bitconstants=2), \
-                  SRV(t0), \
                   SRV(t1), \
                   SRV(t2), \
-                  SRV(t3)"
+                  SRV(t3), \
+                  SRV(t4), \
+                  StaticSampler(s0, filter=FILTER_MIN_MAG_MIP_LINEAR, addressU=TEXTURE_ADDRESS_WRAP), \
+                  StaticSampler(s1, filter=FILTER_MIN_MAG_MIP_POINT, addressU=TEXTURE_ADDRESS_CLAMP)"
 
 struct Constants
 {
@@ -34,6 +37,7 @@ struct Vertex
 {
     float3 Position;
     float3 Normal;
+    float2 TexCoord;
 };
 
 struct VertexOut
@@ -41,6 +45,7 @@ struct VertexOut
     float4 PositionHS : SV_Position;
     float3 PositionVS : POSITION0;
     float3 Normal : NORMAL0;
+    float2 TexCoord : TEXCOORD;
     uint MeshletIndex : COLOR0;
 };
 
@@ -55,10 +60,14 @@ struct Meshlet
 ConstantBuffer<Constants> Globals : register(b0);
 ConstantBuffer<MeshInfo> MeshInfoBuffer : register(b1);
 
-StructuredBuffer<Vertex> Vertices : register(t0);
-StructuredBuffer<Meshlet> Meshlets : register(t1);
-ByteAddressBuffer UniqueVertexIndices : register(t2);
-StructuredBuffer<uint> PrimitiveIndices : register(t3);
+Texture2D<float4> gTexture : register(t0);
+StructuredBuffer<Vertex> Vertices : register(t1);
+StructuredBuffer<Meshlet> Meshlets : register(t2);
+ByteAddressBuffer UniqueVertexIndices : register(t3);
+StructuredBuffer<uint> PrimitiveIndices : register(t4);
+
+SamplerState linearSampler : register(s0);
+SamplerState pointSampler : register(s1);
 
 
 /////
@@ -102,9 +111,10 @@ VertexOut GetVertexAttributes(uint meshletIndex, uint vertexIndex)
     Vertex v = Vertices[vertexIndex];
 
     VertexOut vout;
-    vout.PositionVS = mul(float4(v.Position, 1), Globals.WorldView).xyz;
-    vout.PositionHS = mul(float4(v.Position, 1), Globals.WorldViewProj);
+    vout.PositionVS = mul(float4(v.Position / 8, 1), Globals.WorldView).xyz;
+    vout.PositionHS = mul(float4(v.Position / 8, 1), Globals.WorldViewProj);
     vout.Normal = mul(float4(v.Normal, 0), Globals.World).xyz;
+    vout.TexCoord = v.TexCoord;
     vout.MeshletIndex = meshletIndex;
 
     return vout;

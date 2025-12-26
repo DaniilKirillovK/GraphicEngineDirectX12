@@ -1340,6 +1340,14 @@ void GeometryManager::LoadTextures(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandL
         mCommandList.Get(), HamburgerRoughness->Filename.c_str(),
         HamburgerRoughness->Resource, HamburgerRoughness->UploadHeap), true);
     GeometryManager::mTextures[HamburgerRoughness->Name] = std::move(HamburgerRoughness);
+
+    auto DropshipTex = std::make_unique<Texture>();
+    DropshipTex->Name = "DropshipTex";
+    DropshipTex->Filename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Textures\\DropshipTex.dds";
+    ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
+        mCommandList.Get(), DropshipTex->Filename.c_str(),
+        DropshipTex->Resource, DropshipTex->UploadHeap), true);
+    GeometryManager::mTextures[DropshipTex->Name] = std::move(DropshipTex);
 }
 
 void GeometryManager::BuildSkyboxGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,

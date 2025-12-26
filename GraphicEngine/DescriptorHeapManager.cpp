@@ -46,7 +46,7 @@ void DescriptorHeapManager::BuildDescriptorHeaps(Microsoft::WRL::ComPtr<ID3D12De
     // Create the SRV heap.
     //
     D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-    srvHeapDesc.NumDescriptors = 75;
+    srvHeapDesc.NumDescriptors = 80;
     srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
     srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     ThrowIfFailed(device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvHeap)));
@@ -761,6 +761,20 @@ void DescriptorHeapManager::UploadTextures3(Microsoft::WRL::ComPtr<ID3D12Device>
     device->CreateShaderResourceView(HamburgerAO.Get(), &srvDesc1, hDescriptor2);
 
     hDescriptor2.Offset(1, mCbvSrvDescriptorSize);
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE hDescriptor3(mSrvHeap->GetCPUDescriptorHandleForHeapStart());
+    hDescriptor3.Offset(75, mCbvSrvDescriptorSize);
+
+    auto DropshipTex = GeometryManager::mTextures["DropshipTex"]->Resource;
+
+    srvDesc1.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc1.Format = DropshipTex->GetDesc().Format;
+    srvDesc1.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc1.Texture2D.MostDetailedMip = 0;
+    srvDesc1.Texture2D.MipLevels = DropshipTex->GetDesc().MipLevels;
+    device->CreateShaderResourceView(DropshipTex.Get(), &srvDesc1, hDescriptor3);
+
+    hDescriptor3.Offset(1, mCbvSrvDescriptorSize);
 }
 
 void DescriptorHeapManager::CreateScene3RTV(Microsoft::WRL::ComPtr<ID3D12Device> device)

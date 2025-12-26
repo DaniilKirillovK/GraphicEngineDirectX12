@@ -1,6 +1,6 @@
 #include "MeshPipeline.h"
 
-const wchar_t* MeshPipeline::c_meshFilename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Models\\Dragon_LOD0.bin";
+const wchar_t* MeshPipeline::c_meshFilename = L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Models\\dropship.bin";
 MeshPipelineModel MeshPipeline::m_model = MeshPipelineModel();
 Microsoft::WRL::ComPtr<ID3D12Resource> MeshPipeline::m_constantBuffer = Microsoft::WRL::ComPtr<ID3D12Resource>();
 UINT8* MeshPipeline::m_cbvDataBegin = nullptr;

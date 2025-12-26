@@ -215,6 +215,8 @@ extern float scene16RayleiCoef[3];
 extern float scene16MieCoef;
 extern DirectX::XMFLOAT3 scene16SunPosition;
 
+extern bool bIsUsingTexturingScene18;
+
 
 
 static class UIManager

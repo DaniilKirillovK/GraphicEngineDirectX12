@@ -1770,7 +1770,7 @@ void CBManager::UpdateMeshRenderCB()
     DirectX::XMStoreFloat4x4(&MeshPipeline::m_constantBufferData.World, DirectX::XMMatrixTranspose(world));
     DirectX::XMStoreFloat4x4(&MeshPipeline::m_constantBufferData.WorldView, DirectX::XMMatrixTranspose(world * view));
     DirectX::XMStoreFloat4x4(&MeshPipeline::m_constantBufferData.WorldViewProj, DirectX::XMMatrixTranspose(world * view * proj));
-    MeshPipeline::m_constantBufferData.DrawMeshlets = true;
+    MeshPipeline::m_constantBufferData.DrawMeshlets = !bIsUsingTexturingScene18;
 
     memcpy(MeshPipeline::m_cbvDataBegin, &MeshPipeline::m_constantBufferData, sizeof(MeshPipeline::m_constantBufferData));
 }

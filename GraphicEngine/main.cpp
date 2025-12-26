@@ -2192,6 +2192,8 @@ void Engine::Draw(const GameTimer& gt)
             D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
         mCommandList->ResourceBarrier(1, &backBuffer);
 
+        mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
         mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureMeshPipeline"].Get());
         mCommandList->RSSetViewports(1, &viewports[4]);
         mCommandList->RSSetScissorRects(1, &rects[4]);
@@ -2201,18 +2203,21 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->SetPipelineState(PSOManager::mMeshPipelineState.Get());
 
         mCommandList->SetGraphicsRootConstantBufferView(0, MeshPipeline::m_constantBuffer->GetGPUVirtualAddress());
+        CD3DX12_GPU_DESCRIPTOR_HANDLE tex(DescriptorHeapManager::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+        tex.Offset(75, DescriptorHeapManager::mCbvSrvDescriptorSize);
+        mCommandList->SetGraphicsRootDescriptorTable(1, tex);
 
         for (auto& mesh : MeshPipeline::m_model)
         {
-            mCommandList->SetGraphicsRoot32BitConstant(1, mesh.IndexSize, 0);
-            mCommandList->SetGraphicsRootShaderResourceView(2, mesh.VertexResources[0]->GetGPUVirtualAddress());
-            mCommandList->SetGraphicsRootShaderResourceView(3, mesh.MeshletResource->GetGPUVirtualAddress());
-            mCommandList->SetGraphicsRootShaderResourceView(4, mesh.UniqueVertexIndexResource->GetGPUVirtualAddress());
-            mCommandList->SetGraphicsRootShaderResourceView(5, mesh.PrimitiveIndexResource->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRoot32BitConstant(2, mesh.IndexSize, 0);
+            mCommandList->SetGraphicsRootShaderResourceView(3, mesh.VertexResources[0]->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootShaderResourceView(4, mesh.MeshletResource->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootShaderResourceView(5, mesh.UniqueVertexIndexResource->GetGPUVirtualAddress());
+            mCommandList->SetGraphicsRootShaderResourceView(6, mesh.PrimitiveIndexResource->GetGPUVirtualAddress());
 
             for (auto& subset : mesh.MeshletSubsets)
             {
-                mCommandList->SetGraphicsRoot32BitConstant(1, subset.Offset, 1);
+                mCommandList->SetGraphicsRoot32BitConstant(2, subset.Offset, 1);
                 mCommandList->DispatchMesh(subset.Count, 1, 1);
             }
         }
