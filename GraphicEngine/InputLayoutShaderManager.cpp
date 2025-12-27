@@ -159,6 +159,16 @@ void InputLayoutShaderManager::BuildShadersAndInputLayout()
 
     mShaders["TerrainPaintingCS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\PaintCompute.hlsl", nullptr, "CSMain", "cs_5_1");
 
+    mShaders["ExtractBrightVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ExtractBright.hlsl", nullptr, "VSMain", "vs_5_1");
+    mShaders["ExtractBrightPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\ExtractBright.hlsl", nullptr, "ExtractBrightPS", "ps_5_1");
+    mShaders["GaussBlurVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\GaussBlur.hlsl", nullptr, "VSMain", "vs_5_1");
+    mShaders["GaussBlurPS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\GaussBlur.hlsl", nullptr, "BlurPS", "ps_5_1");
+    mShaders["BloomCombineVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\BloomCombine.hlsl", nullptr, "VSMain", "vs_5_1");
+    mShaders["BloomCombinePS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\BloomCombine.hlsl", nullptr, "PSMain", "ps_5_1");
+
+    mShaders["LightSourceVS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\LightSource.hlsl", nullptr, "VS", "vs_5_1");
+    mShaders["LightSourcePS"] = d3dUtil::CompileShader(L"C:\\Users\\MSI SWORD 15\\source\\repos\\GraphicEngineDirectX12\\GraphicEngine\\Shaders\\LightSource.hlsl", nullptr, "PS", "ps_5_1");
+
     mInputLayouts["InputLayout"] =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },

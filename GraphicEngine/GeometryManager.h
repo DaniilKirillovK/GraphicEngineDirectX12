@@ -49,6 +49,7 @@ enum class RenderLayer : int
     Scene16 = 26,
     Scene17 = 27,
     Scene18 = 28,
+    Scene19 = 29,
     Count
 };
 
@@ -130,6 +131,9 @@ public:
         Microsoft::WRL::ComPtr<ID3D12Device> device);
 
     static void BuildSponzaGeometryAndTextures(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
+        Microsoft::WRL::ComPtr<ID3D12Device> device);
+
+    static void BuildScene19LightSourcesGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
         Microsoft::WRL::ComPtr<ID3D12Device> device);
 
 

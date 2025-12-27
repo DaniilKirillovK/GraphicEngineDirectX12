@@ -1310,4 +1310,101 @@ void PSOManager::BuildPSOs(std::unordered_map<std::string, Microsoft::WRL::ComPt
     md3dDevice->QueryInterface(IID_PPV_ARGS(&device2));
 
     ThrowIfFailed(device2->CreatePipelineState(&streamDesc, IID_PPV_ARGS(&mMeshPipelineState)));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC extractPsoDesc = {};
+    ZeroMemory(&extractPsoDesc, sizeof(D3DX12_MESH_SHADER_PIPELINE_STATE_DESC));
+    extractPsoDesc.InputLayout.NumElements = 0;
+    extractPsoDesc.InputLayout.pInputElementDescs = nullptr;
+    extractPsoDesc.pRootSignature = rootSignatures["mRootSignatureExtractBright"].Get();
+    extractPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(shaders["ExtractBrightVS"]->GetBufferPointer()),
+        shaders["ExtractBrightVS"]->GetBufferSize()
+    };
+    extractPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(shaders["ExtractBrightPS"]->GetBufferPointer()),
+        shaders["ExtractBrightPS"]->GetBufferSize()
+    };
+    extractPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    extractPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    extractPsoDesc.DepthStencilState.DepthEnable = FALSE;
+    extractPsoDesc.DepthStencilState.StencilEnable = FALSE;
+    extractPsoDesc.SampleMask = UINT_MAX;
+    extractPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    extractPsoDesc.NumRenderTargets = 1;
+    extractPsoDesc.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    extractPsoDesc.SampleDesc.Count = 1;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+        &extractPsoDesc, IID_PPV_ARGS(&mPSOs["ExtractBrightPSO"])
+    ));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC blurHorizontalPsoDesc = extractPsoDesc;
+    blurHorizontalPsoDesc.pRootSignature = rootSignatures["mRootSignatureGaussBlur"].Get();
+    blurHorizontalPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(shaders["GaussBlurVS"]->GetBufferPointer()),
+        shaders["GaussBlurVS"]->GetBufferSize()
+    };
+    blurHorizontalPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(shaders["GaussBlurPS"]->GetBufferPointer()),
+        shaders["GaussBlurPS"]->GetBufferSize()
+    };
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+        &blurHorizontalPsoDesc, IID_PPV_ARGS(&mPSOs["GaussBlurPSO"])
+    ));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC combineBloomPsoDesc = extractPsoDesc;
+    combineBloomPsoDesc.pRootSignature = rootSignatures["mRootSignatureBloomCombine"].Get();
+    combineBloomPsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(shaders["BloomCombineVS"]->GetBufferPointer()),
+        shaders["BloomCombineVS"]->GetBufferSize()
+    };
+    combineBloomPsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(shaders["BloomCombinePS"]->GetBufferPointer()),
+        shaders["BloomCombinePS"]->GetBufferSize()
+    };
+    combineBloomPsoDesc.RTVFormats[0] = backBufferFormat;
+
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+        &combineBloomPsoDesc, IID_PPV_ARGS(&mPSOs["BloomCombinePSO"])
+    ));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC bloomSourcePso = forwardRTPsoDesc;
+    bloomSourcePso.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+        &bloomSourcePso, IID_PPV_ARGS(&mPSOs["BloomSourcePSO"])
+    ));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC HDRSkyboxPso = skyboxPsoDesc;
+    HDRSkyboxPso.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+        &HDRSkyboxPso, IID_PPV_ARGS(&mPSOs["HDRskyboxPSO"])
+    ));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC lightSourcePsoDesc = forwardRTPsoDesc;
+    lightSourcePsoDesc.pRootSignature = rootSignatures["mRootSignatureLightSource"].Get();
+    lightSourcePsoDesc.VS =
+    {
+        reinterpret_cast<BYTE*>(shaders["LightSourceVS"]->GetBufferPointer()),
+        shaders["LightSourceVS"]->GetBufferSize()
+    };
+    lightSourcePsoDesc.PS =
+    {
+        reinterpret_cast<BYTE*>(shaders["LightSourcePS"]->GetBufferPointer()),
+        shaders["LightSourcePS"]->GetBufferSize()
+    };
+    lightSourcePsoDesc.RTVFormats[0] = backBufferFormat;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+        &lightSourcePsoDesc, IID_PPV_ARGS(&mPSOs["LightSourcePSO"])
+    ));
+
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC lightSourceHDRPsoDesc = lightSourcePsoDesc;
+    lightSourceHDRPsoDesc.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(
+        &lightSourceHDRPsoDesc, IID_PPV_ARGS(&mPSOs["LightSourceHDRPSO"])
+    ));
 }

@@ -104,6 +104,7 @@ public:
     static void UpdateHeightMapCB();
     static void UpdateTerrainCB();
     static void UpdateScene15ObjectPosition(const GameTimer& gt);
+    static void UpdateScene19BloomConstants();
     static void UpdateAtmosphereCB();
     static void UpdatePaintClickCB();
     static void UpdateMeshRenderCB(const GameTimer& gt);

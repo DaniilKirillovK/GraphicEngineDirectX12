@@ -11,6 +11,7 @@
 
 #include "CommonData.h"
 #include "MeshPipeline.h"
+#include "Bloom.h"
 
 using Microsoft::WRL::ComPtr;
 using namespace std;
@@ -228,11 +229,27 @@ void D3D12Engine::OnResize()
 	mScreenViewport4.MinDepth = 0.0f;
 	mScreenViewport4.MaxDepth = 1.0f;
 
+	mScreenViewportHalf.TopLeftX = 0;
+	mScreenViewportHalf.TopLeftY = 0;
+	mScreenViewportHalf.Width = static_cast<float>(mClientWidth / 2);
+	mScreenViewportHalf.Height = static_cast<float>(mClientHeight / 2);
+	mScreenViewportHalf.MinDepth = 0.0f;
+	mScreenViewportHalf.MaxDepth = 1.0f;
+
+	mScreenViewportQuad.TopLeftX = 0;
+	mScreenViewportQuad.TopLeftY = 0;
+	mScreenViewportQuad.Width = static_cast<float>(mClientWidth / 4);
+	mScreenViewportQuad.Height = static_cast<float>(mClientHeight / 4);
+	mScreenViewportQuad.MinDepth = 0.0f;
+	mScreenViewportQuad.MaxDepth = 1.0f;
+
 	mScissorRectFull = { 0, 0, mClientWidth, mClientHeight };
 	mScissorRect = { mClientWidth / 5, 0, mClientWidth, mClientHeight };
 	mScissorRect2 = { 0, 0, mClientWidth / 5, mClientHeight / 3 };
 	mScissorRect3 = { 0, mClientHeight / 3, mClientWidth / 5, mClientHeight / 3 * 2 };
 	mScissorRect4 = { 0, mClientHeight / 3 * 2, mClientWidth / 5, mClientHeight };
+	mScissorRectHalf = { 0, 0, mClientWidth / 2, mClientHeight / 2 };
+	mScissorRectQuad = { 0, 0, mClientWidth / 4, mClientHeight / 4 };
 }
 
 LRESULT D3D12Engine::MsgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -515,6 +532,7 @@ GeometryManager::BuildScene10MoreLightGeometry(mCommandList, md3dDevice);
 GeometryManager::BuildScene12Geometry(mCommandList, md3dDevice);
 GeometryManager::BuildScene13Geometry(mCommandList, md3dDevice);
 GeometryManager::BuildScene14Geometry(mCommandList, md3dDevice);
+GeometryManager::BuildScene19LightSourcesGeometry(mCommandList, md3dDevice);
 GeometryManager::BuildScene15Geometry(mCommandList, md3dDevice);
 GeometryManager::BuildQuadTreeTerrain(mCommandList, md3dDevice);
 GeometryManager::BuildSponzaGeometryAndTextures(mCommandList, md3dDevice);
@@ -540,6 +558,7 @@ DescriptorHeapManager::UploadTextures3(md3dDevice);
 
 BuildPostProcessingResources();
 CreateNoiseTexture();
+Bloom::Init(md3dDevice, mClientWidth, mClientHeight);
 
 
 

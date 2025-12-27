@@ -167,6 +167,7 @@ private:
     void DrawRenderItemsScene14(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawTerrainScene14(ID3D12GraphicsCommandList* cmdList);
     void DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList);
+    void DrawLightSourcesScene19(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 
     void DrawRenderItemsScene15(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawRenderItemsScene15TAA(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -466,6 +467,10 @@ void Engine::Update(const GameTimer& gt)
     {
         CBManager::UpdateMeshRenderCB(gt);
     }
+    if (activeSceneID == 19)
+    {
+        CBManager::UpdateScene19BloomConstants();
+    }
     timeScene2 = ParseTime(gt);
 }
 
@@ -505,8 +510,8 @@ void Engine::Draw(const GameTimer& gt)
         ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), PSOManager::mPSOs["shadowForwardPSO"].Get()));
     }
 
-    D3D12_VIEWPORT viewports[] = { mScreenViewport, mScreenViewport2, mScreenViewport3, mScreenViewport4, mScreenViewportFull };
-    D3D12_RECT rects[] = { mScissorRect, mScissorRect2, mScissorRect3, mScissorRect4, mScissorRectFull };
+    D3D12_VIEWPORT viewports[] = { mScreenViewport, mScreenViewport2, mScreenViewport3, mScreenViewport4, mScreenViewportFull, mScreenViewportHalf, mScreenViewportQuad };
+    D3D12_RECT rects[] = { mScissorRect, mScissorRect2, mScissorRect3, mScissorRect4, mScissorRectFull, mScissorRectHalf, mScissorRectQuad };
 
     // Clear the back buffer and depth buffer.
     auto barrier1Clear = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
@@ -1952,13 +1957,8 @@ void Engine::Draw(const GameTimer& gt)
         mCommandList->ResourceBarrier(1, &barrier1);
     }
 
-    else if (activeSceneID == 15 && !bIsPausedScene15 || (activeSceneID == 15 && drawScene15))
+    else if (activeSceneID == 15)
     {
-        if (drawScene15)
-        {
-            drawScene15 = false;
-        }
-
         if (selectedRenderModeScene15 == 0)
         {
             D3D12_CPU_DESCRIPTOR_HANDLE rtvs2 = CurrentBackBufferView();
@@ -2222,13 +2222,285 @@ void Engine::Draw(const GameTimer& gt)
             }
         }
     }
+
+    else if (activeSceneID == 19)
+    {
+        auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mSourceTexture.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        mCommandList->ResourceBarrier(1, &backBuffer);
+        mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 4, DescriptorHeapManager::mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+        auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mSourceTexture.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        mCommandList->ResourceBarrier(1, &barrier1);
+
+        // Bloom
+        if (bIsBloomActiveScene19)
+        {
+            {
+                CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+                rtvHandle.Offset(4, DescriptorHeapManager::mRtvDescriptorSize);
+
+                auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mSourceTexture.Get(),
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                mCommandList->ResourceBarrier(1, &backBuffer);
+
+                mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureRT"].Get());
+
+                passCB = CBManager::mCurrFrameResource->PassCB->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+                mCommandList->OMSetRenderTargets(1, &rtvHandle, false, &dsv);
+
+                mCommandList->RSSetViewports(1, &viewports[4]);
+                mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                mCommandList->SetPipelineState(PSOManager::mPSOs["BloomSourcePSO"].Get());
+
+                ID3D12DescriptorHeap* descriptorHeapSponza[] = { DescriptorHeapManager::mSponzaSrvHeap.Get() };
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeapSponza), descriptorHeapSponza);
+                DrawSponzaScene(mCommandList.Get());
+
+                mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureLightSource"].Get());
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+                mCommandList->SetPipelineState(PSOManager::mPSOs["LightSourceHDRPSO"].Get());
+
+                passCB = CBManager::mCurrFrameResource->PassCB->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+                DrawLightSourcesScene19(mCommandList.Get(), GeometryManager::mRitemLayer[(int)RenderLayer::Scene19]);
+
+                mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureSkyBox"].Get());
+                mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+                mCommandList->SetPipelineState(PSOManager::mPSOs["HDRskyboxPSO"].Get());
+
+                passCB = CBManager::mCurrFrameResource->PassCB->Resource();
+                mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+                DrawSkybox(mCommandList.Get(), GeometryManager::mRitemLayer[(int)RenderLayer::Sky]);
+
+                // Indicate a state transition on the resource usage.
+                auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mSourceTexture.Get(),
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                mCommandList->ResourceBarrier(1, &barrier1);
+            }
+
+            {
+                ID3D12DescriptorHeap* bloomDescriptorHeaps[] = { Bloom::mSrvHeap.Get() };
+
+                auto barrier1Clear = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBlurTextures[0].Get(),
+                    D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                auto barrier2Clear = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBrightnessTexture.Get(),
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                auto barrier3Clear = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBlurTextures[1].Get(),
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                auto barrier4Clear = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBloomResultTexture.Get(),
+                    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                CD3DX12_RESOURCE_BARRIER barriersClearOpen[] = { barrier1Clear, barrier2Clear, barrier3Clear, barrier4Clear };
+                mCommandList->ResourceBarrier(4, barriersClearOpen);
+
+                mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 0, DescriptorHeapManager::mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+                mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 1, DescriptorHeapManager::mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+                mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 2, DescriptorHeapManager::mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+                mCommandList->ClearRenderTargetView(CD3DX12_CPU_DESCRIPTOR_HANDLE(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart(), 3, DescriptorHeapManager::mRtvDescriptorSize), DirectX::Colors::Black, 0, nullptr);
+
+                auto barrier1ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBlurTextures[0].Get(),
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+                auto barrier2ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBlurTextures[1].Get(),
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                auto barrier3ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBrightnessTexture.Get(),
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                auto barrier4ClearEnd = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBloomResultTexture.Get(),
+                    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                CD3DX12_RESOURCE_BARRIER barriersClearClose[] = { barrier1ClearEnd, barrier2ClearEnd, barrier3ClearEnd, barrier4ClearEnd };
+                mCommandList->ResourceBarrier(4, barriersClearClose);
+
+                // Extract Bright
+                {
+                    auto openBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBrightnessTexture.Get(),
+                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                    mCommandList->ResourceBarrier(1, &openBarrier);
+                    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+
+                    mCommandList->SetDescriptorHeaps(1, bloomDescriptorHeaps);
+
+                    mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureExtractBright"].Get());
+
+                    CD3DX12_GPU_DESCRIPTOR_HANDLE currentTexSrv(Bloom::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                    currentTexSrv.Offset(4, DescriptorHeapManager::mCbvSrvDescriptorSize);
+                    mCommandList->SetGraphicsRootDescriptorTable(0, currentTexSrv);
+                    passCB = CBManager::mCurrFrameResource->ExtractBrightCB->Resource();
+                    mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+                    mCommandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+                    mCommandList->RSSetViewports(1, &viewports[5]);
+                    mCommandList->RSSetScissorRects(1, &rects[5]);
+
+                    mCommandList->SetPipelineState(PSOManager::mPSOs["ExtractBrightPSO"].Get());
+
+                    mCommandList->DrawInstanced(4, 1, 0, 0);
+
+                    auto closeBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mSourceTexture.Get(),
+                        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    mCommandList->ResourceBarrier(1, &closeBarrier);
+                }
+
+                // Horizontal Gauss Blur
+                {
+                    auto openBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBlurTextures[0].Get(),
+                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                    mCommandList->ResourceBarrier(1, &openBarrier);
+
+                    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+                    rtvHandle.Offset(1, DescriptorHeapManager::mRtvDescriptorSize);
+
+                    mCommandList->SetDescriptorHeaps(1, bloomDescriptorHeaps);
+
+                    mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureGaussBlur"].Get());
+
+                    CD3DX12_GPU_DESCRIPTOR_HANDLE currentTexSrv(Bloom::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                    mCommandList->SetGraphicsRootDescriptorTable(0, currentTexSrv);
+                    passCB = CBManager::mCurrFrameResource->HorizontalBlurCB->Resource();
+                    mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+                    mCommandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+                    mCommandList->RSSetViewports(1, &viewports[5]);
+                    mCommandList->RSSetScissorRects(1, &rects[5]);
+
+                    mCommandList->SetPipelineState(PSOManager::mPSOs["GaussBlurPSO"].Get());
+
+                    mCommandList->DrawInstanced(4, 1, 0, 0);
+
+                    auto closeBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBlurTextures[0].Get(),
+                        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    mCommandList->ResourceBarrier(1, &closeBarrier);
+                }
+
+                // Verticl Gauss Blur
+                {
+                    auto openBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBlurTextures[1].Get(),
+                        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                    mCommandList->ResourceBarrier(1, &openBarrier);
+
+                    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(Bloom::mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+                    rtvHandle.Offset(2, DescriptorHeapManager::mRtvDescriptorSize);
+
+                    mCommandList->SetDescriptorHeaps(1, bloomDescriptorHeaps);
+
+                    mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureGaussBlur"].Get());
+
+                    CD3DX12_GPU_DESCRIPTOR_HANDLE currentTexSrv(Bloom::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                    currentTexSrv.Offset(1, DescriptorHeapManager::mCbvSrvDescriptorSize);
+                    mCommandList->SetGraphicsRootDescriptorTable(0, currentTexSrv);
+                    passCB = CBManager::mCurrFrameResource->VerticalBlurCB->Resource();
+                    mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+                    mCommandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+                    mCommandList->RSSetViewports(1, &viewports[5]);
+                    mCommandList->RSSetScissorRects(1, &rects[5]);
+
+                    mCommandList->SetPipelineState(PSOManager::mPSOs["GaussBlurPSO"].Get());
+
+                    mCommandList->DrawInstanced(4, 1, 0, 0);
+
+                    auto closeBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Bloom::mBlurTextures[1].Get(),
+                        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                    mCommandList->ResourceBarrier(1, &closeBarrier);
+                }
+
+                // Combine
+                {
+                    auto openBarrier = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                        D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+                    mCommandList->ResourceBarrier(1, &openBarrier);
+
+                    D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = CurrentBackBufferView();
+
+                    mCommandList->SetDescriptorHeaps(1, bloomDescriptorHeaps);
+
+                    mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureBloomCombine"].Get());
+
+                    CD3DX12_GPU_DESCRIPTOR_HANDLE currentTexSrv(Bloom::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                    currentTexSrv.Offset(2, DescriptorHeapManager::mCbvSrvDescriptorSize);
+                    mCommandList->SetGraphicsRootDescriptorTable(0, currentTexSrv);
+                    CD3DX12_GPU_DESCRIPTOR_HANDLE currentTexSrv2(Bloom::mSrvHeap->GetGPUDescriptorHandleForHeapStart());
+                    currentTexSrv2.Offset(4, DescriptorHeapManager::mCbvSrvDescriptorSize);
+                    mCommandList->SetGraphicsRootDescriptorTable(2, currentTexSrv2);
+                    passCB = CBManager::mCurrFrameResource->BloomCombineCB->Resource();
+                    mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+                    mCommandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+                    mCommandList->RSSetViewports(1, &viewports[4]);
+                    mCommandList->RSSetScissorRects(1, &rects[4]);
+
+                    mCommandList->SetPipelineState(PSOManager::mPSOs["BloomCombinePSO"].Get());
+
+                    mCommandList->DrawInstanced(4, 1, 0, 0);
+
+                    auto closeBarrier = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                        D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+                    mCommandList->ResourceBarrier(1, &closeBarrier);
+                }
+            }
+        }
+        else
+        {
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = CurrentBackBufferView();
+
+            auto backBuffer = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+            mCommandList->ResourceBarrier(1, &backBuffer);
+
+            mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureRT"].Get());
+
+            passCB = CBManager::mCurrFrameResource->PassCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+            mCommandList->OMSetRenderTargets(1, &rtvHandle, false, &dsv);
+
+            mCommandList->RSSetViewports(1, &viewports[4]);
+            mCommandList->RSSetScissorRects(1, &rects[4]);
+
+            mCommandList->SetPipelineState(PSOManager::mPSOs["forwardRT"].Get());
+
+            ID3D12DescriptorHeap* descriptorHeapSponza[] = { DescriptorHeapManager::mSponzaSrvHeap.Get() };
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeapSponza), descriptorHeapSponza);
+            DrawSponzaScene(mCommandList.Get());
+
+            mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureLightSource"].Get());
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+            mCommandList->SetPipelineState(PSOManager::mPSOs["LightSourcePSO"].Get());
+
+            passCB = CBManager::mCurrFrameResource->PassCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
+            DrawLightSourcesScene19(mCommandList.Get(), GeometryManager::mRitemLayer[(int)RenderLayer::Scene19]);
+
+            mCommandList->SetGraphicsRootSignature(RootSignatureManager::mRootSignatures["mRootSignatureSkyBox"].Get());
+            mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+            mCommandList->SetPipelineState(PSOManager::mPSOs["skyboxPSO"].Get());
+
+            passCB = CBManager::mCurrFrameResource->PassCB->Resource();
+            mCommandList->SetGraphicsRootConstantBufferView(2, passCB->GetGPUVirtualAddress());
+
+            DrawSkybox(mCommandList.Get(), GeometryManager::mRitemLayer[(int)RenderLayer::Sky]);
+
+            // Indicate a state transition on the resource usage.
+            auto barrier1 = CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
+                D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+            mCommandList->ResourceBarrier(1, &barrier1);
+        }
+    }
     
 
     // Draw screen quad
     if ((activeSceneID <= 2 || activeSceneID >= 4) && !(activeSceneID == 10 && selectedRenderTechScene10 == 0) && activeSceneID != 7 && !(activeSceneID == 6 && activeParticleSystemScene6 == 3)
         && !(activeSceneID == 10 && selectedRenderTechScene10 == 2) && activeSceneID != 9 && activeSceneID != 12
         && activeSceneID != 13 && activeSceneID != 14 && activeSceneID != 15 && activeSceneID != 16 && activeSceneID != 17
-        && activeSceneID != 18)
+        && activeSceneID != 18 && activeSceneID != 19)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtvs2;
         if (activeSceneID == 8)
@@ -2301,7 +2573,7 @@ void Engine::Draw(const GameTimer& gt)
     }
 
     // SkyBox
-    if (!(activeSceneID == 15) && activeSceneID != 16)
+    if (!(activeSceneID == 15) && activeSceneID != 16 && activeSceneID != 19)
     {
         D3D12_CPU_DESCRIPTOR_HANDLE rtv = CurrentBackBufferView();
 
@@ -4533,6 +4805,31 @@ void Engine::DrawDebugTerrainScene14(ID3D12GraphicsCommandList* cmdList)
             cmdList->SetGraphicsRootConstantBufferView(3, matCBAddress);
 
             cmdList->DrawIndexedInstanced(mesh.indices.size(), 1, 0, 0, 0);
+        }
+    }
+}
+
+void Engine::DrawLightSourcesScene19(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+    UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+    auto objectCB = CBManager::mCurrFrameResource->ObjectCB->Resource();
+
+    // For each render item...
+    for (size_t i = 0; i < ritems.size(); ++i)
+    {
+        {
+            auto ri = ritems[i];
+
+            auto tmp1 = ri->Geo->VertexBufferView();
+            auto tmp2 = ri->Geo->IndexBufferView();
+            cmdList->IASetVertexBuffers(0, 1, &tmp1);
+            cmdList->IASetIndexBuffer(&tmp2);
+            cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+            D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+            cmdList->SetGraphicsRootConstantBufferView(0, objCBAddress);
+
+            cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, ri->StartIndexLocation);
         }
     }
 }

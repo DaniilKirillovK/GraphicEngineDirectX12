@@ -4,6 +4,7 @@
 #include "MathHelper.h"
 #include "UploadBuffer.h"
 #include "Instancing.h"
+#include "Bloom.h"
 
 struct EmitterConstants
 {
@@ -330,6 +331,10 @@ public:
     std::unique_ptr<UploadBuffer<TAAObjectConstants>> TAAObjectsCB = nullptr;
     std::unique_ptr<UploadBuffer<AtmosphereConstants>> AtmosphereCB = nullptr;
     std::unique_ptr<UploadBuffer<PaintConstants>> PaintCB = nullptr;
+    std::unique_ptr<UploadBuffer<BlurConstants>> HorizontalBlurCB = nullptr;
+    std::unique_ptr<UploadBuffer<BlurConstants>> VerticalBlurCB = nullptr;
+    std::unique_ptr<UploadBuffer<CombineConstants>> BloomCombineCB = nullptr;
+    std::unique_ptr<UploadBuffer<ExtractBrightConstants>> ExtractBrightCB = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us
     // check if these frame resources are still in use by the GPU.

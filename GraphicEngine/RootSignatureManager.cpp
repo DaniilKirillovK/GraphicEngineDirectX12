@@ -131,6 +131,15 @@ void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Devic
     CD3DX12_DESCRIPTOR_RANGE texTable2TerrainPaint;
     texTable2TerrainPaint.Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0, 0);
 
+    CD3DX12_DESCRIPTOR_RANGE texTableExtractBright;
+    texTableExtractBright.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTableGaussBlur;
+    texTableGaussBlur.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTableBloomCombine;
+    texTableBloomCombine.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0);
+    CD3DX12_DESCRIPTOR_RANGE texTable2BloomCombine;
+    texTable2BloomCombine.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 1);
+
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
     CD3DX12_ROOT_PARAMETER slotRootParameter2[2];
@@ -185,6 +194,12 @@ void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Devic
     CD3DX12_ROOT_PARAMETER slotRootParameterCubeMarching[3];
 
     CD3DX12_ROOT_PARAMETER slotRootParameterPaint[3];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterExtractBright[2];
+    CD3DX12_ROOT_PARAMETER slotRootParameterGaussBlur[2];
+    CD3DX12_ROOT_PARAMETER slotRootParameterBloomCombine[3];
+
+    CD3DX12_ROOT_PARAMETER slotRootParameterLightSource[2];
 
     // Perfomance TIP: Order from most frequent to least frequent.
     slotRootParameter[0].InitAsDescriptorTable(1, &texTable);
@@ -362,6 +377,19 @@ void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Devic
     slotRootParameterPaint[1].InitAsDescriptorTable(1, &texTable1TerrainPaint);
     slotRootParameterPaint[2].InitAsDescriptorTable(1, &texTable2TerrainPaint);
 
+    slotRootParameterExtractBright[0].InitAsDescriptorTable(1, &texTableExtractBright);
+    slotRootParameterExtractBright[1].InitAsConstantBufferView(0);
+
+    slotRootParameterGaussBlur[0].InitAsDescriptorTable(1, &texTableGaussBlur);
+    slotRootParameterGaussBlur[1].InitAsConstantBufferView(0);
+
+    slotRootParameterBloomCombine[0].InitAsDescriptorTable(1, &texTableBloomCombine);
+    slotRootParameterBloomCombine[1].InitAsConstantBufferView(0);
+    slotRootParameterBloomCombine[2].InitAsDescriptorTable(1, &texTable2BloomCombine);
+
+    slotRootParameterLightSource[0].InitAsConstantBufferView(0);
+    slotRootParameterLightSource[1].InitAsConstantBufferView(1);
+
     auto staticSamplers = GetStaticSamplers();
     auto moreSamplers = GetMoreStaticSamplers();
     auto lodSamplers = GetLODStaticSamplers();
@@ -504,6 +532,22 @@ void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Devic
         (UINT)staticSamplers.size(), staticSamplers.data(),
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescExtractBright(2, slotRootParameterExtractBright,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescGaussBlur(2, slotRootParameterGaussBlur,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescBloomCombine(3, slotRootParameterBloomCombine,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDescLightSource(2, slotRootParameterLightSource,
+        (UINT)staticSamplers.size(), staticSamplers.data(),
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
     // create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
     CreateRootSignature(rootSigDesc, "mRootSignature", device, mRootSignatures);
     CreateRootSignature(rootSigDesc2, "mRootSignatureLight", device, mRootSignatures);
@@ -540,6 +584,10 @@ void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Devic
     CreateRootSignature(rootSigDescAtmosphere, "mRootSignatureAtmosphere", device, mRootSignatures);
     CreateRootSignature(rootSigDescCubeMarching, "mRootSignatureCubeMarching", device, mRootSignatures);
     CreateRootSignature(rootSigDescPaintCompute, "mRootSignatureTerrainPaint", device, mRootSignatures);
+    CreateRootSignature(rootSigDescExtractBright, "mRootSignatureExtractBright", device, mRootSignatures);
+    CreateRootSignature(rootSigDescGaussBlur, "mRootSignatureGaussBlur", device, mRootSignatures);
+    CreateRootSignature(rootSigDescBloomCombine, "mRootSignatureBloomCombine", device, mRootSignatures);
+    CreateRootSignature(rootSigDescLightSource, "mRootSignatureLightSource", device, mRootSignatures);
 
     ID3D12Device2* device2 = nullptr;
     device->QueryInterface(IID_PPV_ARGS(&device2));
@@ -548,4 +596,6 @@ void RootSignatureManager::BuildRootSignature(Microsoft::WRL::ComPtr<ID3D12Devic
        MeshPipeline::meshShader.data, 
        MeshPipeline::meshShader.size,
        IID_PPV_ARGS(&mRootSignatures["mRootSignatureMeshPipeline"]));
+
+
 }

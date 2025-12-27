@@ -35,6 +35,10 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     TAAObjectsCB = std::make_unique<UploadBuffer<TAAObjectConstants>>(device, objectCount, true);
     AtmosphereCB = std::make_unique<UploadBuffer<AtmosphereConstants>>(device, 1, true);
     PaintCB = std::make_unique<UploadBuffer<PaintConstants>>(device, 1, true);
+    HorizontalBlurCB = std::make_unique<UploadBuffer<BlurConstants>>(device, 1, true);
+    VerticalBlurCB = std::make_unique<UploadBuffer<BlurConstants>>(device, 1, true);
+    BloomCombineCB = std::make_unique<UploadBuffer<CombineConstants>>(device, 1, true);
+    ExtractBrightCB = std::make_unique<UploadBuffer<ExtractBrightConstants>>(device, 1, true);
 }
 
 FrameResource::~FrameResource()

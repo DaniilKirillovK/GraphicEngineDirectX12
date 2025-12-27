@@ -189,12 +189,16 @@ protected:
     D3D12_VIEWPORT mScreenViewport2;
     D3D12_VIEWPORT mScreenViewport3;
     D3D12_VIEWPORT mScreenViewport4;
+    D3D12_VIEWPORT mScreenViewportHalf;
+    D3D12_VIEWPORT mScreenViewportQuad;
 
     D3D12_RECT mScissorRectFull;
     D3D12_RECT mScissorRect;
     D3D12_RECT mScissorRect2;
     D3D12_RECT mScissorRect3;
     D3D12_RECT mScissorRect4;
+    D3D12_RECT mScissorRectHalf;
+    D3D12_RECT mScissorRectQuad;
 
     // Derived class should set these in derived constructor to customize starting values.
     std::wstring mMainWndCaption = L"D3D12Engine";

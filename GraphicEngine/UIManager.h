@@ -218,6 +218,9 @@ extern DirectX::XMFLOAT3 scene16SunPosition;
 extern bool bIsUsingTexturingScene18;
 extern int vertexAnimationModeScene18;
 
+extern bool bIsBloomActiveScene19;
+extern int bloomRadiusScene19;
+
 
 
 static class UIManager

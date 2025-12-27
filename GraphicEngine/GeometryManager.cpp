@@ -843,6 +843,45 @@ void GeometryManager::BuildRenderItems()
     mRitemLayer[(int)RenderLayer::Scene17].push_back(marchingCubesRitem.get());
     GeometryManager::mAllRitems.push_back(std::move(marchingCubesRitem));
 
+    auto lightSource1Scene19Ritem = std::make_unique<RenderItem>();
+    lightSource1Scene19Ritem->ObjCBIndex = 776;
+    lightSource1Scene19Ritem->World = MathHelper::Identity4x4();
+    lightSource1Scene19Ritem->TexTransform = MathHelper::Identity4x4();
+    lightSource1Scene19Ritem->Geo = GeometryManager::mGeometries["scene19Geo"].get();
+    lightSource1Scene19Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    lightSource1Scene19Ritem->IndexCount = lightSource1Scene19Ritem->Geo->DrawArgs["box1"].IndexCount;
+    lightSource1Scene19Ritem->StartIndexLocation = lightSource1Scene19Ritem->Geo->DrawArgs["box1"].StartIndexLocation;
+    lightSource1Scene19Ritem->BaseVertexLocation = lightSource1Scene19Ritem->Geo->DrawArgs["box1"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene19].push_back(lightSource1Scene19Ritem.get());
+    GeometryManager::mAllRitems.push_back(std::move(lightSource1Scene19Ritem));
+
+    auto lightSource2Scene19Ritem = std::make_unique<RenderItem>();
+    lightSource2Scene19Ritem->ObjCBIndex = 777;
+    lightSource2Scene19Ritem->World = MathHelper::Identity4x4();
+    lightSource2Scene19Ritem->TexTransform = MathHelper::Identity4x4();
+    lightSource2Scene19Ritem->Geo = GeometryManager::mGeometries["scene19Geo"].get();
+    lightSource2Scene19Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    lightSource2Scene19Ritem->IndexCount = lightSource2Scene19Ritem->Geo->DrawArgs["box2"].IndexCount;
+    lightSource2Scene19Ritem->StartIndexLocation = lightSource2Scene19Ritem->Geo->DrawArgs["box2"].StartIndexLocation;
+    lightSource2Scene19Ritem->BaseVertexLocation = lightSource2Scene19Ritem->Geo->DrawArgs["box2"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene19].push_back(lightSource2Scene19Ritem.get());
+    GeometryManager::mAllRitems.push_back(std::move(lightSource2Scene19Ritem));
+
+    auto lightSource3Scene19Ritem = std::make_unique<RenderItem>();
+    lightSource3Scene19Ritem->ObjCBIndex = 778;
+    lightSource3Scene19Ritem->World = MathHelper::Identity4x4();
+    lightSource3Scene19Ritem->TexTransform = MathHelper::Identity4x4();
+    lightSource3Scene19Ritem->Geo = GeometryManager::mGeometries["scene19Geo"].get();
+    lightSource3Scene19Ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+    lightSource3Scene19Ritem->IndexCount = lightSource3Scene19Ritem->Geo->DrawArgs["box3"].IndexCount;
+    lightSource3Scene19Ritem->StartIndexLocation = lightSource3Scene19Ritem->Geo->DrawArgs["box3"].StartIndexLocation;
+    lightSource3Scene19Ritem->BaseVertexLocation = lightSource3Scene19Ritem->Geo->DrawArgs["box3"].BaseVertexLocation;
+
+    mRitemLayer[(int)RenderLayer::Scene19].push_back(lightSource3Scene19Ritem.get());
+    GeometryManager::mAllRitems.push_back(std::move(lightSource3Scene19Ritem));
+
 
     for (int i = 0; i < GeometryManager::mAllRitems.size(); ++i)
     {
@@ -2864,4 +2903,97 @@ void GeometryManager::BuildSponzaGeometryAndTextures(Microsoft::WRL::ComPtr<ID3D
     LoadModel("Sponza/sponza.obj", Sponza, device.Get(),
         GeometryManager::mGeometries, commandList, DescriptorHeapManager::mSponzaSrvHeap, DescriptorHeapManager::mCbvSrvDescriptorSize,
         sponzaTextures, sponzaTexturesUpload);
+}
+
+void GeometryManager::BuildScene19LightSourcesGeometry(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList, Microsoft::WRL::ComPtr<ID3D12Device> device)
+{
+    GeometryGenerator geoGen;
+
+    GeometryGenerator::MeshData boxMesh1 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
+    GeometryGenerator::MeshData boxMesh2 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
+    GeometryGenerator::MeshData boxMesh3 = geoGen.CreateBoxTiling(2.2f, 2.2f, 2.2f, 0, 0);
+
+    UINT totalIndexCount = 0;
+    UINT totalVertexCount = 0;
+
+    SubmeshGeometry box1Submesh;
+    box1Submesh.IndexCount = (UINT)boxMesh1.Indices32.size();
+    box1Submesh.StartIndexLocation = totalIndexCount;
+    box1Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += box1Submesh.IndexCount;
+    totalVertexCount += boxMesh1.Vertices.size();
+    SubmeshGeometry box2Submesh;
+    box2Submesh.IndexCount = (UINT)boxMesh2.Indices32.size();
+    box2Submesh.StartIndexLocation = totalIndexCount;
+    box2Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += box2Submesh.IndexCount;
+    totalVertexCount += boxMesh2.Vertices.size();
+    SubmeshGeometry box3Submesh;
+    box3Submesh.IndexCount = (UINT)boxMesh3.Indices32.size();
+    box3Submesh.StartIndexLocation = totalIndexCount;
+    box3Submesh.BaseVertexLocation = totalVertexCount;
+    totalIndexCount += box3Submesh.IndexCount;
+    totalVertexCount += boxMesh3.Vertices.size();
+
+    std::vector<Vertex> vertices(totalVertexCount);
+    std::vector<std::uint16_t> indices;
+
+    UINT totalVertexCount2 = 0;
+    for (size_t i = 0; i < boxMesh1.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = boxMesh1.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = boxMesh1.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = boxMesh1.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = boxMesh1.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += boxMesh1.Vertices.size();
+    for (size_t i = 0; i < boxMesh2.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = boxMesh2.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = boxMesh2.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = boxMesh2.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = boxMesh2.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += boxMesh2.Vertices.size();
+    for (size_t i = 0; i < boxMesh3.Vertices.size(); ++i)
+    {
+        vertices[i + totalVertexCount2].Pos = boxMesh3.Vertices[i].Position;
+        vertices[i + totalVertexCount2].Normal = boxMesh3.Vertices[i].Normal;
+        vertices[i + totalVertexCount2].TexC = boxMesh3.Vertices[i].TexC;
+        vertices[i + totalVertexCount2].TangentU = boxMesh3.Vertices[i].TangentU;
+    }
+    totalVertexCount2 += boxMesh3.Vertices.size();
+
+    indices.insert(indices.end(), std::begin(boxMesh1.GetIndices16()), std::end(boxMesh1.GetIndices16()));
+    indices.insert(indices.end(), std::begin(boxMesh2.GetIndices16()), std::end(boxMesh2.GetIndices16()));
+    indices.insert(indices.end(), std::begin(boxMesh3.GetIndices16()), std::end(boxMesh3.GetIndices16()));
+
+    const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
+    const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
+
+    auto geo = std::make_unique<MeshGeometry>();
+    geo->Name = "scene19Geo";
+
+    ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
+    CopyMemory(geo->VertexBufferCPU->GetBufferPointer(), vertices.data(), vbByteSize);
+
+    ThrowIfFailed(D3DCreateBlob(ibByteSize, &geo->IndexBufferCPU));
+    CopyMemory(geo->IndexBufferCPU->GetBufferPointer(), indices.data(), ibByteSize);
+
+    geo->VertexBufferGPU = d3dUtil::CreateDefaultBuffer(device.Get(),
+        commandList.Get(), vertices.data(), vbByteSize, geo->VertexBufferUploader);
+
+    geo->IndexBufferGPU = d3dUtil::CreateDefaultBuffer(device.Get(),
+        commandList.Get(), indices.data(), ibByteSize, geo->IndexBufferUploader);
+
+    geo->VertexByteStride = sizeof(Vertex);
+    geo->VertexBufferByteSize = vbByteSize;
+    geo->IndexFormat = DXGI_FORMAT_R16_UINT;
+    geo->IndexBufferByteSize = ibByteSize;
+
+    geo->DrawArgs["box1"] = box1Submesh;
+    geo->DrawArgs["box2"] = box2Submesh;
+    geo->DrawArgs["box3"] = box3Submesh;
+
+    GeometryManager::mGeometries[geo->Name] = std::move(geo);
 }

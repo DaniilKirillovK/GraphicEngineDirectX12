@@ -2,6 +2,7 @@
 #include "UIManager.h"
 #include "CommonData.h"
 #include "MeshPipeline.h"
+#include "Bloom.h"
 
 int CBManager::mClientWidth = 1280;
 int CBManager::mClientHeight = 800;
@@ -255,6 +256,21 @@ void CBManager::UpdateObjectCBs(const GameTimer& gt)
                         m_Scene15ObjectPostion.y,
                         m_Scene15ObjectPostion.z
                     );
+                }
+            }
+            else if (activeSceneID == 19)
+            {
+                if (i == 776)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(10.0f, 5.0f, 0.f);
+                }
+                else if (i == 777)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(0.0f, 5.0f, 0.f);
+                }
+                else if (i == 778)
+                {
+                    world = XMLoadFloat4x4(&worldM) * DirectX::XMMatrixTranslation(-10.0f, 5.0f, 0.f);
                 }
             }
 
@@ -1710,6 +1726,31 @@ void CBManager::UpdateScene15ObjectPosition(const GameTimer& gt)
         m_Scene15ObjectPostion.y,
         m_Scene15ObjectPostion.z
     );
+}
+
+void CBManager::UpdateScene19BloomConstants()
+{
+    BlurConstants horizontalBlurConst;
+    BlurConstants verticalBlurConst;
+
+    FillBlurConstants(horizontalBlurConst, bloomRadiusScene19, mClientWidth, mClientHeight, true);
+    FillBlurConstants(verticalBlurConst, bloomRadiusScene19, mClientWidth, mClientHeight, false);
+
+    auto horizontalBlurCB = mCurrFrameResource->HorizontalBlurCB.get();
+    horizontalBlurCB->CopyData(0, horizontalBlurConst);
+    auto verticalBlurCB = mCurrFrameResource->VerticalBlurCB.get();
+    verticalBlurCB->CopyData(0, verticalBlurConst);
+
+    CombineConstants combineConst;
+    combineConst.bloomInstensity = 0.5f;
+    auto combineBloomCB = mCurrFrameResource->BloomCombineCB.get();
+    combineBloomCB->CopyData(0, combineConst);
+
+    ExtractBrightConstants extractBrightConst;
+    extractBrightConst.threshold = 0.7f;
+    extractBrightConst.softThreshold = 0.2f;
+    auto extractBrightCB = mCurrFrameResource->ExtractBrightCB.get();
+    extractBrightCB->CopyData(0, extractBrightConst);
 }
 
 void CBManager::UpdateAtmosphereCB()

@@ -220,6 +220,8 @@ DirectX::XMFLOAT3 scene16SunPosition = { 0.0f, -sin(2.f * 3.1415926535f), -cos(2
 
 bool bIsUsingTexturingScene18 = true;
 int vertexAnimationModeScene18 = 0;
+bool bIsBloomActiveScene19 = false;
+int bloomRadiusScene19 = 12;
 
 
 void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
@@ -253,6 +255,7 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
         ImGui::Text("Scene 16: Atmosphere");
         ImGui::Text("Scene 17: Cube Marching");
         ImGui::Text("Scene 18: Mesh Pipeline");
+        ImGui::Text("Scene 19: Bloom");
     } ImGui::End();
 
     ImVec2 scenePanelSize = ImVec2(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 10);
@@ -373,6 +376,12 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
             if (ImGui::Button("Scene 18", ImVec2(80, 40)))
             {
                 activeSceneID = 18;
+            }
+
+            ImGui::TableSetColumnIndex(2);
+            if (ImGui::Button("Scene 19", ImVec2(80, 40)))
+            {
+                activeSceneID = 19;
             }
 
             ImGui::EndTable();
@@ -857,6 +866,17 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
             ImGui::RadioButton("None", &vertexAnimationModeScene18, 0);
             ImGui::RadioButton("Sync", &vertexAnimationModeScene18, 1);
             ImGui::RadioButton("Chaos", &vertexAnimationModeScene18, 2);
+        }
+        else if (activeSceneID == 19)
+        {
+            ImGui::Text("");
+            ImGui::Checkbox("Bloom", &bIsBloomActiveScene19);
+            ImGui::Text("Bloom Radius");
+            ImGui::SliderInt("##BloomRadius", &bloomRadiusScene19, 1, 19);
+
+            GeometryManager::mAllRitems[776]->NumFramesDirty = gNumFrameResources;
+            GeometryManager::mAllRitems[777]->NumFramesDirty = gNumFrameResources;
+            GeometryManager::mAllRitems[778]->NumFramesDirty = gNumFrameResources;
         }
     } ImGui::End();
 
