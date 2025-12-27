@@ -44,6 +44,8 @@ _declspec(align(256u)) struct SceneConstantBuffer
     DirectX::XMFLOAT4X4 WorldView;
     DirectX::XMFLOAT4X4 WorldViewProj;
     uint32_t   DrawMeshlets;
+    float Time;
+    uint32_t AnimationMode;
 };
 
 struct MeshPipelineShader

@@ -1760,7 +1760,7 @@ void CBManager::UpdatePaintClickCB()
     currPassCB->CopyData(0, paintConst);
 }
 
-void CBManager::UpdateMeshRenderCB()
+void CBManager::UpdateMeshRenderCB(const GameTimer& gt)
 {
     DirectX::XMMATRIX world = DirectX::XMMatrixIdentity();
     DirectX::XMMATRIX view = (*mCamera).GetView();
@@ -1771,6 +1771,8 @@ void CBManager::UpdateMeshRenderCB()
     DirectX::XMStoreFloat4x4(&MeshPipeline::m_constantBufferData.WorldView, DirectX::XMMatrixTranspose(world * view));
     DirectX::XMStoreFloat4x4(&MeshPipeline::m_constantBufferData.WorldViewProj, DirectX::XMMatrixTranspose(world * view * proj));
     MeshPipeline::m_constantBufferData.DrawMeshlets = !bIsUsingTexturingScene18;
+    MeshPipeline::m_constantBufferData.Time = gt.TotalTime();
+    MeshPipeline::m_constantBufferData.AnimationMode = vertexAnimationModeScene18;
 
     memcpy(MeshPipeline::m_cbvDataBegin, &MeshPipeline::m_constantBufferData, sizeof(MeshPipeline::m_constantBufferData));
 }

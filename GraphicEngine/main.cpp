@@ -464,7 +464,7 @@ void Engine::Update(const GameTimer& gt)
     }
     if (activeSceneID == 18)
     {
-        CBManager::UpdateMeshRenderCB();
+        CBManager::UpdateMeshRenderCB(gt);
     }
     timeScene2 = ParseTime(gt);
 }

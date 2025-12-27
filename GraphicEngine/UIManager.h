@@ -216,6 +216,7 @@ extern float scene16MieCoef;
 extern DirectX::XMFLOAT3 scene16SunPosition;
 
 extern bool bIsUsingTexturingScene18;
+extern int vertexAnimationModeScene18;
 
 
 

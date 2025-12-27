@@ -106,7 +106,7 @@ public:
     static void UpdateScene15ObjectPosition(const GameTimer& gt);
     static void UpdateAtmosphereCB();
     static void UpdatePaintClickCB();
-    static void UpdateMeshRenderCB();
+    static void UpdateMeshRenderCB(const GameTimer& gt);
 
     static std::vector<std::unique_ptr<FrameResource>> mFrameResources;
     static FrameResource* mCurrFrameResource;

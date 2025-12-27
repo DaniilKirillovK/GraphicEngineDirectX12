@@ -15,6 +15,8 @@ struct Constants
     float4x4 WorldView;
     float4x4 WorldViewProj;
     uint DrawMeshlets;
+    float Time;
+    uint AnimationMode;
 };
 
 struct VertexOut

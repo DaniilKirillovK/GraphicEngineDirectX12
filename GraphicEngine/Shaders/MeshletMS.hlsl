@@ -25,6 +25,8 @@ struct Constants
     float4x4 WorldView;
     float4x4 WorldViewProj;
     uint DrawMeshlets;
+    float Time;
+    uint AnimationMode;
 };
 
 struct MeshInfo
@@ -109,6 +111,15 @@ uint GetVertexIndex(Meshlet m, uint localIndex)
 VertexOut GetVertexAttributes(uint meshletIndex, uint vertexIndex)
 {
     Vertex v = Vertices[vertexIndex];
+    
+    if (Globals.AnimationMode == 1)
+    {
+        v.Position *= ((sin(Globals.Time) + 1.0f) * 0.25f) + float3(0.5f, 0.5f, 0.5f);
+    }
+    else if (Globals.AnimationMode == 2)
+    {
+        v.Position *= ((sin(Globals.Time + abs(v.Position.x + v.Position.y + v.Position.z) * 0.005f) + 1.0f) * 0.25f) + float3(0.5f, 0.5f, 0.5f);
+    }
 
     VertexOut vout;
     vout.PositionVS = mul(float4(v.Position / 8, 1), Globals.WorldView).xyz;

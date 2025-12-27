@@ -219,6 +219,7 @@ float scene16MieCoef = { 2.1e-5f };
 DirectX::XMFLOAT3 scene16SunPosition = { 0.0f, -sin(2.f * 3.1415926535f), -cos(2.f * 3.1415926535f) };
 
 bool bIsUsingTexturingScene18 = true;
+int vertexAnimationModeScene18 = 0;
 
 
 void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> commandList,
@@ -851,6 +852,11 @@ void UIManager::RenderUI(Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> comma
         {
             ImGui::Text("");
             ImGui::Checkbox("Texturing", &bIsUsingTexturingScene18);
+            ImGui::Text("");
+            ImGui::Text("Vertex Animation Mode");
+            ImGui::RadioButton("None", &vertexAnimationModeScene18, 0);
+            ImGui::RadioButton("Sync", &vertexAnimationModeScene18, 1);
+            ImGui::RadioButton("Chaos", &vertexAnimationModeScene18, 2);
         }
     } ImGui::End();
 
